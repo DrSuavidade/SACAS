@@ -1,0 +1,29 @@
+# Context for: {{TASK_NAME}}
+
+## Relevant Files
+
+> List files the agent should read/modify for this task. Tag each with an action.
+
+| File | Action | Notes |
+|:---|:---|:---|
+| {{FILE_PATH}} | modify / extend / read-only | {{FILE_NOTES}} |
+
+## Key Functions
+
+> Specific functions/classes relevant to this task.
+
+- `{{FUNCTION_NAME}}` in {{FILE}}:L{{START}}-L{{END}} — {{DESCRIPTION}}
+
+## Dependencies
+
+- {{DEPENDENCY}} — {{VERSION}} — {{WHY_RELEVANT}}
+
+## Constraints
+
+- {{CONSTRAINT}}
+
+## DO NOT Touch
+
+> Files/directories explicitly out of scope for this task.
+
+- `{{EXCLUDED_PATH}}` — {{REASON}}
