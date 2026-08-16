@@ -26,11 +26,18 @@ Generate an MWP-style folder structure that gives AI agents precisely scoped con
 
 ### /sacas (default — replace mode)
 
-1. **Detect target path.** Use argument if provided, else current working directory.
+1. **Ask the user in the chat:**
+   Prompt the user to collect details for the scaffolding templates. Ask:
+   - "What is the main goal or description of this project?"
+   - "Are there any specific coding constraints or anti-patterns to avoid?"
+   - "What is the default command to build or test this project?"
+   *(If the user skips, has no preferences, or you already have this info from README/previous context, you can proceed directly).*
 
-2. **Check for graphify data.** If `graphify-out/graph.json` exists in the target, note it — Step 5 will use it for enrichment.
+2. **Detect target path.** Use argument if provided, else current working directory.
 
-3. **Run analysis.** Execute the analyzer scripts to scan the codebase:
+3. **Check for graphify data.** If `graphify-out/graph.json` exists in the target, note it — Step 5 will use it for enrichment.
+
+4. **Run analysis.** Execute the analyzer scripts to scan the codebase:
 
 ```powershell
 # Resolve scripts dir dynamically — works regardless of install location
@@ -42,10 +49,10 @@ $sacasScripts = Join-Path $sacasSkill 'scripts'
 
 This produces `Structure/.sacas/analysis.json` with: tech stack, architecture pattern, coding conventions, module boundaries, existing AI configs.
 
-4. **Run scaffold.** Generate the folder structure:
+5. **Run scaffold.** Generate the folder structure, passing the collected answers as arguments to skip headless prompt blocking:
 
 ```powershell
-& "$sacasScripts\scaffold.ps1" -Path "<TARGET_PATH>" -Mode "replace" -SubDir "Structure" -NonInteractive
+& "$sacasScripts\scaffold.ps1" -Path "<TARGET_PATH>" -Mode "replace" -SubDir "Structure" -NonInteractive -ProjectDescription "<COLLECTED_DESCRIPTION>" -ProjectConstraints "<COLLECTED_CONSTRAINTS>" -VerificationCommand "<COLLECTED_COMMAND>"
 ```
 
 This creates:

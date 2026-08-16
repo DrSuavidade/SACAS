@@ -17,7 +17,11 @@ param(
     [string]$Mode = "replace",
     [string]$TemplatePath,
     [string]$SubDir = "Structure",
-    [switch]$NonInteractive
+    [switch]$NonInteractive,
+    [string]$ProjectDescription,
+    [string]$ProjectConstraints,
+    [string]$VerificationCommand,
+    [string]$VerificationPurpose
 )
 
 $Path = Resolve-Path $Path
@@ -81,25 +85,32 @@ $isMerge = ($Mode -eq "merge")
 
 Write-Host "SACAS: Scaffolding $Path (mode=$Mode) ..." -ForegroundColor Cyan
 
-$projectDescription = if ($analysis.projectDescription) { $analysis.projectDescription } else { "TODO: Add project description" }
-$projectConstraints = "TODO: Add project constraints and anti-patterns"
-$verificationCommand = "<!-- TODO: Verification command (e.g. npm test) -->"
-$verificationPurpose = "<!-- TODO: Describe purpose -->"
+$projectDescription = if ($ProjectDescription) { $ProjectDescription } elseif ($analysis.projectDescription) { $analysis.projectDescription } else { "TODO: Add project description" }
+$projectConstraints = if ($ProjectConstraints) { $ProjectConstraints } else { "TODO: Add project constraints and anti-patterns" }
+$verificationCommand = if ($VerificationCommand) { $VerificationCommand } else { "<!-- TODO: Verification command (e.g. npm test) -->" }
+$verificationPurpose = if ($VerificationPurpose) { $VerificationPurpose } else { "<!-- TODO: Describe purpose -->" }
 
 if (-not $NonInteractive) {
     Write-Host ""
     Write-Host "=== SACAS Interactive Setup ===" -ForegroundColor Cyan
-    Write-Host "Auto-detected project description: $projectDescription" -ForegroundColor DarkGray
-    $userDesc = Read-Host "Enter project description (press Enter to accept auto)"
-    if ($userDesc -and $userDesc.Trim()) { $projectDescription = $userDesc.Trim() }
+    
+    if (-not $ProjectDescription) {
+        Write-Host "Auto-detected project description: $projectDescription" -ForegroundColor DarkGray
+        $userDesc = Read-Host "Enter project description (press Enter to accept auto)"
+        if ($userDesc -and $userDesc.Trim()) { $projectDescription = $userDesc.Trim() }
+    }
 
-    $userConstraints = Read-Host "Enter project constraints / anti-patterns (press Enter to skip)"
-    if ($userConstraints -and $userConstraints.Trim()) { $projectConstraints = $userConstraints.Trim() }
+    if (-not $ProjectConstraints) {
+        $userConstraints = Read-Host "Enter project constraints / anti-patterns (press Enter to skip)"
+        if ($userConstraints -and $userConstraints.Trim()) { $projectConstraints = $userConstraints.Trim() }
+    }
 
-    $userCommand = Read-Host "Enter default verification / test command (e.g. npm test, press Enter to skip)"
-    if ($userCommand -and $userCommand.Trim()) {
-        $verificationCommand = $userCommand.Trim()
-        $verificationPurpose = "Project test/validation execution"
+    if (-not $VerificationCommand) {
+        $userCommand = Read-Host "Enter default verification / test command (e.g. npm test, press Enter to skip)"
+        if ($userCommand -and $userCommand.Trim()) {
+            $verificationCommand = $userCommand.Trim()
+            $verificationPurpose = "Project test/validation execution"
+        }
     }
     Write-Host "=== Configuration Complete ===`n" -ForegroundColor Cyan
 }

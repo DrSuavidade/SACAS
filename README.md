@@ -15,9 +15,10 @@ cp -r . ~/.gemini/config/skills/sacas/
 cp -r . ~/.claude/skills/sacas/
 
 # Then in any project:
-/sacas                    # analyze + scaffold
-/sacas -Interactive       # prompt for description, constraints, and commands
-/sacas-merge              # preserve existing AI configs
+/sacas                    # analyze + scaffold (replace mode — interactive by default)
+/sacas -NonInteractive    # analyze + scaffold headlessly (skip prompt inputs)
+/sacas-merge              # preserve existing AI configs (interactive by default)
+/sacas-merge -NonInteractive # merge headlessly (skip prompt inputs)
 /sacas-status             # check structure health
 ```
 
@@ -28,21 +29,54 @@ cp -r . ~/.claude/skills/sacas/
 
 ```
 your-project/
-├── AGENTS.md                  # Root agent instructions
-├── PICKUP.md                  # Session handoff
-├── .ai/rules/                 # Coding standards
-├── context/
-│   └── architecture.md        # System architecture
-├── tasks/
-│   ├── current/               # Active work (TASK.md + CONTEXT.md + PROGRESS.md)
-│   ├── backlog/               # Queued tasks
-│   └── completed/             # Done tasks
-├── references/                # Per-module deep docs (loaded on demand)
-└── .sacas/
-    └── analysis.json          # Cached analysis
+├── .aiignore                  # Root ignore config
+├── .cursorignore              # Root ignore config
+└── Structure/                 # Configurable sub-directory (keeps root clean)
+    ├── AGENTS.md              # Root agent instructions
+    ├── PICKUP.md              # Session handoff
+    ├── .ai/rules/             # Coding standards
+    ├── context/
+    │   └── architecture.md    # System architecture
+    ├── tasks/
+    │   ├── current/           # Active work (TASK.md + CONTEXT.md + PROGRESS.md)
+    │   ├── backlog/           # Queued tasks
+    │   └── completed/         # Done tasks
+    └── references/            # Per-module deep docs (loaded on demand)
 ```
 
 3. **Enriches** with [graphify](https://github.com/Graphify-Labs/graphify) data (optional) — communities become module boundaries, god nodes get flagged, cross-module edges pre-populate CONTEXT.md files
+
+## CLI Parameters & Customization
+
+The underlying PowerShell scripts can be parameterized for advanced configurations:
+
+### `scaffold.ps1`
+Controls the generation and placement of the workspace files.
+
+| Parameter | Type | Default | Description |
+|:---|:---|:---|:---|
+| `-Path` | `string` | `.` | Project root directory. |
+| `-SubDir` | `string` | `Structure` | Workspace sub-directory folder. Set to `""` to write directly to root. |
+| `-Mode` | `replace \| merge` | `replace` | `replace` overwrites files; `merge` preserves existing configurations. |
+| `-NonInteractive` | `switch` | `$false` | Skip interactive prompt questions. Recommended for automation and scripts. |
+| `-AnalysisPath` | `string` | `[SubDir]/.sacas/analysis.json` | Path to the metadata analysis file. |
+| `-TemplatePath` | `string` | `../templates` | Path to custom markdown templates. |
+
+### `analyze.ps1`
+Scans the codebase stack and architecture to cached JSON metadata.
+
+| Parameter | Type | Default | Description |
+|:---|:---|:---|:---|
+| `-Path` | `string` | `.` | Project root directory. |
+| `-SubDir` | `string` | `Structure` | Prepend folder path for `.sacas/` cache metadata output. |
+
+### `read-graphify.ps1` & `generate-context-md.ps1`
+Reads dependency relations and builds context pages.
+
+| Parameter | Type | Default | Description |
+|:---|:---|:---|:---|
+| `-Path` | `string` | `.` | Project root directory. |
+| `-SubDir` | `string` | `Structure` | Prepend folder path for tasks backlog and references outputs. |
 
 ## Key Concept
 
