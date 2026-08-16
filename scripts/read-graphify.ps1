@@ -5,7 +5,8 @@
     JSON: enriched module map with communities, god nodes, cross-module edges
 #>
 param(
-    [string]$Path = "."
+    [string]$Path = ".",
+    [string]$SubDir = "Structure"
 )
 
 $Path = Resolve-Path $Path
@@ -43,19 +44,28 @@ foreach ($node in $graph.nodes) {
             files = @()
         }
     }
+    $fileVal = $node.source_file
+    if (-not $fileVal) { $fileVal = $node.source_location }
+    
     $communityMap[$cid].nodes += @{
         id    = $node.id
         type  = $node.type
-        file  = $node.source_location
+        file  = $fileVal
+        line  = $node.source_location
     }
-    if ($node.source_location -and $communityMap[$cid].files -notcontains $node.source_location) {
-        $communityMap[$cid].files += $node.source_location
+    # Skip adding if the value is just a line number reference (e.g. L12)
+    if ($fileVal -and $fileVal -notmatch "^L\d+$" -and $communityMap[$cid].files -notcontains $fileVal) {
+        $communityMap[$cid].files += $fileVal
     }
 }
 
+# Fallback: Graphify uses links in its JSON output format, but older versions might use edges
+$edges = $graph.links
+if (-not $edges) { $edges = $graph.edges }
+
 # Find god nodes (high degree)
 $degreeMap = @{}
-foreach ($edge in $graph.edges) {
+foreach ($edge in $edges) {
     $src = $edge.source
     $tgt = $edge.target
     if (-not $degreeMap.ContainsKey($src)) { $degreeMap[$src] = 0 }
@@ -63,8 +73,8 @@ foreach ($edge in $graph.edges) {
     $degreeMap[$src]++
     $degreeMap[$tgt]++
 }
-$sortedNodes = $degreeMap.GetEnumerator() | Sort-Object -Property Value -Descending | Select-Object -First 10
-$godNodes = @($sortedNodes | ForEach-Object { @{ id = $_.Key; degree = $_.Value } })
+$sortedNodes = $degreeMap.GetEnumerator() | ForEach-Object { [PSCustomObject]@{ id = $_.Key; degree = $_.Value } } | Sort-Object -Property degree -Descending | Select-Object -First 10
+$godNodes = @($sortedNodes | ForEach-Object { @{ id = $_.id; degree = $_.degree } })
 
 # Cross-community edges
 $crossEdges = @()
@@ -72,7 +82,7 @@ $nodeCommunity = @{}
 foreach ($node in $graph.nodes) {
     $nodeCommunity[$node.id] = "$($node.community)"
 }
-foreach ($edge in $graph.edges) {
+foreach ($edge in $edges) {
     $srcCom = $nodeCommunity[$edge.source]
     $tgtCom = $nodeCommunity[$edge.target]
     if ($srcCom -and $tgtCom -and $srcCom -ne $tgtCom) {
@@ -91,12 +101,12 @@ $enrichment = @{
     godNodes     = $godNodes
     crossEdges   = $crossEdges
     totalNodes   = $graph.nodes.Count
-    totalEdges   = $graph.edges.Count
+    totalEdges   = if ($edges) { $edges.Count } else { 0 }
     communityCount = $communityMap.Count
 }
 
 # Save enrichment
-$enrichPath = Join-Path $Path ".sacas\graphify-enrichment.json"
+$enrichPath = if ($SubDir) { Join-Path $Path "$SubDir\.sacas\graphify-enrichment.json" } else { Join-Path $Path ".sacas\graphify-enrichment.json" }
 $enrichment | ConvertTo-Json -Depth 10 | Set-Content -Path $enrichPath -Encoding utf8
 
 Write-Host "  Communities: $($communityMap.Count)" -ForegroundColor White

@@ -22,6 +22,12 @@
 
 - {{CONSTRAINT}}
 
+## Verification Commands
+
+> Specific test or validation commands the agent is allowed to run.
+
+- `{{VERIFICATION_COMMAND}}` — {{VERIFICATION_PURPOSE}}
+
 ## DO NOT Touch
 
 > Files/directories explicitly out of scope for this task.

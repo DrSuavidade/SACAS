@@ -14,7 +14,8 @@ Generate an MWP-style folder structure that gives AI agents precisely scoped con
 ## Usage
 
 ```
-/sacas                    # analyze + scaffold (replace mode)
+/sacas                    # analyze + scaffold (replace mode — interactive by default)
+/sacas -NonInteractive    # analyze + scaffold headlessly (skip prompt inputs)
 /sacas <path>             # target specific directory
 /sacas-merge              # merge with existing AI configs
 /sacas-merge <path>       # merge on specific directory
@@ -39,48 +40,51 @@ $sacasScripts = Join-Path $sacasSkill 'scripts'
 & "$sacasScripts\analyze.ps1" -Path "<TARGET_PATH>"
 ```
 
-This produces `.sacas/analysis.json` with: tech stack, architecture pattern, coding conventions, module boundaries, existing AI configs.
+This produces `Structure/.sacas/analysis.json` with: tech stack, architecture pattern, coding conventions, module boundaries, existing AI configs.
 
 4. **Run scaffold.** Generate the folder structure:
 
 ```powershell
-& "$sacasScripts\scaffold.ps1" -Path "<TARGET_PATH>" -Mode "replace"
+& "$sacasScripts\scaffold.ps1" -Path "<TARGET_PATH>" -Mode "replace" -SubDir "Structure" -NonInteractive
 ```
 
 This creates:
 ```
 <TARGET_PATH>/
-├── AGENTS.md                  # Root agent instructions
-├── PICKUP.md                  # Session handoff
-├── .ai/rules/                 # Coding standards
-├── .ai/prompts/               # Reusable prompts
-├── context/
-│   └── architecture.md        # System architecture
-├── tasks/
-│   ├── current/               # Active work
-│   │   ├── TASK.md
-│   │   ├── CONTEXT.md
-│   │   └── PROGRESS.md
-│   ├── backlog/               # Queued tasks
-│   └── completed/             # Done tasks
-├── references/                # Per-module deep docs (JIT loaded)
-│   ├── {module-1}.md
-│   └── {module-N}.md
-└── .sacas/
-    └── analysis.json          # Cached analysis
+├── .aiignore                  # Root ignore config
+├── .cursorignore              # Root ignore config
+└── Structure/
+    ├── AGENTS.md              # Root agent instructions
+    ├── PICKUP.md              # Session handoff
+    ├── .ai/rules/             # Coding standards
+    ├── .ai/prompts/           # Reusable prompts
+    ├── context/
+    │   └── architecture.md    # System architecture
+    ├── tasks/
+    │   ├── current/           # Active work
+    │   │   ├── TASK.md
+    │   │   ├── CONTEXT.md
+    │   │   └── PROGRESS.md
+    │   ├── backlog/           # Queued tasks
+    │   └── completed/         # Done tasks
+    ├── references/            # Per-module deep docs (JIT loaded)
+    │   ├── {module-1}.md
+    │   └── {module-N}.md
+    └── .sacas/
+        └── analysis.json      # Cached analysis
 ```
 
 5. **Graphify enrichment (if available).** If `graphify-out/graph.json` exists:
 
 ```powershell
-& "$sacasScripts\read-graphify.ps1" -Path "<TARGET_PATH>"
-& "$sacasScripts\generate-context-md.ps1" -Path "<TARGET_PATH>"
+& "$sacasScripts\read-graphify.ps1" -Path "<TARGET_PATH>" -SubDir "Structure"
+& "$sacasScripts\generate-context-md.ps1" -Path "<TARGET_PATH>" -SubDir "Structure"
 ```
 
 This enriches:
-- `references/` stubs with real dependency data from graph communities
-- `context/architecture.md` with component relationships from graph edges
-- Generates per-module `CONTEXT.md` files in `tasks/backlog/` with pre-populated file lists
+- `Structure/references/` stubs with real dependency data from graph communities
+- `Structure/context/architecture.md` with component relationships from graph edges
+- Generates per-module `CONTEXT.md` files in `Structure/tasks/backlog/` with pre-populated file lists
 
 6. **Print summary.** Show files created, modules detected, next steps.
 

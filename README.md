@@ -16,6 +16,7 @@ cp -r . ~/.claude/skills/sacas/
 
 # Then in any project:
 /sacas                    # analyze + scaffold
+/sacas -Interactive       # prompt for description, constraints, and commands
 /sacas-merge              # preserve existing AI configs
 /sacas-status             # check structure health
 ```
@@ -41,7 +42,7 @@ your-project/
     └── analysis.json          # Cached analysis
 ```
 
-3. **Enriches** with [graphify](https://github.com/your-org/graphify) data (optional) — communities become module boundaries, god nodes get flagged, cross-module edges pre-populate CONTEXT.md files
+3. **Enriches** with [graphify](https://github.com/Graphify-Labs/graphify) data (optional) — communities become module boundaries, god nodes get flagged, cross-module edges pre-populate CONTEXT.md files
 
 ## Key Concept
 

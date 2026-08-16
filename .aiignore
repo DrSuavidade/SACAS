@@ -1,0 +1,20 @@
+# Ignore patterns for AI agents
+# Prevents agent search tools from indexing cache and build files
+
+.git/
+node_modules/
+vendor/
+target/
+build/
+dist/
+.next/
+.nuxt/
+venv/
+.venv/
+env/
+
+# SACAS Metadata
+Structure/.sacas/
+Structure/tasks/completed/
+Structure/graphify-out/
+

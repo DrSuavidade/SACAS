@@ -6,12 +6,13 @@
     Project root directory.
 #>
 param(
-    [string]$Path = "."
+    [string]$Path = ".",
+    [string]$SubDir = "Structure"
 )
 
 $Path = Resolve-Path $Path
-$enrichPath = Join-Path $Path ".sacas\graphify-enrichment.json"
-$analysisPath = Join-Path $Path ".sacas\analysis.json"
+$enrichPath = if ($SubDir) { Join-Path $Path "$SubDir\.sacas\graphify-enrichment.json" } else { Join-Path $Path ".sacas\graphify-enrichment.json" }
+$analysisPath = if ($SubDir) { Join-Path $Path "$SubDir\.sacas\analysis.json" } else { Join-Path $Path ".sacas\analysis.json" }
 
 if (-not (Test-Path $enrichPath)) {
     Write-Error "No graphify enrichment found. Run read-graphify.ps1 first."
@@ -26,7 +27,7 @@ $created = @()
 
 foreach ($community in $enrichment.communities) {
     $name = $community.label -replace "[^a-zA-Z0-9_-]", "-"
-    $taskDir = Join-Path $Path "tasks\backlog\$name"
+    $taskDir = if ($SubDir) { Join-Path $Path "$SubDir\tasks\backlog\$name" } else { Join-Path $Path "tasks\backlog\$name" }
     New-Item -ItemType Directory -Force -Path $taskDir | Out-Null
 
     # Build relevant files list
@@ -44,7 +45,14 @@ foreach ($community in $enrichment.communities) {
     $funcSection = @()
     foreach ($node in $community.nodes) {
         if ($node.type -eq "function" -or $node.type -eq "class" -or $node.type -eq "method") {
-            $loc = if ($node.file) { " in ``$($node.file)``" } else { "" }
+            $loc = ""
+            if ($node.file) {
+                if ($node.line -and $node.line -match "^L\d+$") {
+                    $loc = " in ``$($node.file):$($node.line)``"
+                } else {
+                    $loc = " in ``$($node.file)``"
+                }
+            }
             $funcSection += "- ``$($node.id)``$loc"
         }
     }
@@ -58,7 +66,7 @@ foreach ($community in $enrichment.communities) {
             $deps += "- ``$($edge.target)`` in **$targetLabel** ($($edge.relation))"
         }
     }
-    $depsStr = if ($deps.Count -gt 0) { $deps | Select-Object -Unique | Select-Object -First 15 | Join-String -Separator "`n" } else { "No cross-module dependencies detected." }
+    $depsStr = if ($deps.Count -gt 0) { ($deps | Select-Object -Unique | Select-Object -First 15) -join "`n" } else { "No cross-module dependencies detected." }
 
     # Build DO NOT Touch list (other communities)
     $excludes = @()
@@ -67,7 +75,7 @@ foreach ($community in $enrichment.communities) {
             $excludes += "- Files in **$($otherCom.label)** — different module"
         }
     }
-    $excludeStr = if ($excludes.Count -gt 0) { $excludes | Select-Object -First 10 | Join-String -Separator "`n" } else { "N/A" }
+    $excludeStr = if ($excludes.Count -gt 0) { ($excludes | Select-Object -First 10) -join "`n" } else { "N/A" }
 
     $contextContent = @"
 # Context for: $($community.label)
@@ -97,13 +105,13 @@ $excludeStr
 
     $contextPath = Join-Path $taskDir "CONTEXT.md"
     Set-Content -Path $contextPath -Value $contextContent -Encoding utf8
-    $created += "tasks/backlog/$name/CONTEXT.md"
+    $created += if ($SubDir) { "$SubDir/tasks/backlog/$name/CONTEXT.md" } else { "tasks/backlog/$name/CONTEXT.md" }
 }
 
 # Enrich references/ stubs with graphify data
 foreach ($community in $enrichment.communities) {
     $name = $community.label -replace "[^a-zA-Z0-9_-]", "-"
-    $refPath = Join-Path $Path "references\$name.md"
+    $refPath = if ($SubDir) { Join-Path $Path "$SubDir\references\$name.md" } else { Join-Path $Path "references\$name.md" }
 
     # Find god nodes in this community
     $communityGods = @()
@@ -138,12 +146,16 @@ $(($community.files | ForEach-Object { "- ``$_``" }) -join "`n")
 
 TODO: Document key concepts, patterns, and domain knowledge for this module.
 "@
+    # Ensure references folder directory exists
+    $refDir = Split-Path $refPath -Parent
+    if (-not (Test-Path $refDir)) { New-Item -ItemType Directory -Force -Path $refDir | Out-Null }
+    
     Set-Content -Path $refPath -Value $refContent -Encoding utf8
-    $created += "references/$name.md"
+    $created += if ($SubDir) { "$SubDir/references/$name.md" } else { "references/$name.md" }
 }
 
 # Enrich context/architecture.md with cross-module relationships
-$archPath = Join-Path $Path "context\architecture.md"
+$archPath = if ($SubDir) { Join-Path $Path "$SubDir\context\architecture.md" } else { Join-Path $Path "context\architecture.md" }
 if (Test-Path $archPath) {
     $archContent = Get-Content $archPath -Raw
 

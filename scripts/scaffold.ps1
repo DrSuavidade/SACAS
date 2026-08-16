@@ -15,11 +15,15 @@ param(
     [string]$AnalysisPath,
     [ValidateSet("replace", "merge")]
     [string]$Mode = "replace",
-    [string]$TemplatePath
+    [string]$TemplatePath,
+    [string]$SubDir = "Structure",
+    [switch]$NonInteractive
 )
 
 $Path = Resolve-Path $Path
-if (-not $AnalysisPath) { $AnalysisPath = Join-Path $Path ".sacas\analysis.json" }
+if (-not $AnalysisPath) { 
+    $AnalysisPath = if ($SubDir) { Join-Path $Path "$SubDir\.sacas\analysis.json" } else { Join-Path $Path ".sacas\analysis.json" }
+}
 if (-not $TemplatePath) { $TemplatePath = Join-Path $PSScriptRoot "..\templates" }
 
 if (-not (Test-Path $AnalysisPath)) {
@@ -40,7 +44,12 @@ function Read-Template {
 
 function Write-Scaffold {
     param([string]$FilePath, [string]$Content, [bool]$IsMerge = $false)
-    $fullPath = Join-Path $Path $FilePath
+    # Prepend SubDir for files that do not live at the root (.gitignore, .cursorignore, .aiignore)
+    $targetPath = $FilePath
+    if ($SubDir -and $FilePath -notmatch "^\.gitignore|^\.cursorignore|^\.aiignore") {
+        $targetPath = Join-Path $SubDir $FilePath
+    }
+    $fullPath = Join-Path $Path $targetPath
     $dir = Split-Path $fullPath -Parent
     if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
 
@@ -49,11 +58,11 @@ function Write-Scaffold {
         $Content = "$existing`n`n<!-- SACAS-GENERATED -->`n`n$Content"
     }
     Set-Content -Path $fullPath -Value $Content -Encoding utf8
-    $script:created += $FilePath
+    $script:created += $targetPath
 }
 
 # Build substitution values
-$techStack = @($analysis.stack.language, $analysis.stack.framework, $analysis.stack.packageManager) | Where-Object { $_ } | Join-String -Separator ", "
+$techStack = (@($analysis.stack.language, $analysis.stack.framework, $analysis.stack.packageManager) | Where-Object { $_ }) -join ", "
 $conventions = @()
 if ($analysis.conventions.linter) { $conventions += "Linter: $($analysis.conventions.linter)" }
 if ($analysis.conventions.formatter) { $conventions += "Formatter: $($analysis.conventions.formatter)" }
@@ -72,32 +81,56 @@ $isMerge = ($Mode -eq "merge")
 
 Write-Host "SACAS: Scaffolding $Path (mode=$Mode) ..." -ForegroundColor Cyan
 
+$projectDescription = if ($analysis.projectDescription) { $analysis.projectDescription } else { "TODO: Add project description" }
+$projectConstraints = "TODO: Add project constraints and anti-patterns"
+$verificationCommand = "<!-- TODO: Verification command (e.g. npm test) -->"
+$verificationPurpose = "<!-- TODO: Describe purpose -->"
+
+if (-not $NonInteractive) {
+    Write-Host ""
+    Write-Host "=== SACAS Interactive Setup ===" -ForegroundColor Cyan
+    Write-Host "Auto-detected project description: $projectDescription" -ForegroundColor DarkGray
+    $userDesc = Read-Host "Enter project description (press Enter to accept auto)"
+    if ($userDesc -and $userDesc.Trim()) { $projectDescription = $userDesc.Trim() }
+
+    $userConstraints = Read-Host "Enter project constraints / anti-patterns (press Enter to skip)"
+    if ($userConstraints -and $userConstraints.Trim()) { $projectConstraints = $userConstraints.Trim() }
+
+    $userCommand = Read-Host "Enter default verification / test command (e.g. npm test, press Enter to skip)"
+    if ($userCommand -and $userCommand.Trim()) {
+        $verificationCommand = $userCommand.Trim()
+        $verificationPurpose = "Project test/validation execution"
+    }
+    Write-Host "=== Configuration Complete ===`n" -ForegroundColor Cyan
+}
+
 # 1. Create directories
 $dirs = @(".ai/rules", ".ai/prompts", "context", "tasks/current", "tasks/backlog", "tasks/completed", "references")
 foreach ($d in $dirs) {
-    $dp = Join-Path $Path $d
+    $targetDir = if ($SubDir) { Join-Path $SubDir $d } else { $d }
+    $dp = Join-Path $Path $targetDir
     if (-not (Test-Path $dp)) { New-Item -ItemType Directory -Force -Path $dp | Out-Null }
 }
 # Only create scripts/ if not exists
-$scriptsDir = Join-Path $Path "scripts"
+$scriptsDir = if ($SubDir) { Join-Path $Path "$SubDir\scripts" } else { Join-Path $Path "scripts" }
 if (-not (Test-Path $scriptsDir)) { New-Item -ItemType Directory -Force -Path $scriptsDir | Out-Null }
 
 # 2. Root AGENTS.md
 $agentsMd = Read-Template "AGENTS.md.template"
 $agentsMd = $agentsMd -replace "{{PROJECT_NAME}}", $analysis.projectName
-$agentsMd = $agentsMd -replace "{{PROJECT_DESCRIPTION}}", "TODO: Add project description"
+$agentsMd = $agentsMd -replace "{{PROJECT_DESCRIPTION}}", $projectDescription
 $agentsMd = $agentsMd -replace "{{TECH_STACK}}", $techStack
 $agentsMd = $agentsMd -replace "{{PACKAGE_MANAGER}}", ($analysis.stack.packageManager ?? "N/A")
 $agentsMd = $agentsMd -replace "{{ARCHITECTURE_PATTERN}}", $analysis.architecture.pattern
-$agentsMd = $agentsMd -replace "{{ARCHITECTURE_DESCRIPTION}}", "Services: $(($analysis.architecture.services | Join-String -Separator ', ') ?? 'N/A')"
+$agentsMd = $agentsMd -replace "{{ARCHITECTURE_DESCRIPTION}}", "Services: $(if ($analysis.architecture.services) { $analysis.architecture.services -join ', ' } else { 'N/A' })"
 $agentsMd = $agentsMd -replace "{{CONVENTIONS}}", "- $conventionsStr"
 $agentsMd = $agentsMd -replace "{{FILE_ORGANIZATION_MAP}}", $fileOrgStr
-$agentsMd = $agentsMd -replace "{{CONSTRAINTS}}", "TODO: Add project constraints and anti-patterns"
+$agentsMd = $agentsMd -replace "{{CONSTRAINTS}}", $projectConstraints
 Write-Scaffold "AGENTS.md" $agentsMd -IsMerge $isMerge
 
 # 2b. .gitignore for .sacas/
 $gitignorePath = Join-Path $Path ".gitignore"
-$sacasIgnore = ".sacas/"
+$sacasIgnore = if ($SubDir) { "$SubDir/.sacas/" } else { ".sacas/" }
 if (Test-Path $gitignorePath) {
     $existing = Get-Content $gitignorePath -Raw
     if ($existing -notmatch [regex]::Escape($sacasIgnore)) {
@@ -108,20 +141,25 @@ if (Test-Path $gitignorePath) {
 }
 
 # 2c. Starter .ai/rules file from detected conventions
-$rulesContent = @"
-# Coding Conventions
+$rulesMd = Read-Template "conventions.md.template"
+$rulesMd = $rulesMd -replace "{{LANGUAGE}}", ($analysis.stack.language ?? "Not detected")
+$rulesMd = $rulesMd -replace "{{LINTER}}", ($analysis.conventions.linter ?? "Not detected")
+$rulesMd = $rulesMd -replace "{{FORMATTER}}", ($analysis.conventions.formatter ?? "Not detected")
+$rulesMd = $rulesMd -replace "{{STRICT_CHECKS}}", $(if ($analysis.conventions.typescriptStrict) { "TypeScript strict mode enabled" } else { "None" })
+Write-Scaffold ".ai/rules/conventions.md" $rulesMd -IsMerge $isMerge
 
-> Auto-detected by SACAS from project configuration.
+# 2d. .aiignore / .cursorignore
+$aiignore = Read-Template "aiignore.template"
+if ($SubDir) {
+    # Replace relative patterns with SubDir prefixed patterns
+    $aiignore = $aiignore -replace "(?m)^(\.sacas/|tasks/completed/|graphify-out/)", "$SubDir/`$1"
+}
+Write-Scaffold ".aiignore" $aiignore -IsMerge $isMerge
+Write-Scaffold ".cursorignore" $aiignore -IsMerge $isMerge
 
-$(if ($analysis.conventions.linter) { "- **Linter:** $($analysis.conventions.linter)" } else { '- **Linter:** Not detected — add your linter here' })
-$(if ($analysis.conventions.formatter) { "- **Formatter:** $($analysis.conventions.formatter)" } else { '- **Formatter:** Not detected — add your formatter here' })
-$(if ($analysis.conventions.typescriptStrict) { '- **TypeScript:** strict mode enabled' })
-
-## Rules
-
-<!-- Add project-specific coding rules below -->
-"@
-Write-Scaffold ".ai/rules/conventions.md" $rulesContent -IsMerge $isMerge
+# 2e. Task Runner instructions in prompts
+$runnerMd = Read-Template "task-runner.md.template"
+Write-Scaffold ".ai/prompts/task-runner.md" $runnerMd -IsMerge $isMerge
 
 # 3. Architecture
 $archMd = Read-Template "architecture.md.template"
@@ -171,6 +209,8 @@ $contextMd = $contextMd -replace "{{DEPENDENCY}}", "<!-- TODO -->"
 $contextMd = $contextMd -replace "{{VERSION}}", "<!-- TODO -->"
 $contextMd = $contextMd -replace "{{WHY_RELEVANT}}", "<!-- TODO -->"
 $contextMd = $contextMd -replace "{{CONSTRAINT}}", "<!-- TODO: Add constraints -->"
+$contextMd = $contextMd -replace "{{VERIFICATION_COMMAND}}", $verificationCommand
+$contextMd = $contextMd -replace "{{VERIFICATION_PURPOSE}}", $verificationPurpose
 $contextMd = $contextMd -replace "{{EXCLUDED_PATH}}", "<!-- TODO: Add exclusions -->"
 $contextMd = $contextMd -replace "{{REASON}}", "<!-- TODO -->"
 Write-Scaffold "tasks/current/CONTEXT.md" $contextMd -IsMerge $isMerge
@@ -209,7 +249,7 @@ TODO: Document key concepts, patterns, and domain knowledge for this module.
 TODO: Document common tasks performed in this module.
 "@
     $safeName = $mod.name -replace "[^a-zA-Z0-9_-]", "-"
-    Write-Scaffold "references/$safeName.md" $refContent
+    Write-Scaffold "references/$safeName.md" $refContent -IsMerge $isMerge
 }
 
 # Summary

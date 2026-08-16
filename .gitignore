@@ -11,3 +11,7 @@ Thumbs.db
 *~
 .vscode/
 .idea/
+
+# SACAS generated data
+Structure/
+graphify-out/

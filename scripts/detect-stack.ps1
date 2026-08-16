@@ -21,8 +21,15 @@ $result = @{
 # Node/JS/TS
 $pkgJson = Join-Path $Path "package.json"
 if (Test-Path $pkgJson) {
-    $pkg = Get-Content $pkgJson -Raw | ConvertFrom-Json
-    $result.language = "javascript"
+    try {
+        $pkg = Get-Content $pkgJson -Raw | ConvertFrom-Json
+        $result.language = "javascript"
+    } catch {
+        Write-Warning "Failed to parse package.json: $_"
+        $pkg = $null
+    }
+
+    if ($pkg) {
 
     # Check for TypeScript
     $tsConfig = Join-Path $Path "tsconfig.json"
@@ -39,7 +46,7 @@ if (Test-Path $pkgJson) {
         $result.devDependencies = @($pkg.devDependencies.PSObject.Properties.Name)
     }
 
-    $frameworkMap = @{
+    $frameworkMap = [ordered]@{
         "next"    = "nextjs"
         "react"   = "react"
         "vue"     = "vue"
@@ -68,6 +75,7 @@ if (Test-Path $pkgJson) {
     } else {
         $result.packageManager = "npm"
     }
+}
 }
 
 # Rust

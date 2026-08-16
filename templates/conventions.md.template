@@ -1,0 +1,18 @@
+# Coding Conventions
+
+> Auto-detected by SACAS from project configuration.
+
+- **Language:** {{LANGUAGE}}
+- **Linter:** {{LINTER}}
+- **Formatter:** {{FORMATTER}}
+- **Strict Checks:** {{STRICT_CHECKS}}
+
+## Rules
+
+### General
+- Follow the patterns established in existing files of the same language.
+- Keep components small and focused.
+- Run linting and formatting checks before declaring work complete.
+
+### Code Style
+<!-- Add project-specific rules here -->

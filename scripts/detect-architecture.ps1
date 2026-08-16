@@ -50,8 +50,8 @@ if (Test-Path $cargoToml) {
 }
 
 # Multiple config files at different levels → monorepo signal
-$nestedConfigs = Get-ChildItem -Path $Path -Include "package.json","go.mod","Cargo.toml" -Recurse -Depth 3 -ErrorAction SilentlyContinue |
-    Where-Object { $_.DirectoryName -ne $Path -and $_.FullName -notmatch "node_modules|vendor|target|\.git" }
+$nestedConfigs = Get-ChildItem -Path $Path -Recurse -Depth 3 -ErrorAction SilentlyContinue |
+    Where-Object { ($_.Name -eq "package.json" -or $_.Name -eq "go.mod" -or $_.Name -eq "Cargo.toml") -and $_.DirectoryName -ne $Path -and $_.FullName -notmatch "node_modules|vendor|target|\.git" }
 if ($nestedConfigs.Count -ge 2 -and $result.pattern -eq "monolith") {
     $result.pattern = "monorepo"
 }

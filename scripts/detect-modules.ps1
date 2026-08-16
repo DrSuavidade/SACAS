@@ -11,18 +11,26 @@ param(
 $Path = Resolve-Path $Path
 $excludeDirs = @("node_modules", ".git", "vendor", "target", "build", "dist", "__pycache__", ".next", ".nuxt", "venv", ".venv", "env", ".sacas", "graphify-out")
 
+function Get-FilesSafe {
+    param([string]$Dir)
+    $files = @()
+    $items = Get-ChildItem -Path $Dir -ErrorAction SilentlyContinue
+    foreach ($item in $items) {
+        if ($item.PSIsContainer) {
+            if ($excludeDirs -notcontains $item.Name) {
+                $files += Get-FilesSafe -Dir $item.FullName
+            }
+        } else {
+            $files += $item
+        }
+    }
+    return $files
+}
+
 function Get-ModuleInfo {
     param([string]$ModulePath, [string]$Name)
 
-    $files = Get-ChildItem -Path $ModulePath -File -Recurse -ErrorAction SilentlyContinue |
-        Where-Object {
-            $rel = $_.FullName.Substring($ModulePath.Length)
-            $skip = $false
-            foreach ($ex in $excludeDirs) {
-                if ($rel -match [regex]::Escape("\$ex\") -or $rel -match [regex]::Escape("/$ex/")) { $skip = $true; break }
-            }
-            -not $skip
-        }
+    $files = Get-FilesSafe -Dir $ModulePath
 
     $fileCount = ($files | Measure-Object).Count
     $totalBytes = 0
