@@ -1,4 +1,4 @@
-# SACAS — Scaffold Analyzer Context Architect
+# SACAS — Scaffold Architect Context Analyzer Skill
 
 Generate AI-optimized folder structures for any codebase. Filesystem = orchestration. Folders = memory. Markdown = interface.
 
