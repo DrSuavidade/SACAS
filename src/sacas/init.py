@@ -6,6 +6,7 @@ from dataclasses import dataclass
 import json
 from pathlib import Path
 
+from sacas.adapters import DEFAULT_ADAPTERS, generate_adapters
 from sacas.io import stable_json, write_text_atomic
 from sacas.models import Manifest
 from sacas.paths import (
@@ -77,6 +78,13 @@ def initialize(repository_root: Path | str, *, sacas_root: str = "Structure") ->
     if not boundaries_path.exists():
         write_text_atomic(boundaries_path, boundaries_document())
         changed = True
+    adapters = manifest.adapters or DEFAULT_ADAPTERS
+    changed |= generate_adapters(
+        repository_root,
+        configured_root,
+        platforms=adapters,
+        graphify_output=manifest.graphify_output,
+    )
 
     installation = Installation(repository_root, resolved_root, manifest_path, manifest)
     return InitResult(installation=installation, changed=changed)
