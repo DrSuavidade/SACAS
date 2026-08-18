@@ -100,6 +100,8 @@ def _replace_or_append(target: Path, region_name: str, generated: str) -> bool:
 def _replace_cursor_adapter(target: Path, region_name: str, generated: str) -> bool:
     frontmatter = "---\ndescription: SACAS repository routing\nalwaysApply: true\n---\n"
     existing = target.read_text(encoding="utf-8") if target.exists() else ""
+    if existing.startswith("---\n") and not existing.startswith(frontmatter):
+        raise ValueError("Cursor rule has manual MDC frontmatter; refusing to add a second block.")
     if not existing.startswith(frontmatter):
         existing = frontmatter + existing
     start_marker = f"<!-- SACAS:START {region_name} -->"

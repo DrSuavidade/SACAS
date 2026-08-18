@@ -51,6 +51,20 @@ def test_cursor_adapter_starts_with_required_mdc_frontmatter(tmp_path: Path) -> 
     assert "<!-- SACAS:START adapter-cursor -->" in rendered
 
 
+def test_cursor_adapter_refuses_manual_mdc_frontmatter_without_writing(tmp_path: Path) -> None:
+    from sacas.adapters import generate_adapter
+
+    target = tmp_path / ".cursor/rules/sacas.mdc"
+    target.parent.mkdir(parents=True)
+    manual = "---\ndescription: Team rule\nalwaysApply: false\n---\n\nKeep this manual rule.\n"
+    target.write_text(manual, encoding="utf-8")
+
+    with pytest.raises(ValueError, match="manual MDC frontmatter"):
+        generate_adapter(tmp_path, "Structure", "cursor")
+
+    assert target.read_text(encoding="utf-8") == manual
+
+
 @pytest.mark.parametrize(
     "malformed",
     [
