@@ -1,0 +1,15 @@
+{
+  "nodes": [
+    {"id": "src/api.py", "path": "src/api.py", "community": "core"},
+    {"id": "src/web.py", "path": "src/web.py", "community": "core"},
+    {"id": "src/worker.py", "path": "src/worker.py"},
+    {"id": "src/consumer.py", "path": "src/consumer.py"},
+    {"id": "tests/test_api.py", "path": "tests/test_api.py"}
+  ],
+  "edges": [
+    {"source": "src/web.py", "target": "src/api.py", "type": "calls"},
+    {"source": "src/worker.py", "target": "src/api.py", "type": "imports"},
+    {"source": "src/api.py", "target": "src/consumer.py", "type": "depends_on"},
+    {"source": "tests/test_api.py", "target": "src/api.py", "type": "tests"}
+  ]
+}
