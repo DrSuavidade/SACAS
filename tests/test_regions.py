@@ -46,6 +46,14 @@ def test_manifest_rejects_unsupported_schema_version() -> None:
         Manifest.from_dict({"schema_version": 999})
 
 
+def test_minimal_current_schema_manifest_uses_all_defaults() -> None:
+    from sacas.models import Manifest, SCHEMA_VERSION
+
+    manifest = Manifest.from_dict({"schema_version": SCHEMA_VERSION})
+
+    assert manifest == Manifest()
+
+
 @pytest.mark.parametrize("data", [[], "not a manifest", 42])
 def test_manifest_rejects_non_object_json_roots_with_controlled_error(data: object) -> None:
     from sacas.models import Manifest

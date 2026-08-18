@@ -74,7 +74,7 @@ class Manifest:
             raise SchemaVersionError(
                 f"Unsupported SACAS schema version {version!r}; expected {SCHEMA_VERSION}."
             )
-        adapters = data.get("adapters", ())
+        adapters = data.get("adapters", [])
         if not isinstance(adapters, list) or not all(isinstance(item, str) for item in adapters):
             raise ValueError("adapters must be a JSON array of strings")
         return cls(
