@@ -120,9 +120,9 @@
 - Create: `src/sacas/effects.py`
 - Create: `tests/test_tasks.py`
 
-- [ ] Test task generation from goal plus evidence, flags for acceptance criteria/constraints/verification, files/symbols/tests/rules, explicit-only protection, provenance/freshness, budget reporting, bounded effect routing, and deterministic rerun that preserves manual content.
+- [ ] Test task generation from goal plus evidence, a stable task ID, flags for acceptance criteria/constraints/verification, `EXPLICIT`/`INFERRED`/`UNKNOWN` contract fields, files/symbols/tests/rules, explicit-only protection, provenance/freshness, budget reporting, bounded effect routing, and deterministic rerun that preserves manual content.
 - [ ] Verify red state.
-- [ ] Implement compact `TASK.md`, `CONTEXT.md`, and canonical `STATE.md`; generate `PICKUP.md` from state only. Resolve noninteractive contract inputs from explicit flags then rules, recording inferred values as `INFERRED`.
+- [ ] Implement a stable internal task ID with the v1 canonical `tasks/current/` view, compact `TASK.md`, `CONTEXT.md`, and canonical `STATE.md`; generate `PICKUP.md` from state only. Resolve each contract field as `EXPLICIT`, `INFERRED`, or `UNKNOWN`; never fabricate absent acceptance criteria.
 - [ ] Run focused tests and full suite.
 
 ### Task 8: Implement progressive expansion, refresh, and status
@@ -133,9 +133,9 @@
 - Create: `tests/test_refresh.py`
 - Modify: `src/sacas/cli.py`
 
-- [ ] Test stale referenced file detection, permitted evidence-backed scope expansion, protected-boundary refusal, no-op refresh, manual-content preservation, and concise status output.
+- [ ] Test stale referenced file detection, permitted evidence-backed scope expansion, protected-boundary refusal, no-op refresh, manual-content preservation, concise status output, and a separate immutable expansion record that distinguishes initial routing from later additions.
 - [ ] Verify red state.
-- [ ] Implement dependency-evidence expansion, selective refresh, and status reporting.
+- [ ] Implement dependency-evidence expansion, a separately persisted expansion history for routing-quality measurement, selective refresh, and status reporting with `--format text|json`.
 - [ ] Run focused tests and full suite.
 
 ## Chunk 5: Validation, migration, and benchmark harness
@@ -148,7 +148,7 @@
 
 - [ ] Test PASS/WARNING/FAIL checks for manifests, missing references, stale context, Graphify availability, budgets, malformed generated regions, build/test-command discoverability, one canonical state/no `PROGRESS` drift, protected-boundary clarity, generated/manual ownership, and router hop budget.
 - [ ] Verify red state.
-- [ ] Implement structured actionable diagnostics and scriptable exit codes.
+- [ ] Implement structured actionable diagnostics, scriptable exit codes, and `--format text|json`.
 - [ ] Run focused tests and full suite.
 
 ### Task 10: Implement safe migration and benchmark records
@@ -160,9 +160,9 @@
 - Create: `tests/test_benchmark.py`
 - Create: `tests/fixtures/legacy-sacas/Structure/tasks/current/PROGRESS.md`
 
-- [ ] Test dry-run migration, preservation of references/history/manual regions, state consolidation, no deletion of unknown files, and benchmark schema validation plus median/p75/p95 aggregation across Baseline, Graphify-only, SACAS-only, and SACAS+Graphify modes.
+- [ ] Test dry-run migration, preservation of references/history/manual regions, state consolidation, no deletion of unknown files, and benchmark schema validation for model, agent/version, SACAS version, Graphify version, repository commit, and cache state plus median/p75/p95 aggregation across Baseline, Graphify-only, SACAS-only, and SACAS+Graphify modes.
 - [ ] Verify red state.
-- [ ] Implement preview/apply migration and a JSONL benchmark schema/report that captures task type, mode, deterministic local metrics, optional agent metrics, and documented limitations.
+- [ ] Implement preview/apply migration and a JSONL benchmark schema/report that captures task type, mode, model, agent/version, SACAS/Graphify versions, repository commit, cache state, deterministic local metrics, optional agent metrics, and documented limitations. Add `--format text|json`.
 - [ ] Run focused tests and full suite.
 
 ## Chunk 6: Documentation, validation, and repository retirement
@@ -199,7 +199,7 @@
 
 - [ ] Write documentation tests/smoke tests for examples and search tests ensuring no unsupported token-saving percentage remains or obsolete `/sacas`, `/sacas-merge`, `PROGRESS.md`, and community-backlog workflow survives.
 - [ ] Verify red state.
-- [ ] Document authority, commands, modes, costs, ownership, migration, validation, budgets, benchmarks, and limitations; remove obsolete PowerShell scaffold artifacts.
+- [ ] Document authority, commands, modes, costs, ownership, migration, validation, budgets, benchmarks, and limitations. Retire obsolete PowerShell scaffold artifacts only after parity and migration tests have passed; a documented thin launcher may remain if it delegates exclusively to the Python CLI.
 - [ ] Run `python -m pytest -q`, `python -m sacas --help`, representative fixture CLI flows, and repeated-operation diff checks. CI installs the package with `python -m pip install -e .[test]` before running `python -m pytest -q`.
 
 ### Task 12: Final verification and review
