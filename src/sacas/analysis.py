@@ -13,6 +13,23 @@ from .repository import Evidence, collect_repository_evidence
 
 
 MODULE_CONTAINERS = ("apps", "packages", "services", "src")
+ROOT_MARKERS = (
+    "package.json",
+    "pnpm-workspace.yaml",
+    "pnpm-workspace.yml",
+    "nx.json",
+    "turbo.json",
+    "Cargo.toml",
+    "go.mod",
+    "docker-compose.yml",
+    "docker-compose.yaml",
+    "compose.yml",
+    "compose.yaml",
+    "pom.xml",
+    "build.gradle",
+    "build.gradle.kts",
+    "pyproject.toml",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -117,4 +134,19 @@ def _fingerprint(root: Path, paths: tuple[str, ...], inventory_roots: tuple[str,
                 digest.update(b"\0")
         else:
             digest.update(b"<missing-container>\0")
+    digest.update(b"@root-markers\0")
+    for filename in ROOT_MARKERS:
+        _digest_marker(digest, root / filename, filename)
+    for marker in sorted([*root.glob("*.csproj"), *root.glob("*.sln")]):
+        _digest_marker(digest, marker, marker.name)
     return digest.hexdigest()
+
+
+def _digest_marker(digest: "hashlib._Hash", path: Path, label: str) -> None:
+    digest.update(label.encode("utf-8"))
+    digest.update(b"=")
+    try:
+        digest.update(path.read_bytes())
+    except OSError:
+        digest.update(b"<missing>")
+    digest.update(b"\0")

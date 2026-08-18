@@ -186,3 +186,24 @@ def test_analysis_detects_heuristic_module_topology_changes(tmp_path: Path, oper
         child.rmdir()
 
     assert analysis.freshness.is_current(root) is False
+
+
+@pytest.mark.parametrize("marker", ["package.json", "pyproject.toml", "App.csproj", "Workspace.sln"])
+@pytest.mark.parametrize("operation", ["add", "remove"])
+def test_analysis_detects_root_marker_creation_or_removal(
+    tmp_path: Path, marker: str, operation: str
+) -> None:
+    from sacas.analysis import analyze_repository
+
+    root = tmp_path / "empty-repository"
+    root.mkdir()
+    descriptor = root / marker
+    if operation == "remove":
+        descriptor.write_text("initial", encoding="utf-8")
+    analysis = analyze_repository(root)
+    if operation == "add":
+        descriptor.write_text("created", encoding="utf-8")
+    else:
+        descriptor.unlink()
+
+    assert analysis.freshness.is_current(root) is False
