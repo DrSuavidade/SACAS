@@ -84,5 +84,5 @@ def _load_from_locator(repository_root: Path, locator_path: Path) -> Installatio
     except ValueError as error:
         raise ValueError("SACAS root locator must point inside the repository") from error
     if not manifest_path.is_file():
-        return None
+        raise ValueError(f"SACAS root locator points to a missing manifest: {manifest_path}")
     return _load_if_owned(repository_root, manifest_path)

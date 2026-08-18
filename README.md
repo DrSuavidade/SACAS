@@ -1,8 +1,26 @@
 # SACAS — Scaffold Architect Context Analyzer Skill
 
-> Development notice: the Python `sacas` CLI is the active implementation. The
-> PowerShell commands documented below are legacy material pending parity-tested
-> retirement; do not treat them as the current CLI contract.
+## Current Python CLI
+
+The Python `sacas` CLI is the active implementation. It requires Python 3.11+.
+From a development checkout, install it with:
+
+```bash
+python -m pip install -e ".[test]"
+```
+
+Then initialize a repository (the default SACAS root is `Structure/`):
+
+```bash
+sacas init --root /path/to/repository
+```
+
+For a no-install development invocation, run `PYTHONPATH=src python -m sacas init
+--root /path/to/repository` (set `PYTHONPATH` using your shell's syntax).
+
+> **Legacy material below:** the PowerShell commands and generated layout described
+> in the remaining sections are pending parity-tested retirement. They are not the
+> current CLI contract.
 
 Generate AI-optimized folder structures for any codebase. Filesystem = orchestration. Folders = memory. Markdown = interface.
 

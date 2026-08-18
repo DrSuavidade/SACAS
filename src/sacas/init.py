@@ -13,6 +13,7 @@ from sacas.paths import (
     LOCATOR_RELATIVE_PATH,
     MANIFEST_RELATIVE_PATH,
     Installation,
+    discover_manifest,
     resolve_sacas_root,
 )
 from sacas.templates import boundaries_document, router_document
@@ -35,6 +36,13 @@ def initialize(repository_root: Path | str, *, sacas_root: str = "Structure") ->
     repository_root = Path(repository_root).resolve()
     resolved_root = resolve_sacas_root(repository_root, sacas_root)
     configured_root = sacas_root.replace("\\", "/")
+    existing_installation = discover_manifest(repository_root)
+    if existing_installation is not None and existing_installation.sacas_root != resolved_root:
+        raise ValueError(
+            "SACAS is already configured at "
+            f"{existing_installation.sacas_root}; refusing to create a second install at "
+            f"{resolved_root}."
+        )
     manifest_path = resolved_root / MANIFEST_RELATIVE_PATH
     manifest = _load_manifest(manifest_path) if manifest_path.is_file() else Manifest(
         repository_root=".", sacas_root=configured_root

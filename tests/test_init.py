@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 
 def test_init_creates_default_structure_root_and_canonical_manifest(tmp_path: Path) -> None:
     from sacas.init import initialize
@@ -140,6 +142,23 @@ def test_manifest_discovery_does_not_select_a_descendant_installation(tmp_path: 
     initialize(tmp_path / "nested")
 
     assert discover_manifest(tmp_path) is None
+
+
+@pytest.mark.parametrize("requested_root", ["Structure", "other-sacas"])
+def test_init_refuses_to_create_a_second_install_from_a_custom_install(
+    tmp_path: Path, requested_root: str
+) -> None:
+    from sacas.init import initialize
+
+    initialize(tmp_path, sacas_root="custom-sacas")
+    locator_path = tmp_path / ".sacas" / "root.json"
+    before_locator = locator_path.read_bytes()
+
+    with pytest.raises(ValueError, match="already configured"):
+        initialize(tmp_path, sacas_root=requested_root)
+
+    assert locator_path.read_bytes() == before_locator
+    assert not (tmp_path / requested_root / ".sacas" / "manifest.json").exists()
 
 
 def test_cli_init_accepts_its_text_root_argument(tmp_path: Path) -> None:
