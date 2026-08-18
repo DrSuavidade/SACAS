@@ -3,15 +3,20 @@
 from __future__ import annotations
 
 import json
-import subprocess
 from pathlib import Path
 from typing import Any
 from sacas import __version__
-from sacas.budget import calculate_context_size
-from sacas.graphify import read_graphify_manifest
+from sacas.budget import calculate_context_size, calculate_total_context_size
+from sacas.graphify import read_graphify_manifest, GraphifyAdapter
 from sacas.map import impact_records
 from sacas.paths import Installation
-from sacas.tasks import is_file_protected, parse_protected_boundaries
+from sacas.tasks import (
+    is_file_protected,
+    parse_protected_boundaries,
+    get_initial_files,
+    get_expanded_files,
+    get_git_commit,
+)
 
 
 def percentile(data: list[int], pct: float) -> float:
@@ -27,32 +32,15 @@ def percentile(data: list[int], pct: float) -> float:
     return float(sorted_data[lower])
 
 
-def get_git_commit(root: Path) -> str:
-    """Get the current repository git commit hash."""
-    try:
-        completed = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            cwd=root,
-            capture_output=True,
-            text=True,
-            check=False
-        )
-        if completed.returncode == 0 and completed.stdout:
-            return completed.stdout.strip()
-    except OSError:
-        pass
-    return "unknown"
-
-
-def run_benchmark(installation: Installation) -> dict[str, Any]:
-    """Execute benchmark across all files in the repository comparing context size modes."""
+def run_context_simulation(installation: Installation) -> dict[str, Any]:
+    """Execute simulation across all files in the repository comparing context size modes."""
     root = installation.repository_root
     sacas_root = installation.sacas_root
 
-    # Get git commit
     commit = get_git_commit(root)
+    graphify_ver = GraphifyAdapter.get_installed_version() or "N/A"
 
-    # List all files in repo (excluding .git, etc.)
+    # List all files in repo
     ignored_parts = {".git", ".sacas", "__pycache__", "Structure", "graphify-out", ".worktrees"}
     repo_files = []
     for path in root.rglob("*"):
@@ -61,10 +49,8 @@ def run_benchmark(installation: Installation) -> dict[str, Any]:
             if not any(part in ignored_parts for part in relative.parts):
                 repo_files.append(relative.as_posix())
 
-    # Sort and cap for speed
     repo_files = sorted(repo_files)[:50]
 
-    # Load Graphify evidence
     graphify_manifest_path = sacas_root / ".sacas" / "graphify.json"
     evidence = None
     if graphify_manifest_path.is_file():
@@ -73,7 +59,6 @@ def run_benchmark(installation: Installation) -> dict[str, Any]:
         except Exception:
             pass
 
-    # Read boundaries
     boundaries_file = sacas_root / "rules" / "boundaries.md"
     parsed_boundaries = parse_protected_boundaries(boundaries_file)
 
@@ -82,10 +67,8 @@ def run_benchmark(installation: Installation) -> dict[str, Any]:
     sacas_sizes = []
     combined_sizes = []
 
-    # Total repo size
     total_repo_size = calculate_context_size(root, tuple(repo_files))
 
-    # Graphify community mappings
     community_files_map = {}
     if evidence:
         for name, paths in evidence.communities:
@@ -93,20 +76,16 @@ def run_benchmark(installation: Installation) -> dict[str, Any]:
                 community_files_map[p] = paths
 
     for f in repo_files:
-        # Baseline: everything
         baseline_sizes.append(total_repo_size)
 
-        # Graphify-only: community size
         if evidence and f in community_files_map:
             comm_paths = community_files_map[f]
             graphify_sizes.append(calculate_context_size(root, tuple(comm_paths)))
         else:
             graphify_sizes.append(0)
 
-        # SACAS-only: just target file
         sacas_sizes.append(calculate_context_size(root, (f,)))
 
-        # SACAS+Graphify: target file + expanded dependencies (respecting boundaries)
         expanded = [f]
         if evidence:
             records = impact_records(evidence, f)
@@ -115,12 +94,12 @@ def run_benchmark(installation: Installation) -> dict[str, Any]:
                     expanded.append(record.path)
         combined_sizes.append(calculate_context_size(root, tuple(expanded)))
 
-    report = {
+    return {
         "metadata": {
             "model": "Gemini 3.5 Flash",
             "agent_version": "Antigravity 2.0",
             "sacas_version": __version__,
-            "graphify_version": "1.0.0" if evidence else "N/A",
+            "graphify_version": graphify_ver,
             "repository_commit": commit,
             "cache_state": "cold"
         },
@@ -147,24 +126,106 @@ def run_benchmark(installation: Installation) -> dict[str, Any]:
             }
         }
     }
-    return report
 
 
-def print_benchmark(installation: Installation, format_type: str = "text") -> int:
-    """Run benchmark and output the report."""
-    report = run_benchmark(installation)
+def print_context_simulation(installation: Installation, format_type: str = "text") -> int:
+    """Run simulation and output result."""
+    report = run_context_simulation(installation)
     if format_type == "json":
         print(json.dumps(report, indent=2))
     else:
-        print("SACAS Benchmark Report")
-        print("======================")
+        print("SACAS Context Simulation Report")
+        print("===============================")
         print(f"Model:            {report['metadata']['model']}")
         print(f"Commit:           {report['metadata']['repository_commit']}")
         print(f"SACAS Version:    {report['metadata']['sacas_version']}")
-        print("\nContext Sizes (tokens) by Mode:")
+        print(f"Graphify Version: {report['metadata']['graphify_version']}")
+        print("\nSimulated Context Sizes (tokens) by Mode:")
         for mode, metrics in report["metrics"].items():
             print(f"  {mode}:")
             print(f"    Median: {metrics['median']:.1f}")
             print(f"    p75:    {metrics['p75']:.1f}")
             print(f"    p95:    {metrics['p95']:.1f}")
+    return 0
+
+
+def run_benchmark(installation: Installation) -> dict[str, Any]:
+    """Calculate actual routing quality metrics for the active task."""
+    task_id = installation.manifest.current_task_id
+    if not task_id:
+        return {"active_task": False}
+
+    task_dir = installation.sacas_root / "tasks" / "current"
+    expansions_path = task_dir / "expansions.json"
+    if not expansions_path.is_file():
+        return {"active_task": False}
+
+    try:
+        data = json.loads(expansions_path.read_text(encoding="utf-8"))
+    except Exception:
+        return {"active_task": False}
+
+    initial_scope = data.get("initial_scope", [])
+    expansions = data.get("expansions", [])
+    adjacent = data.get("adjacent", [])
+
+    initial_count = len(initial_scope)
+    expansion_count = len(expansions)
+    adjacent_count = len(adjacent)
+    total_count = initial_count + expansion_count
+    
+    expansion_ratio = (expansion_count / initial_count) if initial_count > 0 else 0.0
+
+    all_files = tuple(item["path"] for item in initial_scope) + tuple(item["path"] for item in expansions)
+    total_size = calculate_total_context_size(installation, all_files)
+
+    return {
+        "active_task": True,
+        "task_id": task_id,
+        "goal": data.get("goal", ""),
+        "metadata": {
+            "sacas_version": __version__,
+            "graphify_version": GraphifyAdapter.get_installed_version() or "N/A",
+            "repository_commit": get_git_commit(installation.repository_root),
+        },
+        "metrics": {
+            "initial_files_count": initial_count,
+            "final_files_count": total_count,
+            "expansion_events_count": expansion_count,
+            "expansion_ratio": expansion_ratio,
+            "budget_rejected_count": adjacent_count,
+            "total_context_tokens": total_size,
+            "context_budget": installation.manifest.context_budget,
+        }
+    }
+
+
+def print_benchmark(installation: Installation, format_type: str = "text") -> int:
+    """Print actual task benchmark metrics."""
+    report = run_benchmark(installation)
+    if format_type == "json":
+        print(json.dumps(report, indent=2))
+        return 0
+
+    if not report.get("active_task"):
+        print("No active task found to benchmark routing quality.")
+        print("Use 'sacas context-simulation' to simulate context sizes across the repository.")
+        return 0
+
+    print("SACAS Routing Quality Benchmark")
+    print("===============================")
+    print(f"Task ID:          {report['task_id']}")
+    print(f"Goal:             {report['goal']}")
+    print(f"Commit:           {report['metadata']['repository_commit']}")
+    print(f"SACAS Version:    {report['metadata']['sacas_version']}")
+    print(f"Graphify Version: {report['metadata']['graphify_version']}")
+    
+    metrics = report["metrics"]
+    print("\nMetrics:")
+    print(f"  Initial Scope Files: {metrics['initial_files_count']}")
+    print(f"  Expanded Files:      {metrics['final_files_count']}")
+    print(f"  Expansion Events:    {metrics['expansion_events_count']}")
+    print(f"  Expansion Ratio:     {metrics['expansion_ratio'] * 100:.1f}%")
+    print(f"  Budget Excluded:     {metrics['budget_rejected_count']}")
+    print(f"  Total Context Size:  {metrics['total_context_tokens']} / {metrics['context_budget']} tokens")
     return 0

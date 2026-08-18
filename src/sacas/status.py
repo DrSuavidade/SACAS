@@ -33,8 +33,9 @@ def get_status_report(installation: Installation) -> dict[str, Any]:
     if expansions_path.is_file():
         try:
             data = json.loads(expansions_path.read_text(encoding="utf-8"))
-            initials = data.get("initial_files", {})
-            expanded = data.get("expanded_files", {})
+            from sacas.tasks import get_initial_files, get_expanded_files
+            initials = get_initial_files(data)
+            expanded = get_expanded_files(data)
             
             if isinstance(initials, dict):
                 for f, recorded_hash in initials.items():
@@ -72,7 +73,9 @@ def get_status_report(installation: Installation) -> dict[str, Any]:
 
     status = "stale" if stale_files else "fresh"
     all_files = tuple(initial_files + expanded_files)
-    estimated_size = calculate_context_size(installation.repository_root, all_files)
+    from sacas.budget import get_detailed_context_breakdown
+    breakdown = get_detailed_context_breakdown(installation, all_files)
+    estimated_size = breakdown["total"]
     
     return {
         "current_task_id": task_id,
@@ -81,7 +84,8 @@ def get_status_report(installation: Installation) -> dict[str, Any]:
         "initial_files": initial_files,
         "expanded_files": expanded_files,
         "context_budget": installation.manifest.context_budget,
-        "estimated_size": estimated_size
+        "estimated_size": estimated_size,
+        "breakdown": breakdown
     }
 
 
@@ -98,7 +102,11 @@ def print_status_report(installation: Installation, format_type: str = "text") -
 
     print(f"Task ID: {report['current_task_id']}")
     print(f"Status:  {report['status'].upper()}")
-    print(f"Budget:  {report['estimated_size']} / {report['context_budget']} tokens")
+    bd = report["breakdown"]
+    print(f"Router ~{bd['router']} Task ~{bd['task']} Context ~{bd['context']} Rules ~{bd['rules']} References ~{bd['references']} Source ~{bd['source']}")
+    print("────────────────────────")
+    print(f"Estimated total ~{bd['total']}")
+    print(f"Budget {report['context_budget']}")
     
     if report["stale_files"]:
         print("\nStale files:")

@@ -32,7 +32,7 @@ class InitResult:
         return self.installation.sacas_root
 
 
-def initialize(repository_root: Path | str, *, sacas_root: str = "Structure") -> InitResult:
+def initialize(repository_root: Path | str, *, sacas_root: str = "Structure", graphify_mode: str = "off") -> InitResult:
     """Create the canonical SACAS layout, preserving human-authored documents."""
     repository_root = Path(repository_root).resolve()
     resolved_root = resolve_sacas_root(repository_root, sacas_root)
@@ -46,7 +46,7 @@ def initialize(repository_root: Path | str, *, sacas_root: str = "Structure") ->
         )
     manifest_path = resolved_root / MANIFEST_RELATIVE_PATH
     manifest = _load_manifest(manifest_path) if manifest_path.is_file() else Manifest(
-        repository_root=".", sacas_root=configured_root
+        repository_root=".", sacas_root=configured_root, graphify_mode=graphify_mode
     )
     if manifest.sacas_root != configured_root:
         raise ValueError(

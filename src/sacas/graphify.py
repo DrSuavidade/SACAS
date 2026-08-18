@@ -279,3 +279,111 @@ def _is_root_sacas_generated(relative: Path) -> bool:
         ".github/copilot-instructions.md",
     }
     return relative.as_posix() in generated_files or relative.is_relative_to(Path("tasks/current"))
+
+
+@dataclass(frozen=True, slots=True)
+class GraphifyQueryResult:
+    raw_output: str
+    paths: tuple[str, ...]
+
+
+class GraphifyAdapter:
+    """A verified interface to the external Graphify package."""
+
+    API_VERSION_FLOOR = "0.9.44"
+    API_VERSION_CEILING = "1.0.0"
+
+    def __init__(self, repository_root: Path, sacas_root: Path):
+        self.repository_root = repository_root
+        self.sacas_root = sacas_root
+
+    @classmethod
+    def get_installed_version(cls) -> str | None:
+        """Get the installed graphifyy package version."""
+        try:
+            import importlib.metadata
+            return importlib.metadata.version("graphifyy")
+        except Exception:
+            return None
+
+    def verify_capabilities(self, required: list[str]) -> bool:
+        """Verify version is supported and required commands exist in help text."""
+        version_str = self.get_installed_version()
+        if not version_str:
+            return False
+
+        # Version check
+        def parse_ver(v_str: str) -> tuple[int, ...]:
+            try:
+                parts = []
+                for x in v_str.split("."):
+                    digits = "".join(ch for ch in x if ch.isdigit())
+                    if digits:
+                        parts.append(int(digits))
+                return tuple(parts)
+            except Exception:
+                return (0, 0, 0)
+
+        v_parsed = parse_ver(version_str)
+        floor_parsed = parse_ver(self.API_VERSION_FLOOR)
+        ceiling_parsed = parse_ver(self.API_VERSION_CEILING)
+
+        if v_parsed < floor_parsed or v_parsed >= ceiling_parsed:
+            return False
+
+        # Verify executable resolves and CLI --help contains required command names
+        try:
+            completed = subprocess.run(["graphify", "--help"], capture_output=True, text=True, check=False)
+            if completed.returncode != 0:
+                return False
+            help_text = completed.stdout
+            for cmd in required:
+                if cmd not in help_text:
+                    return False
+        except OSError:
+            return False
+
+        return True
+
+    def extract_code_only(self, target_path: Path) -> bool:
+        """Execute headless code-only extraction locally."""
+        cmd = ("graphify", "extract", str(target_path.resolve()), "--code-only", "--no-viz")
+        try:
+            completed = subprocess.run(cmd, capture_output=True, text=True, check=False)
+            return completed.returncode == 0
+        except OSError:
+            return False
+
+    def query(self, goal: str, graph_path: Path) -> GraphifyQueryResult | None:
+        """Query Graphify and return isolated parsed paths."""
+        if not graph_path.is_file():
+            return None
+        cmd = ("graphify", "query", goal, "--graph", str(graph_path.resolve()))
+        try:
+            completed = subprocess.run(cmd, capture_output=True, text=True, check=False)
+            if completed.returncode != 0:
+                return None
+            return self._parse_query_output(completed.stdout)
+        except OSError:
+            return None
+
+    def _parse_query_output(self, raw_output: str) -> GraphifyQueryResult:
+        """Isolate parsing of query output format."""
+        import re
+        paths = []
+        for line in raw_output.splitlines():
+            if line.startswith("NODE "):
+                # Search for src=...
+                match = re.search(r"\[src=([^\]\s]+)", line)
+                if match:
+                    src_file = match.group(1).strip()
+                    if src_file and src_file != "None":
+                        paths.append(src_file)
+        return GraphifyQueryResult(raw_output=raw_output, paths=tuple(dict.fromkeys(paths)))
+
+    def validate_query_contract(self, result: GraphifyQueryResult) -> bool:
+        """Validate parsed query output conforms to basic expectations."""
+        if "No matching nodes found" in result.raw_output:
+            return True
+        return len(result.paths) > 0
+

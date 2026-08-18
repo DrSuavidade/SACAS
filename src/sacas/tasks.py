@@ -47,10 +47,137 @@ def parse_protected_boundaries(boundaries_file: Path) -> tuple[tuple[str, str], 
 
 def is_file_protected(file_path: str, boundaries: tuple[tuple[str, str], ...]) -> str | None:
     """Return the protection reason if the file path falls within a boundary, else None."""
+    p_parts = Path(file_path).parts
     for path_prefix, reason in boundaries:
-        if file_path.startswith(path_prefix):
+        b_parts = Path(path_prefix).parts
+        if len(p_parts) >= len(b_parts) and p_parts[:len(b_parts)] == b_parts:
             return reason
     return None
+
+
+def get_initial_files(expansions: dict) -> dict[str, str]:
+    if expansions.get("schema_version") == 2:
+        return {item["path"]: item.get("hash", "") for item in expansions.get("initial_scope", [])}
+    return expansions.get("initial_files", {})
+
+
+def get_expanded_files(expansions: dict) -> dict[str, str]:
+    if expansions.get("schema_version") == 2:
+        return {item["path"]: item.get("hash", "") for item in expansions.get("expansions", [])}
+    return expansions.get("expanded_files", {})
+
+
+def get_git_commit(root: Path) -> str:
+    import subprocess
+    try:
+        completed = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            check=False
+        )
+        if completed.returncode == 0 and completed.stdout:
+            return completed.stdout.strip()
+    except OSError:
+        pass
+    return "unknown"
+
+
+def extract_keywords(goal: str) -> list[str]:
+    import re
+    words = re.findall(r"\b[a-zA-Z0-9]{3,}\b", goal.lower())
+    return list(dict.fromkeys(words))
+
+
+def score_file_against_goal(filepath: str, file_content: str, keywords: list[str]) -> tuple[int, list[str]]:
+    import re
+    score = 0
+    filename = Path(filepath).name.lower()
+    matched_keywords = []
+
+    for kw in keywords:
+        if kw in filename:
+            score += 4
+            matched_keywords.append(kw)
+            if filename.startswith(kw):
+                score += 2
+
+    if "test" in filename:
+        for kw in keywords:
+            if kw != "test" and kw in filename:
+                score += 4
+                if kw not in matched_keywords:
+                    matched_keywords.append(kw)
+
+    components = [p.lower() for p in Path(filepath).parent.parts]
+    for kw in keywords:
+        for comp in components:
+            if kw in comp:
+                score += 3
+                if kw not in matched_keywords:
+                    matched_keywords.append(kw)
+
+    for kw in keywords:
+        pattern = rf"\b(class|def|fn|struct|interface|function)\b\s+\w*{re.escape(kw)}\w*"
+        matches = re.findall(pattern, file_content, re.IGNORECASE)
+        if matches:
+            score += 5 * len(matches)
+            if kw not in matched_keywords:
+                matched_keywords.append(kw)
+
+    return score, matched_keywords
+
+
+def run_fallback_routing(root: Path, goal: str, boundaries: tuple[tuple[str, str], ...], commit: str) -> list[dict]:
+    keywords = extract_keywords(goal)
+    if not keywords:
+        return []
+
+    ignored = {".git", ".sacas", "__pycache__", "Structure", "graphify-out", ".worktrees"}
+    candidates = []
+
+    for path in root.rglob("*"):
+        if not path.is_file():
+            continue
+        relative = path.relative_to(root)
+        if any(part in ignored for part in relative.parts):
+            continue
+
+        rel_str = relative.as_posix()
+        if is_file_protected(rel_str, boundaries):
+            continue
+
+        try:
+            content = path.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            content = ""
+
+        score, matched = score_file_against_goal(rel_str, content, keywords)
+        if score > 0:
+            candidates.append((score, rel_str, matched))
+
+    candidates.sort(key=lambda s: (-s[0], len(s[1]), s[1]))
+
+    results = []
+    for score, filepath, matched in candidates[:5]:
+        try:
+            f_hash = hashlib.sha256((root / filepath).read_bytes()).hexdigest()
+        except OSError:
+            f_hash = ""
+
+        results.append({
+            "path": filepath,
+            "symbols": [],
+            "reason": f"Matched heuristic scoring (score={score}) matching keywords: {', '.join(matched)}",
+            "source": "heuristic",
+            "confidence": "high" if score >= 8 else "medium",
+            "relation": "keyword_match",
+            "trigger": "task_goal",
+            "git_revision": commit,
+            "hash": f_hash
+        })
+    return results
 
 
 def generate_task(
@@ -66,6 +193,8 @@ def generate_task(
     rules: tuple[str, ...] = ()
 ) -> TaskResult:
     """Create or update a SACAS task, generating its contract, context, and state."""
+    from sacas.graphify import GraphifyAdapter
+
     criteria = tuple(criteria)
     constraints = tuple(constraints)
     verification = tuple(verification)
@@ -96,34 +225,101 @@ def generate_task(
     task_dir = installation.sacas_root / "tasks" / "current"
     task_dir.mkdir(parents=True, exist_ok=True)
 
-    # Write expansions.json
-    expansions_path = task_dir / "expansions.json"
-    initial_files = {}
-    for f in files:
-        f_path = installation.repository_root / f
-        if f_path.is_file():
-            try:
-                content = f_path.read_bytes()
-                initial_files[f] = hashlib.sha256(content).hexdigest()
-            except OSError:
-                initial_files[f] = ""
-        else:
-            initial_files[f] = ""
+    boundaries_file = installation.sacas_root / "rules" / "boundaries.md"
+    parsed_boundaries = parse_protected_boundaries(boundaries_file)
 
+    commit = get_git_commit(installation.repository_root)
+    initial_scope_list = []
+
+    if files:
+        for f in files:
+            from sacas.paths import resolve_repo_path
+            try:
+                f_rel = resolve_repo_path(installation.repository_root, f)
+            except ValueError:
+                continue
+
+            f_path = installation.repository_root / f_rel
+            f_hash = ""
+            if f_path.is_file():
+                try:
+                    f_hash = hashlib.sha256(f_path.read_bytes()).hexdigest()
+                except OSError:
+                    pass
+            initial_scope_list.append({
+                "path": f_rel,
+                "symbols": list(symbols),
+                "reason": "Explicitly specified by user",
+                "source": "explicit",
+                "confidence": "high",
+                "relation": None,
+                "trigger": "cli_arg",
+                "git_revision": commit,
+                "hash": f_hash
+            })
+    else:
+        graphify_success = False
+        if old_manifest.graphify_mode != "off":
+            adapter = GraphifyAdapter(installation.repository_root, installation.sacas_root)
+            if adapter.verify_capabilities(required=["extract", "query"]):
+                graph_path = installation.repository_root / old_manifest.graphify_output / "graph.json"
+                query_res = adapter.query(goal, graph_path)
+                if query_res and adapter.validate_query_contract(query_res):
+                    for path in query_res.paths:
+                        from sacas.paths import resolve_repo_path
+                        try:
+                            f_rel = resolve_repo_path(installation.repository_root, path)
+                        except ValueError:
+                            continue
+
+                        if is_file_protected(f_rel, parsed_boundaries):
+                            continue
+
+                        f_path = installation.repository_root / f_rel
+                        f_hash = ""
+                        if f_path.is_file():
+                            try:
+                                f_hash = hashlib.sha256(f_path.read_bytes()).hexdigest()
+                            except OSError:
+                                pass
+                        initial_scope_list.append({
+                            "path": f_rel,
+                            "symbols": [],
+                            "reason": f"Discovered via Graphify query matching goal: {goal}",
+                            "source": "graphify",
+                            "confidence": "high",
+                            "relation": "seed",
+                            "trigger": "task_goal",
+                            "git_revision": commit,
+                            "hash": f_hash
+                        })
+                    graphify_success = len(initial_scope_list) > 0
+
+        if not graphify_success:
+            initial_scope_list = run_fallback_routing(installation.repository_root, goal, parsed_boundaries, commit)
+
+    if not initial_scope_list:
+        import sys
+        print(f"WARNING: Task contains zero source files/symbols and no routing evidence was discovered.", file=sys.stderr)
+
+    expansions_path = task_dir / "expansions.json"
     expansions_data = {
-        "initial_files": initial_files,
-        "expanded_files": {},
+        "schema_version": 2,
+        "task_id": task_id,
         "goal": goal,
         "criteria": list(criteria),
         "constraints": list(constraints),
         "verification": list(verification),
         "symbols": list(symbols),
         "tests": list(tests),
-        "rules": list(rules)
+        "rules": list(rules),
+        "initial_scope": initial_scope_list,
+        "expansions": [],
+        "adjacent": []
     }
     write_text_atomic(expansions_path, stable_json(expansions_data))
 
-    # Regenerate all files
+    initial_files = tuple(item["path"] for item in initial_scope_list)
     regenerate_task_markdown(
         installation=installation,
         task_dir=task_dir,
@@ -132,7 +328,7 @@ def generate_task(
         criteria=criteria,
         constraints=constraints,
         verification=verification,
-        initial_files=files,
+        initial_files=initial_files,
         expanded_files=(),
         symbols=symbols,
         tests=tests,

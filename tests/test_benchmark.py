@@ -24,3 +24,13 @@ def test_benchmark_command(tmp_path: Path) -> None:
     # Run benchmark command
     exit_code = main(["benchmark", "--root", str(tmp_path), "--format", "json"])
     assert exit_code == 0
+
+
+def test_context_simulation_command(tmp_path: Path) -> None:
+    from sacas.cli import main
+    from sacas.init import initialize
+
+    initialize(tmp_path)
+    exit_code = main(["context-simulation", "--root", str(tmp_path), "--format", "json"])
+    assert exit_code == 0
+

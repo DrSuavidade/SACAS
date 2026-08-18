@@ -145,8 +145,16 @@ def run_diagnostics(root: Path) -> dict[str, Any]:
         if expansions_path.is_file():
             try:
                 data = json.loads(expansions_path.read_text(encoding="utf-8"))
-                initials = data.get("initial_files", {})
-                expanded = data.get("expanded_files", {})
+                from sacas.tasks import get_initial_files, get_expanded_files
+                initials = get_initial_files(data)
+                expanded = get_expanded_files(data)
+                
+                if not initials and not expanded and not data.get("symbols"):
+                    diagnostics.append({
+                        "severity": "WARNING",
+                        "check": "empty_scope",
+                        "message": "Task contains zero source files/symbols and no routing evidence was discovered."
+                    })
                 
                 all_files = []
                 stale_files = []

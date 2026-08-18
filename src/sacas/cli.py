@@ -24,6 +24,7 @@ def build_parser() -> argparse.ArgumentParser:
     init_parser = subcommands.add_parser("init", help="Initialize SACAS in a repository.")
     init_parser.add_argument("--root", default=".", help="Repository root (default: current directory).")
     init_parser.add_argument("--sacas-root", default="Structure", help="SACAS root relative to repository.")
+    init_parser.add_argument("--graphify", choices=("off", "existing", "code-only", "semantic"), default="existing", help="Graphify integration mode.")
 
     map_parser = subcommands.add_parser("map", help="Build a system map from optional Graphify evidence.")
     map_parser.add_argument("--root", default=".", help="Repository root (default: current directory).")
@@ -63,6 +64,10 @@ def build_parser() -> argparse.ArgumentParser:
     benchmark_parser.add_argument("--root", default=".", help="Repository root (default: current directory).")
     benchmark_parser.add_argument("--format", choices=("text", "json"), default="text", help="Output format.")
 
+    sim_parser = subcommands.add_parser("context-simulation", help="Run SACAS context comparison size simulations.")
+    sim_parser.add_argument("--root", default=".", help="Repository root (default: current directory).")
+    sim_parser.add_argument("--format", choices=("text", "json"), default="text", help="Output format.")
+
     return parser
 
 
@@ -71,7 +76,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     arguments = parser.parse_args(argv)
     if arguments.command == "init":
-        initialize(arguments.root, sacas_root=arguments.sacas_root)
+        initialize(arguments.root, sacas_root=arguments.sacas_root, graphify_mode=arguments.graphify)
     elif arguments.command == "map":
         root = Path(arguments.root).resolve()
         sacas_root_relative = repository_relative_path(root, arguments.sacas_root)
@@ -138,4 +143,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         if installation is None:
             raise ValueError("SACAS is not initialized. Run 'sacas init' first.")
         return print_benchmark(installation, format_type=arguments.format)
+    elif arguments.command == "context-simulation":
+        from sacas.benchmark import print_context_simulation
+        from sacas.paths import discover_manifest
+        root = Path(arguments.root).resolve()
+        installation = discover_manifest(root)
+        if installation is None:
+            raise ValueError("SACAS is not initialized. Run 'sacas init' first.")
+        return print_context_simulation(installation, format_type=arguments.format)
     return 0

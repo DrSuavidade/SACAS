@@ -83,3 +83,24 @@ def test_validate_detects_budget_overrun(tmp_path: Path) -> None:
     assert report["status"] == "WARNING"
     assert any(item["check"] == "budget_limit" for item in report["diagnostics"])
 
+
+def test_validate_detects_empty_scope(tmp_path: Path) -> None:
+    from sacas.cli import main
+    from sacas.init import initialize
+    from sacas.validate import run_diagnostics
+
+    init_result = initialize(tmp_path)
+    
+    # Create task with empty files
+    main([
+        "task",
+        "Test goal with empty files",
+        "--root", str(tmp_path)
+    ])
+    
+    # Empty task on disk - expansions.json initial_scope will be empty if Graphify is off and no fallback matches
+    # Let's ensure Graphify mode is off to force fallback (which also yields empty since there are no files in tmp_path!)
+    report = run_diagnostics(tmp_path)
+    assert any(item["check"] == "empty_scope" for item in report["diagnostics"])
+
+

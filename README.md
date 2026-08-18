@@ -64,10 +64,17 @@ sacas migrate --apply
 ```
 
 ### `sacas benchmark`
-Run context size and routing quality benchmarks across baseline, Graphify, and SACAS modes. Supports `--format text|json`.
+Run actual routing quality benchmarks for the active task (initial files count, expanded count, budget exclusions, etc.). Supports `--format text|json`.
 
 ```bash
 sacas benchmark
+```
+
+### `sacas context-simulation`
+Run simulated context size metrics across the entire repository comparing baseline, Graphify, and SACAS modes. Supports `--format text|json`.
+
+```bash
+sacas context-simulation
 ```
 
 ## Key Concept

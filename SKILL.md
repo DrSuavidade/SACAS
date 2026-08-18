@@ -17,22 +17,28 @@ Use the Python package `sacas`:
 
 ```bash
 # Initialize a repository
-python -m sacas init
+sacas init
 
 # Build a system map from Graphify
-python -m sacas map
+sacas map
 
 # Create a new task
-python -m sacas task "Goal" --files src/app.py
+sacas task "Goal" --files src/app.py
 
 # Refresh task context and expand scope
-python -m sacas refresh
+sacas refresh
 
 # Show task status
-python -m sacas status
+sacas status
 
 # Validate installation and state
-python -m sacas validate
+sacas validate
+
+# Run context size simulations
+sacas context-simulation
+
+# Run actual task routing quality benchmarks
+sacas benchmark
 ```
 
 ## Structure

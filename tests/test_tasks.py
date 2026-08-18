@@ -143,3 +143,39 @@ def test_task_cli_command(tmp_path: Path) -> None:
     assert (task_dir / "TASK.md").is_file()
     assert "Implement main application loop" in (task_dir / "TASK.md").read_text(encoding="utf-8")
 
+
+def test_goal_driven_routing_and_fallbacks(tmp_path: Path) -> None:
+    from sacas.init import initialize
+    from sacas.tasks import generate_task
+    import json
+
+    init_result = initialize(tmp_path)
+    
+    # Create target files
+    auth_py = tmp_path / "src" / "auth.py"
+    auth_py.parent.mkdir(parents=True, exist_ok=True)
+    auth_py.write_text("class SessionManager:\n    pass\n", encoding="utf-8")
+    
+    # Run task generation with no --files specified, target goal containing "auth" and "Session"
+    generate_task(
+        init_result.installation,
+        goal="fix auth Session persistence"
+    )
+    
+    task_dir = init_result.sacas_root / "tasks" / "current"
+    expansions_path = task_dir / "expansions.json"
+    assert expansions_path.is_file()
+    
+    data = json.loads(expansions_path.read_text(encoding="utf-8"))
+    assert data.get("schema_version") == 2
+    
+    # Check that src/auth.py was matched by heuristic fallback
+    initial_scope = data.get("initial_scope", [])
+    paths = [item["path"] for item in initial_scope]
+    assert "src/auth.py" in paths
+    
+    auth_item = next(item for item in initial_scope if item["path"] == "src/auth.py")
+    assert auth_item["source"] == "heuristic"
+    assert "auth" in auth_item["reason"] or "Session" in auth_item["reason"]
+
+

@@ -75,9 +75,11 @@ def test_refresh_and_status_behavior(tmp_path: Path) -> None:
     assert expansions_path.is_file()
     
     expansions = json.loads(expansions_path.read_text(encoding="utf-8"))
-    assert "src/app.py" in expansions["initial_files"]
-    assert "tests/test_app.py" in expansions["expanded_files"]
-    assert "src/caller.py" not in expansions["expanded_files"]
+    initial_paths = [item["path"] for item in expansions.get("initial_scope", [])]
+    expanded_paths = [item["path"] for item in expansions.get("expansions", [])]
+    assert "src/app.py" in initial_paths
+    assert "tests/test_app.py" in expanded_paths
+    assert "src/caller.py" not in expanded_paths
     
     # Verify CONTEXT.md has the expanded test file
     context_content = (task_dir / "CONTEXT.md").read_text(encoding="utf-8")
@@ -94,3 +96,79 @@ def test_refresh_and_status_behavior(tmp_path: Path) -> None:
     report = get_status_report(fresh_inst)
     assert report["status"] == "stale"
     assert "src/app.py" in report["stale_files"]
+
+
+def test_refresh_predictive_budgeting_and_ranking(tmp_path: Path) -> None:
+    from sacas.cli import main
+    from sacas.init import initialize
+    from sacas.paths import discover_manifest
+    
+    init_result = initialize(tmp_path)
+    
+    manifest_path = init_result.sacas_root / ".sacas" / "manifest.json"
+    manifest_data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest_data["context_budget"] = 450
+    manifest_path.write_text(json.dumps(manifest_data), encoding="utf-8")
+    
+    # Create a task
+    main([
+        "task",
+        "Test budget goal",
+        "--root", str(tmp_path),
+        "--files", "src/app.py"
+    ])
+    
+    # Write src/app.py
+    app_py = tmp_path / "src" / "app.py"
+    app_py.parent.mkdir(parents=True, exist_ok=True)
+    app_py.write_text("print('hello')", encoding="utf-8")
+    
+    # Write Graphify evidence
+    graphify_manifest_path = init_result.sacas_root / ".sacas" / "graphify.json"
+    evidence_data = {
+        "output": "graphify-out",
+        "status": "fresh",
+        "provenance": "graphify_existing",
+        "freshness": "fresh",
+        "content_hash": "dummyhash",
+        "nodes": [
+            ["node_app", "src/app.py"],
+            ["node_caller", "src/caller.py"],
+            ["node_test", "tests/test_app.py"]
+        ],
+        "edges": [
+            ["node_caller", "node_app", "calls"],
+            ["node_test", "node_app", "tests"]
+        ]
+    }
+    graphify_manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    graphify_manifest_path.write_text(json.dumps(evidence_data), encoding="utf-8")
+    
+    # Write caller.py and test_app.py
+    caller_py = tmp_path / "src" / "caller.py"
+    caller_py.parent.mkdir(parents=True, exist_ok=True)
+    caller_py.write_text("print('caller')", encoding="utf-8")
+    
+    test_app_py = tmp_path / "tests" / "test_app.py"
+    test_app_py.parent.mkdir(parents=True, exist_ok=True)
+    test_app_py.write_text("print('test')\n" * 200, encoding="utf-8")
+
+    
+    # Refresh context
+    exit_code = main(["refresh", "--root", str(tmp_path)])
+    assert exit_code == 0
+    
+    task_dir = init_result.sacas_root / "tasks" / "current"
+    expansions = json.loads((task_dir / "expansions.json").read_text(encoding="utf-8"))
+    
+    # caller.py fits (4 + 3 = 7 <= 10)
+    expanded_paths = [item["path"] for item in expansions.get("expansions", [])]
+    assert "src/caller.py" in expanded_paths, f"expansions: {json.dumps(expansions, indent=2)}"
+    
+    # test_app.py is budget excluded (7 + 20 > 10)
+    adjacent_paths = [item["path"] for item in expansions.get("adjacent", [])]
+    assert "tests/test_app.py" in adjacent_paths
+    
+    adjacent_item = next(item for item in expansions.get("adjacent", []) if item["path"] == "tests/test_app.py")
+    assert adjacent_item["excluded_reason"] == "budget"
+

@@ -19,3 +19,9 @@ graphify-out/
 
 # SACAS generated data
 Structure/.sacas/
+
+# Python packaging & cache
+*.egg-info/
+__pycache__/
+*.pyc
+

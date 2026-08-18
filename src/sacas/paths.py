@@ -86,3 +86,30 @@ def _load_from_locator(repository_root: Path, locator_path: Path) -> Installatio
     if not manifest_path.is_file():
         raise ValueError(f"SACAS root locator points to a missing manifest: {manifest_path}")
     return _load_if_owned(repository_root, manifest_path)
+
+
+def resolve_repo_path(repository_root: Path, user_path: str) -> str:
+    """Resolve and normalize a user path inside the repository.
+
+    Rejects absolute paths, escaping paths (e.g. via ../), and symlink escapes.
+    Returns the relative path with forward slashes.
+    """
+    repo_resolved = repository_root.resolve()
+
+    from pathlib import PureWindowsPath
+    clean_path = user_path.replace("\\", "/")
+    if (clean_path.startswith("/") or 
+            Path(user_path).is_absolute() or 
+            PureWindowsPath(user_path).is_absolute() or
+            (len(user_path) > 1 and user_path[1] == ":")):
+        raise ValueError("Absolute paths are not allowed")
+
+    candidate = (repo_resolved / user_path).resolve()
+
+    try:
+        relative = candidate.relative_to(repo_resolved)
+    except ValueError as error:
+        raise ValueError("Path escapes repository root") from error
+
+    return relative.as_posix()
+
