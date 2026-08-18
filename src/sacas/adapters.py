@@ -22,7 +22,6 @@ _IGNORE_PATHS = {
     "codex": Path(".aiignore"),
     "claude": Path(".claudeignore"),
     "cursor": Path(".cursorignore"),
-    "copilot": Path(".github") / "copilot-ignore",
     "gemini": Path(".geminiignore"),
 }
 
@@ -37,17 +36,30 @@ def generate_adapter(repository_root: Path | str, sacas_root: str, platform: str
         f"Read `{router}` before acting. It is the canonical entry point for SACAS "
         "rules, task context, and generated navigation."
     )
+    if platform == "copilot":
+        generated += (
+            "\n\nGitHub Copilot does not provide a repository-local ignore file. "
+            "Configure exclusions through administrator settings; in agent mode, verify "
+            "that the configured repository and organization policies apply."
+        )
     return _replace_or_append(target, f"adapter-{platform}", generated)
 
 
 def generate_adapter_ignore(
-    repository_root: Path | str, platform: str, *, graphify_output: str = "graphify-out"
+    repository_root: Path | str,
+    sacas_root: str,
+    platform: str,
+    *,
+    graphify_output: str = "graphify-out",
 ) -> bool:
     """Add bounded ignore rules for generated data to one agent platform."""
+    if platform == "copilot":
+        _path_for(_ADAPTER_PATHS, platform)
+        return False
     root = Path(repository_root).resolve()
     target = root / _path_for(_IGNORE_PATHS, platform)
     output = _root_relative_directory(graphify_output)
-    generated = "# SACAS generated data\n.sacas/\n" + output
+    generated = "# SACAS generated data\n" + _sacas_metadata_ignore(sacas_root) + "\n" + output
     return _replace_or_append(target, f"ignore-{platform}", generated)
 
 
@@ -62,7 +74,9 @@ def generate_adapters(
     changed = False
     for platform in platforms:
         changed |= generate_adapter(repository_root, sacas_root, platform)
-        changed |= generate_adapter_ignore(repository_root, platform, graphify_output=graphify_output)
+        changed |= generate_adapter_ignore(
+            repository_root, sacas_root, platform, graphify_output=graphify_output
+        )
     return changed
 
 
@@ -93,3 +107,12 @@ def _root_relative_directory(value: str) -> str:
     if not normalized or "/" in normalized or normalized in {".", ".."}:
         raise ValueError("graphify_output must be a root-level directory name")
     return normalized + "/"
+
+
+def _sacas_metadata_ignore(sacas_root: str) -> str:
+    normalized = sacas_root.replace("\\", "/").strip("/")
+    if normalized in {"", "."}:
+        return ".sacas/"
+    if normalized == ".." or normalized.startswith("../"):
+        raise ValueError("sacas_root must be relative to the repository")
+    return normalized + "/.sacas/"

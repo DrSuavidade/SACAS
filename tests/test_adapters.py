@@ -32,6 +32,10 @@ def test_adapter_generation_is_idempotent_and_preserves_manual_content(
     assert f"<!-- SACAS:START adapter-{platform} -->" in first
     assert f"<!-- SACAS:END adapter-{platform} -->" in first
     assert "Structure/ROUTER.md" in first
+    if platform == "copilot":
+        assert "does not provide a repository-local ignore file" in first
+        assert "administrator settings" in first
+        assert "agent mode" in first
 
     assert generate_adapter(tmp_path, "Structure", platform) is False
     assert target.read_text(encoding="utf-8") == first
@@ -43,7 +47,6 @@ def test_adapter_generation_is_idempotent_and_preserves_manual_content(
         ("codex", ".aiignore"),
         ("claude", ".claudeignore"),
         ("cursor", ".cursorignore"),
-        ("copilot", ".github/copilot-ignore"),
         ("gemini", ".geminiignore"),
     ],
 )
@@ -56,7 +59,7 @@ def test_platform_ignore_is_bounded_preserves_manual_content_and_ignores_root_gr
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text("# Keep this manual ignore\nprivate/\n", encoding="utf-8")
 
-    assert generate_adapter_ignore(tmp_path, platform) is True
+    assert generate_adapter_ignore(tmp_path, "Structure", platform) is True
     first = target.read_text(encoding="utf-8")
     assert "# Keep this manual ignore" in first
     assert "private/" in first
@@ -64,8 +67,35 @@ def test_platform_ignore_is_bounded_preserves_manual_content_and_ignores_root_gr
     assert "graphify-out/" in first
     assert "Structure/graphify-out/" not in first
 
-    assert generate_adapter_ignore(tmp_path, platform) is False
+    assert generate_adapter_ignore(tmp_path, "Structure", platform) is False
     assert target.read_text(encoding="utf-8") == first
+
+
+@pytest.mark.parametrize(
+    ("sacas_root", "expected_ignore"),
+    [
+        ("Structure", "Structure/.sacas/"),
+        (".project/sacas", ".project/sacas/.sacas/"),
+        (".", ".sacas/"),
+    ],
+)
+def test_platform_ignore_uses_the_configured_sacas_root(
+    tmp_path: Path, sacas_root: str, expected_ignore: str
+) -> None:
+    from sacas.adapters import generate_adapter_ignore
+
+    generate_adapter_ignore(tmp_path, sacas_root, "codex")
+
+    rendered = (tmp_path / ".aiignore").read_text(encoding="utf-8")
+    assert expected_ignore in rendered
+    assert "graphify-out/" in rendered
+
+
+def test_copilot_has_no_nonstandard_repository_ignore_file(tmp_path: Path) -> None:
+    from sacas.adapters import generate_adapter_ignore
+
+    assert generate_adapter_ignore(tmp_path, "Structure", "copilot") is False
+    assert not (tmp_path / ".github/copilot-ignore").exists()
 
 
 def test_init_generates_all_default_adapters_and_platform_ignores(tmp_path: Path) -> None:
@@ -78,4 +108,6 @@ def test_init_generates_all_default_adapters_and_platform_ignores(tmp_path: Path
     assert (tmp_path / ".cursor/rules/sacas.mdc").is_file()
     assert (tmp_path / ".github/copilot-instructions.md").is_file()
     assert (tmp_path / "GEMINI.md").is_file()
+    assert "Structure/.sacas/" in (tmp_path / ".aiignore").read_text(encoding="utf-8")
     assert (tmp_path / ".aiignore").read_text(encoding="utf-8").count("graphify-out/") == 1
+    assert not (tmp_path / ".github/copilot-ignore").exists()
