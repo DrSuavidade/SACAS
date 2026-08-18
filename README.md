@@ -1,160 +1,86 @@
 # SACAS — Scaffold Architect Context Analyzer Skill
 
-## Current Python CLI
+SACAS routes repository evidence into focused task context for AI-assisted software development.
 
-The Python `sacas` CLI is the active implementation. It requires Python 3.11+.
-From a development checkout, install it with:
+## Installation
+
+Requires Python 3.11+. Install the package in editable development mode:
 
 ```bash
 python -m pip install -e ".[test]"
 ```
 
-Then initialize a repository (the default SACAS root is `Structure/`):
+## CLI Commands
+
+All commands support `--root <path>` to target a specific repository directory.
+
+### `sacas init`
+Initialize SACAS in a repository. Creates the default `Structure/` directory with `ROUTER.md`, rules, and platform-specific adapters.
 
 ```bash
-sacas init --root /path/to/repository
+sacas init --sacas-root Structure
 ```
 
-For a no-install development invocation, run `PYTHONPATH=src python -m sacas init
---root /path/to/repository` (set `PYTHONPATH` using your shell's syntax).
-
-> **Legacy material below:** the PowerShell commands and generated layout described
-> in the remaining sections are pending parity-tested retirement. They are not the
-> current CLI contract.
-
-Generate AI-optimized folder structures for any codebase. Filesystem = orchestration. Folders = memory. Markdown = interface.
-
-SACAS analyzes a project's tech stack, architecture, conventions, and module boundaries, then scaffolds a structured workspace that gives AI agents precisely scoped context per task — reducing token usage by ~85%.
-
-## Quick Start
+### `sacas map`
+Build a system map from optional Graphify evidence.
 
 ```bash
-# Copy to your AI tool's skills directory
-# Antigravity
-cp -r . ~/.gemini/config/skills/sacas/
-
-# Claude Code
-cp -r . ~/.claude/skills/sacas/
-
-# Then in any project:
-/sacas                    # analyze + scaffold (replace mode — interactive by default)
-/sacas -NonInteractive    # analyze + scaffold headlessly (skip prompt inputs)
-/sacas-merge              # preserve existing AI configs (interactive by default)
-/sacas-merge -NonInteractive # merge headlessly (skip prompt inputs)
-/sacas-status             # check structure health
+sacas map --mode existing
 ```
 
-## What It Does
+### `sacas task`
+Generate task contracts and context files under `Structure/tasks/current/` (`TASK.md`, `CONTEXT.md`, `STATE.md`, and `PICKUP.md`).
 
-1. **Analyzes** your codebase — detects language, framework, architecture pattern, linter/formatter, module boundaries, and existing AI configs
-2. **Scaffolds** a folder structure with scoped context files:
-
-```
-your-project/
-├── .aiignore                  # Root ignore config
-├── .cursorignore              # Root ignore config
-└── Structure/                 # Configurable sub-directory (keeps root clean)
-    ├── AGENTS.md              # Root agent instructions
-    ├── PICKUP.md              # Session handoff
-    ├── .ai/rules/             # Coding standards
-    ├── context/
-    │   └── architecture.md    # System architecture
-    ├── tasks/
-    │   ├── current/           # Active work (TASK.md + CONTEXT.md + PROGRESS.md)
-    │   ├── backlog/           # Queued tasks
-    │   └── completed/         # Done tasks
-    └── references/            # Per-module deep docs (loaded on demand)
+```bash
+sacas task "Implement user authentication" --files src/auth.py --criteria "User can log in"
 ```
 
-3. **Enriches** with [graphify](https://github.com/Graphify-Labs/graphify) data (optional) — communities become module boundaries, god nodes get flagged, cross-module edges pre-populate CONTEXT.md files
+### `sacas refresh`
+Refresh file hashes in the active task context and progressively expand context using Graphify evidence. Respects protected boundaries.
 
-## CLI Parameters & Customization
+```bash
+sacas refresh
+```
 
-The underlying PowerShell scripts can be parameterized for advanced configurations:
+### `sacas status`
+Show the status, staleness, and budget consumption of the active task. Supports `--format text|json`.
 
-### `scaffold.ps1`
-Controls the generation and placement of the workspace files.
+```bash
+sacas status --format json
+```
 
-| Parameter | Type | Default | Description |
-|:---|:---|:---|:---|
-| `-Path` | `string` | `.` | Project root directory. |
-| `-SubDir` | `string` | `Structure` | Workspace sub-directory folder. Set to `""` to write directly to root. |
-| `-Mode` | `replace \| merge` | `replace` | `replace` overwrites files; `merge` preserves existing configurations. |
-| `-NonInteractive` | `switch` | `$false` | Skip interactive prompt questions. Recommended for automation and scripts. |
-| `-AnalysisPath` | `string` | `[SubDir]/.sacas/analysis.json` | Path to the metadata analysis file. |
-| `-TemplatePath` | `string` | `../templates` | Path to custom markdown templates. |
+### `sacas validate`
+Run cold-agent validation diagnostics (manifest, regions, missing references, state drift, budget, etc.). Supports `--format text|json`.
 
-### `analyze.ps1`
-Scans the codebase stack and architecture to cached JSON metadata.
+```bash
+sacas validate
+```
 
-| Parameter | Type | Default | Description |
-|:---|:---|:---|:---|
-| `-Path` | `string` | `.` | Project root directory. |
-| `-SubDir` | `string` | `Structure` | Prepend folder path for `.sacas/` cache metadata output. |
+### `sacas migrate`
+Migrate legacy PowerShell SACAS structures (like `PROGRESS.md`) to the new Python CLI structures (`STATE.md`). Use `--apply` to execute changes.
 
-### `read-graphify.ps1` & `generate-context-md.ps1`
-Reads dependency relations and builds context pages.
+```bash
+sacas migrate --apply
+```
 
-| Parameter | Type | Default | Description |
-|:---|:---|:---|:---|
-| `-Path` | `string` | `.` | Project root directory. |
-| `-SubDir` | `string` | `Structure` | Prepend folder path for tasks backlog and references outputs. |
+### `sacas benchmark`
+Run context size and routing quality benchmarks across baseline, Graphify, and SACAS modes. Supports `--format text|json`.
+
+```bash
+sacas benchmark
+```
 
 ## Key Concept
 
-**CONTEXT.md is the token-saving secret.** Each task gets a CONTEXT.md that lists exactly which files are relevant. The agent reads ONLY those files — not the full codebase.
-
-## Supported Stacks
-
-| Language | Frameworks | Config Detection |
-|:---|:---|:---|
-| TypeScript/JavaScript | React, Next.js, Vue, Angular, Svelte, Express, Fastify | package.json, tsconfig.json |
-| Python | Django, Flask, FastAPI | pyproject.toml, requirements.txt |
-| Rust | — | Cargo.toml |
-| Go | — | go.mod |
-| Java/Kotlin | — | pom.xml, build.gradle |
-| .NET | — | .csproj, .sln |
-| Ruby | — | Gemfile |
-| PHP | — | composer.json |
-
-Architecture detection: monolith, monorepo (npm/pnpm/cargo/lerna/turbo/nx workspaces), microservices (docker-compose).
-
-## File Structure
-
-```
-sacas/
-├── SKILL.md                    # Skill definition (read by AI tools)
-├── scripts/
-│   ├── analyze.ps1             # Orchestrator
-│   ├── detect-stack.ps1        # Tech stack detection
-│   ├── detect-architecture.ps1 # Architecture pattern
-│   ├── detect-conventions.ps1  # Linter/formatter detection
-│   ├── detect-modules.ps1      # Module boundary detection
-│   ├── detect-existing-ai.ps1  # Existing AI config detection
-│   ├── scaffold.ps1            # Main scaffolder
-│   ├── read-graphify.ps1       # Graphify data reader
-│   └── generate-context-md.ps1 # Auto-generates CONTEXT.md from graphify
-├── templates/                  # Markdown templates stamped out by scaffold
-├── hooks/                      # Session lifecycle instructions
-└── references/                 # Format guides and usage docs
-```
+`CONTEXT.md` is the token-saving secret. Each task gets a `CONTEXT.md` that lists exactly which files and symbols are relevant. The agent reads only those files — not the full codebase.
 
 ## Portability
 
-Works with any AI coding tool:
-
-| Tool | How to Use |
-|:---|:---|
-| **Antigravity** | Copy to `~/.gemini/config/skills/sacas/` |
-| **Claude Code** | Copy to `~/.claude/skills/sacas/`, rename AGENTS.md → CLAUDE.md |
-| **Cursor** | Copy AGENTS.md content into `.cursorrules` |
-| **GitHub Copilot** | Copy key sections to `.github/copilot-instructions.md` |
-| **Any LLM** | Markdown files are universal |
-
-## Requirements
-
-- PowerShell 7+ (pwsh)
-- Works on Windows, macOS (with pwsh), Linux (with pwsh)
+SACAS automatically generates adapters and instructions for:
+- **Antigravity**: natively uses the skill.
+- **Claude Code**: copies rules into `CLAUDE.md`.
+- **Cursor**: copies rules into `.cursorrules` / `.cursor/rules/`.
+- **GitHub Copilot**: copies instructions into `.github/copilot-instructions.md`.
 
 ## License
 

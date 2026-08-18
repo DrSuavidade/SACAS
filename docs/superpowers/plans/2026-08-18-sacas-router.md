@@ -22,10 +22,10 @@
 - Create: `tests/test_cli.py`
 - Create: `.github/workflows/test.yml`
 
-- [ ] Write behavioral tests for `sacas --help`, unknown-command exit codes, and the published package version.
-- [ ] Run `$env:PYTHONPATH='src'; python -m pytest tests/test_cli.py -q; Remove-Item Env:PYTHONPATH` and confirm assertions fail because the CLI contract is absent.
-- [ ] Add package metadata, a `sacas` console entry point, argparse command registration, and CI.
-- [ ] Re-run the focused test, then the full suite.
+- [x] Write behavioral tests for `sacas --help`, unknown-command exit codes, and the published package version.
+- [x] Run `$env:PYTHONPATH='src'; python -m pytest tests/test_cli.py -q; Remove-Item Env:PYTHONPATH` and confirm assertions fail because the CLI contract is absent.
+- [x] Add package metadata, a `sacas` console entry point, argparse command registration, and CI.
+- [x] Re-run the focused test, then the full suite.
 
 ### Task 2: Define schemas and safe generated ownership
 
@@ -35,10 +35,10 @@
 - Create: `src/sacas/io.py`
 - Create: `tests/test_regions.py`
 
-- [ ] Test manifest serialization/version validation and replace-only `SACAS:START/END` regions.
-- [ ] Verify tests fail because helpers do not exist.
-- [ ] Implement immutable models, atomic deterministic writes, and region replacement that leaves manual text unchanged.
-- [ ] Re-run focused and full tests.
+- [x] Test manifest serialization/version validation and replace-only `SACAS:START/END` regions.
+- [x] Verify tests fail because helpers do not exist.
+- [x] Implement immutable models, atomic deterministic writes, and region replacement that leaves manual text unchanged.
+- [x] Re-run focused and full tests.
 
 ## Chunk 2: Initialization, manifest, and adapter generation
 
@@ -51,11 +51,11 @@
 - Create: `tests/test_init.py`
 - Create: `tests/conftest.py`
 
-- [ ] Test default/custom/root-level manifests, existing human router preservation, and a second unchanged init producing no diff.
-- [ ] Verify each test fails before implementation.
-- [ ] Implement manifest discovery, creation, compact routers, rules/map/task/references directories, and ownership headers.
-- [ ] Create a human-authored `rules/boundaries.md` format; only its `MANUAL` entries may be protected, never Graphify communities.
-- [ ] Run the focused tests and full suite.
+- [x] Test default/custom/root-level manifests, existing human router preservation, and a second unchanged init producing no diff.
+- [x] Verify each test fails before implementation.
+- [x] Implement manifest discovery, creation, compact routers, rules/map/task/references directories, and ownership headers.
+- [x] Create a human-authored `rules/boundaries.md` format; only its `MANUAL` entries may be protected, never Graphify communities.
+- [x] Run the focused tests and full suite.
 
 ### Task 4: Implement platform-neutral adapters and ignores
 
@@ -64,10 +64,10 @@
 - Create: `tests/test_adapters.py`
 - Modify: `src/sacas/init.py`
 
-- [ ] Test idempotent Codex/Claude/Cursor/Copilot/Gemini adapters and root-level `graphify-out/` ignores, including preservation of manual regions in every generated adapter.
-- [ ] Verify red state.
-- [ ] Generate bounded adapter sections and platform-specific ignores without redirecting Graphify output under `Structure/`.
-- [ ] Run focused tests and full suite.
+- [x] Test idempotent Codex/Claude/Cursor/Copilot/Gemini adapters and root-level `graphify-out/` ignores, including preservation of manual regions in every generated adapter.
+- [x] Verify red state.
+- [x] Generate bounded adapter sections and platform-specific ignores without redirecting Graphify output under `Structure/`.
+- [x] Run focused tests and full suite.
 
 ## Chunk 3: Evidence collection and system map
 
@@ -91,10 +91,10 @@
 - Create: `tests/fixtures/mixed-repo/pom.xml`
 - Create: `tests/fixtures/mixed-repo/build.gradle`
 
-- [ ] Test package workspaces (npm/pnpm/Nx/Turbo), Cargo, Go, .NET, Maven/Gradle, Python, Docker Compose, deterministic heuristic fallback, module source/confidence, spaces in paths, and analysis idempotency.
-- [ ] Verify red state.
-- [ ] Implement lightweight detectors for the tested metadata and bounded directory heuristics; serialize evidence and freshness. Document unsupported formats as fallbacks, not full support.
-- [ ] Run focused tests and full suite.
+- [x] Test package workspaces (npm/pnpm/Nx/Turbo), Cargo, Go, .NET, Maven/Gradle, Python, Docker Compose, deterministic heuristic fallback, module source/confidence, spaces in paths, and analysis idempotency.
+- [x] Verify red state.
+- [x] Implement lightweight detectors for the tested metadata and bounded directory heuristics; serialize evidence and freshness. Document unsupported formats as fallbacks, not full support.
+- [x] Run focused tests and full suite.
 
 ### Task 6: Consume Graphify without recreating it
 
@@ -104,10 +104,10 @@
 - Create: `tests/test_graphify.py`
 - Create: `tests/fixtures/graphify-out/graph.json`
 
-- [ ] Test `off`, `existing`, local-only `code-only`, and explicit `semantic` mode selection; absent/stale data; maps that use community evidence without task creation or protected boundaries.
-- [ ] Verify red state.
-- [ ] Implement graph manifest/hash freshness checks, safe optional query invocation, provenance levels, compact system map rendering, and bounded impact/effect records (direct target, callers/importers/dependents/tests). `code-only` invokes Graphify's supported local extraction rather than duplicating graph extraction; `semantic` requires explicit user selection before any external processing.
-- [ ] Run focused tests and full suite.
+- [x] Test `off`, `existing`, local-only `code-only`, and explicit `semantic` mode selection; absent/stale data; maps that use community evidence without task creation or protected boundaries.
+- [x] Verify red state.
+- [x] Implement graph manifest/hash freshness checks, safe optional query invocation, provenance levels, compact system map rendering, and bounded impact/effect records (direct target, callers/importers/dependents/tests). `code-only` invokes Graphify's supported local extraction rather than duplicating graph extraction; `semantic` requires explicit user selection before any external processing.
+- [x] Run focused tests and full suite.
 
 ## Chunk 4: Task routing, state, refresh, and status
 
