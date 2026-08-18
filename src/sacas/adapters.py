@@ -39,8 +39,8 @@ def generate_adapter(repository_root: Path | str, sacas_root: str, platform: str
     if platform == "copilot":
         generated += (
             "\n\nGitHub Copilot does not provide a repository-local ignore file. "
-            "Configure exclusions through administrator settings; in agent mode, verify "
-            "that the configured repository and organization policies apply."
+            "Configure exclusions through administrator settings. Repository and organization "
+            "content exclusions do not protect Copilot CLI, cloud, or agent mode."
         )
     return _replace_or_append(target, f"adapter-{platform}", generated)
 

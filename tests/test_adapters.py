@@ -35,7 +35,7 @@ def test_adapter_generation_is_idempotent_and_preserves_manual_content(
     if platform == "copilot":
         assert "does not provide a repository-local ignore file" in first
         assert "administrator settings" in first
-        assert "agent mode" in first
+        assert "do not protect Copilot CLI, cloud, or agent mode" in first
 
     assert generate_adapter(tmp_path, "Structure", platform) is False
     assert target.read_text(encoding="utf-8") == first
