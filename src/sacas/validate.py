@@ -8,7 +8,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from sacas.budget import calculate_context_size
+from sacas.budget import calculate_context_size, calculate_total_context_size
 from sacas.graphify import read_graphify_manifest
 from sacas.paths import discover_manifest, Installation
 from sacas.tasks import is_file_protected, parse_protected_boundaries
@@ -196,7 +196,7 @@ def run_diagnostics(root: Path) -> dict[str, Any]:
                     })
 
                 # Budget check
-                total_size = calculate_context_size(installation.repository_root, tuple(all_files))
+                total_size = calculate_total_context_size(installation, tuple(all_files))
                 if total_size > manifest.context_budget:
                     diagnostics.append({
                         "severity": "WARNING",

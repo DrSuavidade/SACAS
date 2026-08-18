@@ -118,9 +118,7 @@ def refresh_context(
         if graphify_manifest_path.is_file():
             try:
                 evidence = read_graphify_manifest(graphify_manifest_path)
-            except Exception as e:
-                import sys
-                print(f"DEBUG: read_graphify_manifest failed: {e}", file=sys.stderr)
+            except Exception:
                 pass
 
         if evidence is not None:

@@ -111,7 +111,6 @@ def test_e2e_routing_loop(tmp_path: Path) -> None:
 
     # Check expansions.json
     exp_data = json.loads(expansions_path.read_text(encoding="utf-8"))
-    print("DEBUG: exp_data =", json.dumps(exp_data, indent=2))
     adjacent_paths = [item["path"] for item in exp_data.get("adjacent", [])]
     assert "src/logger.py" in adjacent_paths
     
