@@ -155,3 +155,34 @@ def test_analysis_detects_added_or_removed_module_descriptor_as_stale(
         package.unlink()
 
     assert analysis.freshness.is_current(root) is False
+
+
+def test_analysis_detects_later_creation_of_previously_absent_module_container(tmp_path: Path) -> None:
+    from sacas.analysis import analyze_repository
+
+    root = copy_fixture("python-service", tmp_path)
+    analysis = analyze_repository(root)
+    package = root / "apps" / "web" / "package.json"
+    package.parent.mkdir(parents=True)
+    package.write_text('{"name":"web"}', encoding="utf-8")
+
+    assert analysis.freshness.is_current(root) is False
+
+
+@pytest.mark.parametrize("operation", ["add", "remove"])
+def test_analysis_detects_heuristic_module_topology_changes(tmp_path: Path, operation: str) -> None:
+    from sacas.analysis import analyze_repository
+
+    root = tmp_path / "heuristic-repository"
+    child = root / "src" / "api"
+    if operation == "remove":
+        child.mkdir(parents=True)
+    else:
+        root.mkdir()
+    analysis = analyze_repository(root)
+    if operation == "add":
+        child.mkdir(parents=True)
+    else:
+        child.rmdir()
+
+    assert analysis.freshness.is_current(root) is False

@@ -12,6 +12,9 @@ from .modules import Module, detect_modules, module_metadata_paths
 from .repository import Evidence, collect_repository_evidence
 
 
+MODULE_CONTAINERS = ("apps", "packages", "services", "src")
+
+
 @dataclass(frozen=True, slots=True)
 class Freshness:
     fingerprint: str
@@ -55,9 +58,9 @@ def analyze_repository(root: Path) -> Analysis:
     root = root.resolve()
     repository = collect_repository_evidence(root)
     paths = tuple(sorted({item.path for item in repository.evidence} | set(module_metadata_paths(root))))
-    inventory_roots = tuple(
-        name for name in ("apps", "packages") if (root / name).is_dir()
-    )
+    # Record every conventional container, even absent ones, so creating a
+    # future module cannot leave a prior analysis falsely fresh.
+    inventory_roots = MODULE_CONTAINERS
     return Analysis(
         root=str(root),
         ecosystems=repository.ecosystems,
@@ -112,4 +115,6 @@ def _fingerprint(root: Path, paths: tuple[str, ...], inventory_roots: tuple[str,
                 digest.update(b":package.json=")
                 digest.update(b"1" if (child / "package.json").is_file() else b"0")
                 digest.update(b"\0")
+        else:
+            digest.update(b"<missing-container>\0")
     return digest.hexdigest()
