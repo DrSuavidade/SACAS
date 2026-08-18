@@ -1,5 +1,9 @@
 # SACAS — Scaffold Architect Context Analyzer Skill
 
+> Development notice: the Python `sacas` CLI is the active implementation. The
+> PowerShell commands documented below are legacy material pending parity-tested
+> retirement; do not treat them as the current CLI contract.
+
 Generate AI-optimized folder structures for any codebase. Filesystem = orchestration. Folders = memory. Markdown = interface.
 
 SACAS analyzes a project's tech stack, architecture, conventions, and module boundaries, then scaffolds a structured workspace that gives AI agents precisely scoped context per task — reducing token usage by ~85%.

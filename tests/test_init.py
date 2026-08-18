@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 
@@ -97,6 +98,48 @@ def test_second_unchanged_init_is_idempotent(tmp_path: Path) -> None:
 
     assert result.changed is False
     assert after == before
+
+
+def test_repeat_init_preserves_existing_valid_manifest_configuration(tmp_path: Path) -> None:
+    from sacas.init import initialize
+    from sacas.models import Manifest
+
+    initialize(tmp_path)
+    manifest_path = tmp_path / "Structure" / ".sacas" / "manifest.json"
+    configured = Manifest(
+        graphify_mode="semantic",
+        adapters=("codex",),
+        context_budget=5_000,
+        current_task_id="task-123",
+    )
+    manifest_path.write_text(json.dumps(configured.to_dict()), encoding="utf-8")
+
+    result = initialize(tmp_path)
+
+    assert result.changed is False
+    assert result.installation.manifest == configured
+    assert json.loads(manifest_path.read_text(encoding="utf-8")) == configured.to_dict()
+
+
+def test_manifest_discovery_does_not_select_a_sibling_installation(tmp_path: Path) -> None:
+    from sacas.init import initialize
+    from sacas.paths import discover_manifest
+
+    sibling = tmp_path / "sibling"
+    target = tmp_path / "target"
+    initialize(sibling)
+    target.mkdir()
+
+    assert discover_manifest(target) is None
+
+
+def test_manifest_discovery_does_not_select_a_descendant_installation(tmp_path: Path) -> None:
+    from sacas.init import initialize
+    from sacas.paths import discover_manifest
+
+    initialize(tmp_path / "nested")
+
+    assert discover_manifest(tmp_path) is None
 
 
 def test_cli_init_accepts_its_text_root_argument(tmp_path: Path) -> None:

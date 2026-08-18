@@ -3,11 +3,18 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 from pathlib import Path
 
 from sacas.io import stable_json, write_text_atomic
 from sacas.models import Manifest
-from sacas.paths import MANIFEST_RELATIVE_PATH, Installation, resolve_sacas_root
+from sacas.paths import (
+    DEFAULT_SACAS_ROOT,
+    LOCATOR_RELATIVE_PATH,
+    MANIFEST_RELATIVE_PATH,
+    Installation,
+    resolve_sacas_root,
+)
 from sacas.templates import boundaries_document, router_document
 
 
@@ -27,8 +34,16 @@ def initialize(repository_root: Path | str, *, sacas_root: str = "Structure") ->
     """Create the canonical SACAS layout, preserving human-authored documents."""
     repository_root = Path(repository_root).resolve()
     resolved_root = resolve_sacas_root(repository_root, sacas_root)
-    manifest = Manifest(repository_root=".", sacas_root=sacas_root.replace("\\", "/"))
+    configured_root = sacas_root.replace("\\", "/")
     manifest_path = resolved_root / MANIFEST_RELATIVE_PATH
+    manifest = _load_manifest(manifest_path) if manifest_path.is_file() else Manifest(
+        repository_root=".", sacas_root=configured_root
+    )
+    if manifest.sacas_root != configured_root:
+        raise ValueError(
+            f"Existing manifest configures sacas_root={manifest.sacas_root!r}; "
+            f"requested {configured_root!r}."
+        )
     changed = False
 
     for directory in (
@@ -42,7 +57,11 @@ def initialize(repository_root: Path | str, *, sacas_root: str = "Structure") ->
             directory.mkdir(parents=True, exist_ok=True)
             changed = True
 
-    changed |= _write_if_changed(manifest_path, stable_json(manifest.to_dict()))
+    if not manifest_path.exists():
+        changed |= _write_if_changed(manifest_path, stable_json(manifest.to_dict()))
+    if configured_root not in (".", DEFAULT_SACAS_ROOT):
+        locator = {"manifest": manifest_path.relative_to(repository_root).as_posix()}
+        changed |= _write_if_changed(repository_root / LOCATOR_RELATIVE_PATH, stable_json(locator))
     router_path = resolved_root / "ROUTER.md"
     existing_router = router_path.read_text(encoding="utf-8") if router_path.exists() else None
     changed |= _write_if_changed(router_path, router_document(existing_router))
@@ -60,3 +79,8 @@ def _write_if_changed(path: Path, content: str) -> bool:
         return False
     write_text_atomic(path, content)
     return True
+
+
+def _load_manifest(path: Path) -> Manifest:
+    with path.open(encoding="utf-8") as source:
+        return Manifest.from_dict(json.load(source))

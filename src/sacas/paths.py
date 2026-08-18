@@ -10,6 +10,8 @@ from sacas.models import Manifest
 
 
 MANIFEST_RELATIVE_PATH = Path(".sacas") / "manifest.json"
+LOCATOR_RELATIVE_PATH = Path(".sacas") / "root.json"
+DEFAULT_SACAS_ROOT = "Structure"
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,7 +36,7 @@ def resolve_sacas_root(repository_root: Path, configured_root: str) -> Path:
 
 
 def discover_manifest(start: Path) -> Installation | None:
-    """Find the nearest ancestor repository whose configured root owns a manifest."""
+    """Find an installation through ancestors and bounded canonical locations only."""
     current = start.resolve()
     if current.is_file():
         current = current.parent
@@ -44,12 +46,14 @@ def discover_manifest(start: Path) -> Installation | None:
             found = _load_if_owned(repository_root, manifest_path)
             if found is not None:
                 return found
-        # The manifest itself remains canonical, including for intentionally nested
-        # custom roots. Validate each candidate's configured root before accepting it.
-        for child_manifest in sorted(repository_root.rglob(MANIFEST_RELATIVE_PATH.name)):
-            if child_manifest.parent.name != ".sacas":
-                continue
-            found = _load_if_owned(repository_root, child_manifest)
+        locator_path = repository_root / LOCATOR_RELATIVE_PATH
+        if locator_path.is_file():
+            found = _load_from_locator(repository_root, locator_path)
+            if found is not None:
+                return found
+        default_manifest = repository_root / DEFAULT_SACAS_ROOT / MANIFEST_RELATIVE_PATH
+        if default_manifest.is_file():
+            found = _load_if_owned(repository_root, default_manifest)
             if found is not None:
                 return found
     return None
@@ -67,3 +71,18 @@ def _load_if_owned(repository_root: Path, manifest_path: Path) -> Installation |
         manifest_path=manifest_path.resolve(),
         manifest=manifest,
     )
+
+
+def _load_from_locator(repository_root: Path, locator_path: Path) -> Installation | None:
+    with locator_path.open(encoding="utf-8") as source:
+        locator = json.load(source)
+    if not isinstance(locator, dict) or not isinstance(locator.get("manifest"), str):
+        raise ValueError(f"Invalid SACAS root locator: {locator_path}")
+    manifest_path = (repository_root / locator["manifest"]).resolve()
+    try:
+        manifest_path.relative_to(repository_root)
+    except ValueError as error:
+        raise ValueError("SACAS root locator must point inside the repository") from error
+    if not manifest_path.is_file():
+        return None
+    return _load_if_owned(repository_root, manifest_path)
