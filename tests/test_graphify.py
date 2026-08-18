@@ -237,8 +237,19 @@ def test_sacas_generated_map_state_does_not_make_graphify_stale_on_repeat_map(
     graph_fixture(tmp_path)
     arguments = ["map", "--root", str(tmp_path), "--mode", "existing", "--sacas-root", sacas_root]
     assert main(arguments) == 0
-
     assert collect_graphify(tmp_path, mode="existing", sacas_root=sacas_root).status == "fresh"
+    assert main(arguments) == 0
+
+
+def test_root_level_repeat_map_ignores_only_its_generated_state(tmp_path: Path) -> None:
+    from sacas.cli import main
+    from sacas.graphify import collect_graphify
+
+    graph_fixture(tmp_path)
+    arguments = ["map", "--root", str(tmp_path), "--mode", "existing", "--sacas-root", "."]
+    assert main(arguments) == 0
+
+    assert collect_graphify(tmp_path, mode="existing", sacas_root=".").status == "fresh"
     assert main(arguments) == 0
 
 

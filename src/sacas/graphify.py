@@ -253,7 +253,7 @@ def _has_newer_source(root: Path, graph_path: Path, output: str, sacas_root: str
         relative = path.relative_to(root)
         if any(part in ignored for part in relative.parts) or any(
             relative.is_relative_to(generated_root) for generated_root in generated_roots
-        ):
+        ) or (sacas_root == "." and _is_root_sacas_generated(relative)):
             continue
         try:
             if path.stat().st_mtime_ns > graph_time:
@@ -261,3 +261,21 @@ def _has_newer_source(root: Path, graph_path: Path, output: str, sacas_root: str
         except OSError:
             continue
     return False
+
+
+def _is_root_sacas_generated(relative: Path) -> bool:
+    """Recognize generated root-level SACAS state without hiding source files."""
+    generated_files = {
+        "ROUTER.md",
+        "map/SYSTEM.md",
+        "AGENTS.md",
+        "CLAUDE.md",
+        "GEMINI.md",
+        ".aiignore",
+        ".claudeignore",
+        ".cursorignore",
+        ".geminiignore",
+        ".cursor/rules/sacas.mdc",
+        ".github/copilot-instructions.md",
+    }
+    return relative.as_posix() in generated_files or relative.is_relative_to(Path("tasks/current"))
