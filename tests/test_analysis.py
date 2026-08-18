@@ -254,4 +254,23 @@ def test_pnpm_workspace_parser_ignores_unrelated_yaml_sequences(tmp_path: Path) 
         package.parent.mkdir(parents=True)
         package.write_text(f'{{"name":"{name}"}}', encoding="utf-8")
 
-    assert [module.path for module in detect_modules(root)] == ["services/service"]
+    assert [(module.path, module.source) for module in detect_modules(root)] == [
+        ("services/service", "workspace_metadata")
+    ]
+
+
+def test_pnpm_workspace_parser_accepts_four_space_package_indentation(tmp_path: Path) -> None:
+    from sacas.modules import detect_modules
+
+    root = tmp_path / "pnpm-workspace"
+    root.mkdir()
+    (root / "pnpm-workspace.yaml").write_text(
+        'packages:\n    - "services/*"\n', encoding="utf-8"
+    )
+    package = root / "services" / "service" / "package.json"
+    package.parent.mkdir(parents=True)
+    package.write_text('{"name":"service"}', encoding="utf-8")
+
+    assert [(module.path, module.source) for module in detect_modules(root)] == [
+        ("services/service", "workspace_metadata")
+    ]

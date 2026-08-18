@@ -96,7 +96,7 @@ def _pnpm_package_patterns(path: Path) -> tuple[str, ...]:
             continue
         if line and not line[0].isspace():
             break
-        match = re.match(r"^  -\s*['\"]?([^'\"\s]+)['\"]?\s*(?:#.*)?$", line)
+        match = re.match(r"^\s+-\s*['\"]?([^'\"\s]+)['\"]?\s*(?:#.*)?$", line)
         if match:
             patterns.append(match.group(1))
     return tuple(patterns)
