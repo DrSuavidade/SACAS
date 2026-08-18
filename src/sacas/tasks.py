@@ -87,7 +87,13 @@ def get_git_commit(root: Path) -> str:
 def extract_keywords(goal: str) -> list[str]:
     import re
     words = re.findall(r"\b[a-zA-Z0-9]{3,}\b", goal.lower())
-    return list(dict.fromkeys(words))
+    stop_words = {
+        "fix", "add", "change", "update", "bug", "issue", "make", "implement",
+        "test", "logic", "refactor", "code", "the", "and", "for"
+    }
+    filtered = [w for w in words if w not in stop_words]
+    return list(dict.fromkeys(filtered))
+
 
 
 def score_file_against_goal(filepath: str, file_content: str, keywords: list[str]) -> tuple[int, list[str]]:

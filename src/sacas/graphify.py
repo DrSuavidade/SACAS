@@ -285,6 +285,8 @@ def _is_root_sacas_generated(relative: Path) -> bool:
 class GraphifyQueryResult:
     raw_output: str
     paths: tuple[str, ...]
+    status: str
+
 
 
 class GraphifyAdapter:
@@ -371,19 +373,32 @@ class GraphifyAdapter:
         """Isolate parsing of query output format."""
         import re
         paths = []
+        has_nodes = False
         for line in raw_output.splitlines():
             if line.startswith("NODE "):
-                # Search for src=...
+                has_nodes = True
                 match = re.search(r"\[src=([^\]\s]+)", line)
                 if match:
                     src_file = match.group(1).strip()
                     if src_file and src_file != "None":
                         paths.append(src_file)
-        return GraphifyQueryResult(raw_output=raw_output, paths=tuple(dict.fromkeys(paths)))
+
+        if not has_nodes:
+            if "No matching nodes found" in raw_output or not raw_output.strip():
+                status = "no_matches"
+            else:
+                status = "parse_failure"
+        else:
+            status = "success"
+
+        return GraphifyQueryResult(raw_output=raw_output, paths=tuple(dict.fromkeys(paths)), status=status)
 
     def validate_query_contract(self, result: GraphifyQueryResult) -> bool:
         """Validate parsed query output conforms to basic expectations."""
-        if "No matching nodes found" in result.raw_output:
-            return True
-        return len(result.paths) > 0
+        if result.status == "parse_failure":
+            import sys
+            print("WARNING: Graphify output parsing failed. Check if CLI output contract changed.", file=sys.stderr)
+            return False
+        return True
+
 

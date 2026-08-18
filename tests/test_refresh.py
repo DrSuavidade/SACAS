@@ -107,7 +107,7 @@ def test_refresh_predictive_budgeting_and_ranking(tmp_path: Path) -> None:
     
     manifest_path = init_result.sacas_root / ".sacas" / "manifest.json"
     manifest_data = json.loads(manifest_path.read_text(encoding="utf-8"))
-    manifest_data["context_budget"] = 450
+    manifest_data["context_budget"] = 500
     manifest_path.write_text(json.dumps(manifest_data), encoding="utf-8")
     
     # Create a task
@@ -171,4 +171,47 @@ def test_refresh_predictive_budgeting_and_ranking(tmp_path: Path) -> None:
     
     adjacent_item = next(item for item in expansions.get("adjacent", []) if item["path"] == "tests/test_app.py")
     assert adjacent_item["excluded_reason"] == "budget"
+
+
+def test_schema_migration_v1_to_v2(tmp_path: Path) -> None:
+    from sacas.init import initialize
+    from sacas.refresh import refresh_context
+    import json
+    
+    init_result = initialize(tmp_path)
+    
+    task_dir = init_result.sacas_root / "tasks" / "current"
+    task_dir.mkdir(parents=True, exist_ok=True)
+    
+    expansions_path = task_dir / "expansions.json"
+    v1_data = {
+        "initial_files": {"src/app.py": "hash_val"},
+        "expanded_files": {"src/helper.py": "hash_val2"},
+        "goal": "V1 task upgrade"
+    }
+    expansions_path.write_text(json.dumps(v1_data), encoding="utf-8")
+    
+    (tmp_path / "src").mkdir(exist_ok=True)
+    (tmp_path / "src" / "app.py").write_text("print()", encoding="utf-8")
+    (tmp_path / "src" / "helper.py").write_text("print()", encoding="utf-8")
+    
+    manifest_path = init_result.sacas_root / ".sacas" / "manifest.json"
+    manifest_data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest_data["current_task_id"] = "task_v1"
+    manifest_path.write_text(json.dumps(manifest_data), encoding="utf-8")
+    
+    from sacas.paths import discover_manifest
+    changed = refresh_context(discover_manifest(tmp_path))
+    
+    v2_data = json.loads(expansions_path.read_text(encoding="utf-8"))
+    assert v2_data.get("schema_version") == 2
+    assert "initial_scope" in v2_data
+    assert "expansions" in v2_data
+    
+    initial_paths = [item["path"] for item in v2_data["initial_scope"]]
+    assert "src/app.py" in initial_paths
+    
+    expanded_paths = [item["path"] for item in v2_data["expansions"]]
+    assert "src/helper.py" in expanded_paths
+
 

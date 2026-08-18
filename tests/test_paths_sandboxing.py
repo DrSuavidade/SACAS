@@ -37,6 +37,20 @@ def test_resolve_repo_path_sandbox(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="Path escapes repository root"):
         resolve_repo_path(repo_root, "src/auth/../../../secret")
 
+    # Extra Windows UNC, drive colon, and escape checks
+    with pytest.raises(ValueError, match="Absolute paths are not allowed"):
+        resolve_repo_path(repo_root, "C:foo")
+        
+    with pytest.raises(ValueError, match="Absolute paths are not allowed"):
+        resolve_repo_path(repo_root, "\\\\server\\share\\foo")
+        
+    with pytest.raises(ValueError, match="Absolute paths are not allowed"):
+        resolve_repo_path(repo_root, "\\\\?\\C:\\foo")
+
+    with pytest.raises(ValueError, match="Path escapes repository root"):
+        resolve_repo_path(repo_root, "src/../../foo")
+
+
 
 def test_component_based_boundaries() -> None:
     # boundaries: prefix_path, reason

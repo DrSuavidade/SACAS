@@ -118,7 +118,9 @@ def refresh_context(
         if graphify_manifest_path.is_file():
             try:
                 evidence = read_graphify_manifest(graphify_manifest_path)
-            except Exception:
+            except Exception as e:
+                import sys
+                print(f"DEBUG: read_graphify_manifest failed: {e}", file=sys.stderr)
                 pass
 
         if evidence is not None:
@@ -221,7 +223,7 @@ def refresh_context(
                 except OSError:
                     cand_hash = ""
 
-                if current_cost + cand_cost <= budget:
+                if current_cost + cand_cost + 50 <= budget:
                     new_expansions.append({
                         "id": f"exp-{len(new_expansions) + 1:03d}",
                         "path": cand_path,
@@ -248,6 +250,8 @@ def refresh_context(
                         "excluded_reason": "budget"
                     })
 
+            if new_expansions != expansions.get("expansions", []) or new_adjacent != expansions.get("adjacent", []):
+                changed = True
             expansions["expansions"] = new_expansions
             expansions["adjacent"] = new_adjacent
 

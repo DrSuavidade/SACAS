@@ -79,6 +79,47 @@ def test_e2e_routing_loop(tmp_path: Path) -> None:
     exit_code = main(["status", "--root", str(repo), "--format", "json"])
     assert exit_code == 0
 
+    # 8. Test budget limitation during E2E refresh
+    # Set a tiny budget of 300 tokens
+    manifest_path = installation.sacas_root / ".sacas" / "manifest.json"
+    manifest_data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest_data["context_budget"] = 300
+    manifest_path.write_text(json.dumps(manifest_data), encoding="utf-8")
+
+    # Add caller relation to graphify cache
+    graphify_manifest_path = installation.sacas_root / ".sacas" / "graphify.json"
+    g_data = json.loads(graphify_manifest_path.read_text(encoding="utf-8"))
+    
+    # We add a new node src/logger.py and a calls edge from node_auth to node_logger
+    g_data["nodes"] = [
+        ["node_auth", "src/auth.py"],
+        ["node_session", "src/session.py"],
+        ["node_logger", "src/logger.py"]
+    ]
+    g_data["edges"] = [
+        ["node_auth", "node_logger", "calls"]
+    ]
+    graphify_manifest_path.write_text(json.dumps(g_data), encoding="utf-8")
+
+    # Create logger.py as a large file to exceed budget
+    logger_py = repo / "src" / "logger.py"
+    logger_py.write_text("print('logger')\n" * 150, encoding="utf-8")
+
+    # Run refresh
+    exit_code = main(["refresh", "--root", str(repo)])
+    assert exit_code == 0
+
+    # Check expansions.json
+    exp_data = json.loads(expansions_path.read_text(encoding="utf-8"))
+    print("DEBUG: exp_data =", json.dumps(exp_data, indent=2))
+    adjacent_paths = [item["path"] for item in exp_data.get("adjacent", [])]
+    assert "src/logger.py" in adjacent_paths
+    
+    adj_item = next(item for item in exp_data["adjacent"] if item["path"] == "src/logger.py")
+
+    assert adj_item["excluded_reason"] == "budget"
+
+
 
 def test_e2e_routing_fallback_on_incompatible_graphify(tmp_path: Path) -> None:
     # Test fallback to heuristics when graphify is missing or incompatible

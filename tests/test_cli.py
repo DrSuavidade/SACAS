@@ -7,11 +7,16 @@ import sys
 
 
 def run_sacas(*arguments: str) -> subprocess.CompletedProcess[str]:
+    import os
+    from pathlib import Path
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(Path(__file__).parent.parent / "src")
     return subprocess.run(
         [sys.executable, "-m", "sacas", *arguments],
         check=False,
         capture_output=True,
         text=True,
+        env=env,
     )
 
 
