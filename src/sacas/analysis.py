@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 
 from .io import write_json_atomic
-from .modules import Module, detect_modules
+from .modules import Module, detect_modules, module_metadata_paths
 from .repository import Evidence, collect_repository_evidence
 
 
@@ -48,7 +48,7 @@ class Analysis:
 def analyze_repository(root: Path) -> Analysis:
     root = root.resolve()
     repository = collect_repository_evidence(root)
-    paths = tuple(sorted({item.path for item in repository.evidence}))
+    paths = tuple(sorted({item.path for item in repository.evidence} | set(module_metadata_paths(root))))
     return Analysis(
         root=str(root),
         ecosystems=repository.ecosystems,

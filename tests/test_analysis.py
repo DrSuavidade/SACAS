@@ -121,3 +121,17 @@ def test_analysis_detects_changed_metadata_as_stale(tmp_path: Path) -> None:
     (root / "pyproject.toml").write_text("[project]\nname = 'changed'\n", encoding="utf-8")
 
     assert first.freshness.is_current(root) is False
+
+
+def test_analysis_detects_changed_nested_module_metadata_as_stale(tmp_path: Path) -> None:
+    from sacas.analysis import analyze_repository
+
+    root = copy_fixture("node-monorepo", tmp_path)
+    package = root / "apps" / "web" / "package.json"
+    package.parent.mkdir(parents=True)
+    package.write_text('{"name":"web","version":"1"}', encoding="utf-8")
+    analysis = analyze_repository(root)
+    package.write_text('{"name":"web","version":"2"}', encoding="utf-8")
+
+    assert "apps/web/package.json" in analysis.freshness.paths
+    assert analysis.freshness.is_current(root) is False

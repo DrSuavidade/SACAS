@@ -32,6 +32,20 @@ def detect_modules(root: Path) -> tuple[Module, ...]:
     return tuple(_directory_heuristics(root))
 
 
+def module_metadata_paths(root: Path) -> tuple[str, ...]:
+    """Return every module descriptor that contributes to metadata discovery."""
+    root = root.resolve()
+    paths: list[Path] = []
+    paths.extend(sorted(root.glob("apps/*/package.json")))
+    paths.extend(sorted(root.glob("packages/*/package.json")))
+    for filename in ("pyproject.toml", "Cargo.toml", "go.mod", "pom.xml", "build.gradle", "build.gradle.kts"):
+        candidate = root / filename
+        if candidate.is_file():
+            paths.append(candidate)
+    paths.extend(sorted(root.glob("*.csproj")))
+    return tuple(sorted({path.relative_to(root).as_posix() for path in paths}))
+
+
 def _package_modules(root: Path) -> list[Module]:
     modules: dict[str, Module] = {}
 
