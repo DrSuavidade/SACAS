@@ -7,6 +7,7 @@ from typing import Any, Mapping
 
 
 SCHEMA_VERSION = 1
+GRAPHIFY_MODES = frozenset({"off", "existing", "code-only", "semantic"})
 
 
 class SchemaVersionError(ValueError):
@@ -27,11 +28,15 @@ class Manifest:
     schema_version: int = SCHEMA_VERSION
 
     def __post_init__(self) -> None:
+        object.__setattr__(self, "adapters", tuple(self.adapters))
         if self.schema_version != SCHEMA_VERSION:
             raise SchemaVersionError(
                 f"Unsupported SACAS schema version {self.schema_version}; "
                 f"expected {SCHEMA_VERSION}."
             )
+        if self.graphify_mode not in GRAPHIFY_MODES:
+            valid_modes = ", ".join(sorted(GRAPHIFY_MODES))
+            raise ValueError(f"graphify_mode must be one of: {valid_modes}")
         if self.context_budget <= 0:
             raise ValueError("context_budget must be positive")
         if not all(isinstance(adapter, str) and adapter for adapter in self.adapters):

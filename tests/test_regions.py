@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -45,6 +46,37 @@ def test_manifest_rejects_unsupported_schema_version() -> None:
         Manifest.from_dict({"schema_version": 999})
 
 
+def test_manifest_converts_directly_supplied_mutable_adapters_to_an_immutable_tuple() -> None:
+    from sacas.models import Manifest
+
+    supplied_adapters = ["codex"]
+    manifest = Manifest(adapters=supplied_adapters)  # type: ignore[arg-type]
+    supplied_adapters.append("cursor")
+
+    assert manifest.adapters == ("codex",)
+    assert isinstance(manifest.adapters, tuple)
+
+
+def test_manifest_rejects_unknown_graphify_mode() -> None:
+    from sacas.models import Manifest
+
+    with pytest.raises(ValueError, match="graphify_mode"):
+        Manifest(graphify_mode="automatic")
+
+
+def test_write_json_atomic_is_deterministic(tmp_path: Path) -> None:
+    from sacas.io import write_json_atomic
+
+    target = tmp_path / "nested" / "manifest.json"
+
+    write_json_atomic(target, {"z": 1, "a": ["é"]})
+    first_write = target.read_text(encoding="utf-8")
+    write_json_atomic(target, {"a": ["é"], "z": 1})
+
+    assert first_write == target.read_text(encoding="utf-8")
+    assert first_write == '{\n  "a": [\n    "é"\n  ],\n  "z": 1\n}\n'
+
+
 def test_replace_region_changes_only_owned_region_and_preserves_manual_text() -> None:
     from sacas.regions import replace_region
 
@@ -68,3 +100,21 @@ def test_replace_region_changes_only_owned_region_and_preserves_manual_text() ->
         "<!-- SACAS:END router -->\n\n"
         "This footer is human-authored.\n"
     )
+
+
+@pytest.mark.parametrize(
+    "document",
+    [
+        "no generated region\n",
+        "<!-- SACAS:START router -->\nmissing end\n",
+        (
+            "<!-- SACAS:START router -->\nfirst\n<!-- SACAS:END router -->\n"
+            "<!-- SACAS:START router -->\nsecond\n<!-- SACAS:END router -->\n"
+        ),
+    ],
+)
+def test_replace_region_rejects_missing_malformed_or_duplicate_ownership(document: str) -> None:
+    from sacas.regions import RegionError, replace_region
+
+    with pytest.raises(RegionError, match="complete SACAS region"):
+        replace_region(document, "router", "replacement")
