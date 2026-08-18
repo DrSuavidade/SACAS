@@ -62,6 +62,8 @@ def collect_graphify(
     root_path = Path(root).resolve()
     output = repository_relative_path(root_path, output)
     sacas_root = repository_relative_path(root_path, sacas_root)
+    if output == ".":
+        raise ValueError("Graphify output must not be the repository root")
     if mode == "off":
         return _empty(root_path, output, status="disabled", provenance="disabled")
     if mode not in {"existing", *_RUNNABLE_MODES}:
@@ -244,7 +246,7 @@ def _communities(raw: object) -> tuple[tuple[str, tuple[str, ...]], ...]:
 def _has_newer_source(root: Path, graph_path: Path, output: str, sacas_root: str) -> bool:
     graph_time = graph_path.stat().st_mtime_ns
     ignored = {".git", ".sacas", "__pycache__"}
-    generated_roots = (Path(output), Path(sacas_root))
+    generated_roots = (Path(output),) if sacas_root == "." else (Path(output), Path(sacas_root))
     for path in root.rglob("*"):
         if not path.is_file():
             continue

@@ -249,6 +249,26 @@ def test_runnable_graphify_modes_reject_custom_output_without_supported_output_f
         collect_graphify(tmp_path, mode="code-only", output="custom-output")
 
 
+def test_root_level_sacas_state_does_not_hide_source_staleness(tmp_path: Path) -> None:
+    from sacas.graphify import collect_graphify
+
+    graph_fixture(tmp_path)
+    graph = tmp_path / "graphify-out" / "graph.json"
+    os.utime(graph, (1, 1))
+    source = tmp_path / "src" / "api.py"
+    source.parent.mkdir()
+    source.write_text("changed", encoding="utf-8")
+
+    assert collect_graphify(tmp_path, mode="existing", sacas_root=".").status == "stale"
+
+
+def test_graphify_output_cannot_be_repository_root(tmp_path: Path) -> None:
+    from sacas.graphify import collect_graphify
+
+    with pytest.raises(ValueError, match="must not be the repository root"):
+        collect_graphify(tmp_path, mode="existing", output=".")
+
+
 @pytest.mark.parametrize("output", ["../outside", "C:/absolute-output"])
 def test_cli_map_rejects_output_paths_outside_repository(tmp_path: Path, output: str) -> None:
     from sacas.cli import main
