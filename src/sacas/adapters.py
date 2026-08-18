@@ -42,6 +42,8 @@ def generate_adapter(repository_root: Path | str, sacas_root: str, platform: str
             "Configure exclusions through administrator settings. Repository and organization "
             "content exclusions do not protect Copilot CLI, cloud, or agent mode."
         )
+    if platform == "cursor":
+        return _replace_cursor_adapter(target, "adapter-cursor", generated)
     return _replace_or_append(target, f"adapter-{platform}", generated)
 
 
@@ -82,13 +84,33 @@ def generate_adapters(
 
 def _replace_or_append(target: Path, region_name: str, generated: str) -> bool:
     existing = target.read_text(encoding="utf-8") if target.exists() else ""
-    marker = f"<!-- SACAS:START {region_name} -->"
-    if marker in existing:
+    start_marker = f"<!-- SACAS:START {region_name} -->"
+    end_marker = f"<!-- SACAS:END {region_name} -->"
+    if start_marker in existing or end_marker in existing:
         rendered = replace_generated_region(existing, region_name, generated)
     else:
         separator = "" if not existing or existing.endswith("\n\n") else "\n"
         rendered = existing + separator + render_generated_region(region_name, generated)
     if rendered == existing:
+        return False
+    write_text_atomic(target, rendered)
+    return True
+
+
+def _replace_cursor_adapter(target: Path, region_name: str, generated: str) -> bool:
+    frontmatter = "---\ndescription: SACAS repository routing\nalwaysApply: true\n---\n"
+    existing = target.read_text(encoding="utf-8") if target.exists() else ""
+    if not existing.startswith(frontmatter):
+        existing = frontmatter + existing
+    start_marker = f"<!-- SACAS:START {region_name} -->"
+    end_marker = f"<!-- SACAS:END {region_name} -->"
+    if start_marker in existing or end_marker in existing:
+        rendered = replace_generated_region(existing, region_name, generated)
+    else:
+        separator = "" if not existing or existing.endswith("\n\n") else "\n"
+        rendered = existing + separator + render_generated_region(region_name, generated)
+    original = target.read_text(encoding="utf-8") if target.exists() else ""
+    if rendered == original:
         return False
     write_text_atomic(target, rendered)
     return True
@@ -106,13 +128,13 @@ def _root_relative_directory(value: str) -> str:
     normalized = value.replace("\\", "/").strip("/")
     if not normalized or "/" in normalized or normalized in {".", ".."}:
         raise ValueError("graphify_output must be a root-level directory name")
-    return normalized + "/"
+    return "/" + normalized + "/"
 
 
 def _sacas_metadata_ignore(sacas_root: str) -> str:
     normalized = sacas_root.replace("\\", "/").strip("/")
     if normalized in {"", "."}:
-        return ".sacas/"
+        return "/.sacas/"
     if normalized == ".." or normalized.startswith("../"):
         raise ValueError("sacas_root must be relative to the repository")
-    return normalized + "/.sacas/"
+    return "/" + normalized + "/.sacas/"
