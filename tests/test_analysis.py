@@ -135,3 +135,23 @@ def test_analysis_detects_changed_nested_module_metadata_as_stale(tmp_path: Path
 
     assert "apps/web/package.json" in analysis.freshness.paths
     assert analysis.freshness.is_current(root) is False
+
+
+@pytest.mark.parametrize("operation", ["add", "remove"])
+def test_analysis_detects_added_or_removed_module_descriptor_as_stale(
+    tmp_path: Path, operation: str
+) -> None:
+    from sacas.analysis import analyze_repository
+
+    root = copy_fixture("node-monorepo", tmp_path)
+    package = root / "apps" / "web" / "package.json"
+    package.parent.mkdir(parents=True)
+    if operation == "remove":
+        package.write_text('{"name":"web"}', encoding="utf-8")
+    analysis = analyze_repository(root)
+    if operation == "add":
+        package.write_text('{"name":"web"}', encoding="utf-8")
+    else:
+        package.unlink()
+
+    assert analysis.freshness.is_current(root) is False

@@ -16,13 +16,19 @@ from .repository import Evidence, collect_repository_evidence
 class Freshness:
     fingerprint: str
     paths: tuple[str, ...]
+    inventory_roots: tuple[str, ...] = ()
     status: str = "fresh"
 
     def to_dict(self) -> dict[str, object]:
-        return {"status": self.status, "fingerprint": self.fingerprint, "paths": list(self.paths)}
+        return {
+            "status": self.status,
+            "fingerprint": self.fingerprint,
+            "paths": list(self.paths),
+            "inventory_roots": list(self.inventory_roots),
+        }
 
     def is_current(self, root: Path) -> bool:
-        return self.fingerprint == _fingerprint(root.resolve(), self.paths)
+        return self.fingerprint == _fingerprint(root.resolve(), self.paths, self.inventory_roots)
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,12 +55,15 @@ def analyze_repository(root: Path) -> Analysis:
     root = root.resolve()
     repository = collect_repository_evidence(root)
     paths = tuple(sorted({item.path for item in repository.evidence} | set(module_metadata_paths(root))))
+    inventory_roots = tuple(
+        name for name in ("apps", "packages") if (root / name).is_dir()
+    )
     return Analysis(
         root=str(root),
         ecosystems=repository.ecosystems,
         evidence=repository.evidence,
         modules=detect_modules(root),
-        freshness=Freshness(_fingerprint(root, paths), paths),
+        freshness=Freshness(_fingerprint(root, paths, inventory_roots), paths, inventory_roots),
     )
 
 
@@ -73,13 +82,16 @@ def read_analysis(path: Path) -> Analysis:
         evidence=tuple(Evidence(**item) for item in data["evidence"]),
         modules=tuple(Module(**item) for item in data["modules"]),
         freshness=Freshness(
-            fingerprint=freshness["fingerprint"], paths=tuple(freshness["paths"]), status=freshness["status"]
+            fingerprint=freshness["fingerprint"],
+            paths=tuple(freshness["paths"]),
+            inventory_roots=tuple(freshness.get("inventory_roots", [])),
+            status=freshness["status"],
         ),
         schema_version=data["schema_version"],
     )
 
 
-def _fingerprint(root: Path, paths: tuple[str, ...]) -> str:
+def _fingerprint(root: Path, paths: tuple[str, ...], inventory_roots: tuple[str, ...] = ()) -> str:
     digest = hashlib.sha256()
     for relative in paths:
         digest.update(relative.encode("utf-8"))
@@ -89,4 +101,15 @@ def _fingerprint(root: Path, paths: tuple[str, ...]) -> str:
         except OSError:
             digest.update(b"<missing>")
         digest.update(b"\0")
+    for inventory_root in inventory_roots:
+        container = root / inventory_root
+        digest.update(f"@inventory:{inventory_root}".encode("utf-8"))
+        digest.update(b"\0")
+        if container.is_dir():
+            for child in sorted(path for path in container.iterdir() if path.is_dir()):
+                relative = child.relative_to(root).as_posix()
+                digest.update(relative.encode("utf-8"))
+                digest.update(b":package.json=")
+                digest.update(b"1" if (child / "package.json").is_file() else b"0")
+                digest.update(b"\0")
     return digest.hexdigest()
