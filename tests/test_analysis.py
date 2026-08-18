@@ -238,3 +238,20 @@ def test_declared_simple_workspace_globs_discover_modules_and_invalidate_freshne
     second.parent.mkdir(parents=True)
     second.write_text('{"name":"second"}', encoding="utf-8")
     assert refreshed.freshness.is_current(root) is False
+
+
+def test_pnpm_workspace_parser_ignores_unrelated_yaml_sequences(tmp_path: Path) -> None:
+    from sacas.modules import detect_modules
+
+    root = tmp_path / "pnpm-workspace"
+    root.mkdir()
+    (root / "pnpm-workspace.yaml").write_text(
+        'packages:\n  - "services/*"\ncatalogs:\n  ignored:\n    - "unrelated/*"\n',
+        encoding="utf-8",
+    )
+    for container, name in (("services", "service"), ("unrelated", "ignored")):
+        package = root / container / name / "package.json"
+        package.parent.mkdir(parents=True)
+        package.write_text(f'{{"name":"{name}"}}', encoding="utf-8")
+
+    assert [module.path for module in detect_modules(root)] == ["services/service"]

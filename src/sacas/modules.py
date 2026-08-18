@@ -72,10 +72,8 @@ def workspace_containers(root: Path) -> tuple[str, ...]:
     for filename in ("pnpm-workspace.yaml", "pnpm-workspace.yml"):
         path = root / filename
         if path.is_file():
-            for line in path.read_text(encoding="utf-8").splitlines():
-                match = re.match(r"^\s*-\s*['\"]?([^'\"\s]+)['\"]?\s*$", line)
-                if match:
-                    containers.add(_simple_workspace_container(match.group(1)))
+            for pattern in _pnpm_package_patterns(path):
+                containers.add(_simple_workspace_container(pattern))
     return tuple(sorted(container for container in containers if container))
 
 
@@ -85,6 +83,23 @@ def _simple_workspace_container(pattern: str) -> str | None:
     if len(parts) == 2 and parts[1] == "*" and parts[0] and not parts[0].startswith("!"):
         return parts[0]
     return None
+
+
+def _pnpm_package_patterns(path: Path) -> tuple[str, ...]:
+    """Parse only the top-level block-style ``packages:`` YAML sequence."""
+    patterns: list[str] = []
+    in_packages = False
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not in_packages:
+            if re.match(r"^packages:\s*(?:#.*)?$", line):
+                in_packages = True
+            continue
+        if line and not line[0].isspace():
+            break
+        match = re.match(r"^  -\s*['\"]?([^'\"\s]+)['\"]?\s*(?:#.*)?$", line)
+        if match:
+            patterns.append(match.group(1))
+    return tuple(patterns)
 
 
 def _package_modules(root: Path) -> list[Module]:
