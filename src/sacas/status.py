@@ -24,59 +24,46 @@ def get_status_report(installation: Installation) -> dict[str, Any]:
         }
 
     task_dir = installation.sacas_root / "tasks" / "current"
-    expansions_path = task_dir / "expansions.json"
-    
+    from sacas.active_context import load_active_context
+    manifest = load_active_context(task_dir)
+    if not manifest:
+        return {
+            "current_task_id": task_id,
+            "status": "no_active_task",
+            "stale_files": [],
+            "initial_files": [],
+            "expanded_files": [],
+            "context_budget": installation.manifest.context_budget,
+            "estimated_size": 0
+        }
+
     stale_files: list[str] = []
     initial_files: list[str] = []
     expanded_files: list[str] = []
-    
-    if expansions_path.is_file():
-        try:
-            data = json.loads(expansions_path.read_text(encoding="utf-8"))
-            from sacas.tasks import get_initial_files, get_expanded_files
-            initials = get_initial_files(data)
-            expanded = get_expanded_files(data)
-            
-            if isinstance(initials, dict):
-                for f, recorded_hash in initials.items():
-                    initial_files.append(f)
-                    f_path = installation.repository_root / f
-                    if f_path.is_file():
-                        try:
-                            curr_hash = hashlib.sha256(f_path.read_bytes()).hexdigest()
-                            if curr_hash != recorded_hash:
-                                stale_files.append(f)
-                        except OSError:
-                            stale_files.append(f)
-                    else:
-                        stale_files.append(f)
-            elif isinstance(initials, (list, tuple)):
-                initial_files = list(initials)
-                
-            if isinstance(expanded, dict):
-                for f, recorded_hash in expanded.items():
-                    expanded_files.append(f)
-                    f_path = installation.repository_root / f
-                    if f_path.is_file():
-                        try:
-                            curr_hash = hashlib.sha256(f_path.read_bytes()).hexdigest()
-                            if curr_hash != recorded_hash:
-                                stale_files.append(f)
-                        except OSError:
-                            stale_files.append(f)
-                    else:
-                        stale_files.append(f)
-            elif isinstance(expanded, (list, tuple)):
-                expanded_files = list(expanded)
-        except Exception:
-            pass
+
+    for f in manifest.files:
+        if f.trigger == "initial_route":
+            initial_files.append(f.path)
+        else:
+            expanded_files.append(f.path)
+
+        f_path = installation.repository_root / f.path
+        if f_path.is_file():
+            try:
+                curr_hash = hashlib.sha256(f_path.read_bytes()).hexdigest()
+                if curr_hash != f.hash:
+                    stale_files.append(f.path)
+            except OSError:
+                stale_files.append(f.path)
+        else:
+            stale_files.append(f.path)
 
     status = "stale" if stale_files else "fresh"
-    all_files = tuple(initial_files + expanded_files)
     from sacas.budget import get_detailed_context_breakdown
+    all_files = tuple(initial_files + expanded_files)
     breakdown = get_detailed_context_breakdown(installation, all_files)
     estimated_size = breakdown["total"]
-    
+
     return {
         "current_task_id": task_id,
         "status": status,

@@ -209,3 +209,63 @@ def test_replace_region_rejects_missing_malformed_or_duplicate_ownership(documen
 
     with pytest.raises(RegionError, match="complete SACAS region"):
         replace_region(document, "router", "replacement")
+
+
+def test_extract_symbol_range_python() -> None:
+    from sacas.regions import extract_symbol_range
+    content = (
+        "def outer():\n"
+        "    x = 1\n"
+        "    def inner():\n"
+        "        pass\n"
+        "    return inner\n"
+        "\n"
+        "def second():\n"
+        "    pass\n"
+    )
+    # Start at def outer() (line 1)
+    start, end = extract_symbol_range(content, 1, "test.py")
+    assert (start, end) == (1, 6)
+
+    # Start at def inner() (line 3)
+    start, end = extract_symbol_range(content, 3, "test.py")
+    assert (start, end) == (3, 4)
+
+
+def test_extract_symbol_range_braces() -> None:
+    from sacas.regions import extract_symbol_range
+    content = (
+        "function foo() {\n"
+        "    const x = { a: 1 };\n"
+        "    if (true) {\n"
+        "        console.log(x);\n"
+        "    }\n"
+        "}\n"
+        "function bar() {}\n"
+    )
+    start, end = extract_symbol_range(content, 1, "test.js")
+    assert (start, end) == (1, 6)
+
+
+def test_extract_markdown_section() -> None:
+    from sacas.regions import extract_markdown_section
+    content = (
+        "# Main\n"
+        "## Sub1\n"
+        "Content of sub1\n"
+        "## Sub2\n"
+        "### Configuration\n"
+        "Config details\n"
+        "## Sub3\n"
+        "### Configuration\n"
+        "Sub3 config details\n"
+    )
+    # Extract Sub2 -> Configuration
+    sec1 = extract_markdown_section(content, ["Sub2", "Configuration"])
+    assert "Config details" in sec1
+    assert "Sub3 config details" not in sec1
+
+    # Extract Sub3 -> Configuration
+    sec2 = extract_markdown_section(content, ["Sub3", "Configuration"])
+    assert "Sub3 config details" in sec2
+    assert "Config details" not in sec2

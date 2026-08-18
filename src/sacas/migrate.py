@@ -30,7 +30,7 @@ def migrate_repository(root: Path, apply: bool = False) -> dict[str, Any]:
     legacy_progress = sacas_root / "tasks" / "current" / "PROGRESS.md"
     new_state = sacas_root / "tasks" / "current" / "STATE.md"
     new_pickup = sacas_root / "tasks" / "current" / "PICKUP.md"
-    new_expansions = sacas_root / "tasks" / "current" / "expansions.json"
+    new_active_context = sacas_root / "tasks" / "current" / "active_context.json"
 
     if legacy_progress.is_file():
         actions.append(f"Migrate legacy progress state from PROGRESS.md to STATE.md")
@@ -83,19 +83,21 @@ def migrate_repository(root: Path, apply: bool = False) -> dict[str, Any]:
             new_state.parent.mkdir(parents=True, exist_ok=True)
             write_text_atomic(new_state, state_content)
             
-            # Generate expansions.json
-            expansions_data = {
-                "initial_files": {},
-                "expanded_files": {},
-                "goal": goal,
-                "criteria": criteria_items,
-                "constraints": [],
-                "verification": [],
-                "symbols": [],
-                "tests": [],
-                "rules": []
-            }
-            write_text_atomic(new_expansions, json.dumps(expansions_data, indent=2) + "\n")
+            # Generate active_context.json
+            from sacas.active_context import ActiveContextManifest, save_active_context
+            manifest = ActiveContextManifest(
+                task_id=task_id,
+                goal=goal,
+                category="bugfix",
+                git_revision="unknown",
+                files=(),
+                rules=(),
+                references=(),
+                events=(),
+                budget=None,
+                policy=None
+            )
+            save_active_context(sacas_root / "tasks" / "current", manifest)
             
             # Generate PICKUP.md
             completed, pending = parse_state_checkboxes(state_text)

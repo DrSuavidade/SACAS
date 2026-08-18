@@ -7,7 +7,7 @@ import hashlib
 import json
 from pathlib import Path
 
-from sacas.budget import calculate_context_size
+from sacas.budget import calculate_context_size, calculate_manifest_tokens
 from sacas.effects import calculate_task_effects
 from sacas.graphify import read_graphify_manifest
 from sacas.io import stable_json, write_text_atomic
@@ -18,6 +18,20 @@ from sacas.state import (
     generate_pickup_markdown,
     parse_state_checkboxes,
     render_state_markdown,
+)
+from sacas.active_context import (
+    ActiveContextManifest,
+    ActiveFileContext,
+    ActiveSymbolContext,
+    SourceRange,
+    ActiveRuleContext,
+    ActiveReferenceContext,
+    AdmissionEvent,
+    ContextBudgetState,
+    ContextPolicyState,
+    save_active_context,
+    load_active_context,
+    enforce_cursor_negation_patterns,
 )
 
 
@@ -135,38 +149,21 @@ def score_file_against_goal(filepath: str, file_content: str, keywords: list[str
     return score, matched_keywords
 
 
-def run_fallback_routing(root: Path, goal: str, boundaries: tuple[tuple[str, str], ...], commit: str) -> list[dict]:
+def run_fallback_routing(root: Path, sacas_root: Path, goal: str, boundaries: tuple[tuple[str, str], ...], commit: str) -> list[dict]:
     keywords = extract_keywords(goal)
     if not keywords:
         return []
 
-    ignored = {".git", ".sacas", "__pycache__", "Structure", "graphify-out", ".worktrees"}
-    candidates = []
-
-    for path in root.rglob("*"):
-        if not path.is_file():
-            continue
-        relative = path.relative_to(root)
-        if any(part in ignored for part in relative.parts):
-            continue
-
-        rel_str = relative.as_posix()
-        if is_file_protected(rel_str, boundaries):
-            continue
-
-        try:
-            content = path.read_text(encoding="utf-8", errors="ignore")
-        except OSError:
-            content = ""
-
-        score, matched = score_file_against_goal(rel_str, content, keywords)
-        if score > 0:
-            candidates.append((score, rel_str, matched))
-
-    candidates.sort(key=lambda s: (-s[0], len(s[1]), s[1]))
+    from sacas.search import FallbackIndex
+    index = FallbackIndex(root, sacas_root)
+    index.update()
+    
+    candidates = index.search(goal)
 
     results = []
     for score, filepath, matched in candidates[:5]:
+        if is_file_protected(filepath, boundaries):
+            continue
         try:
             f_hash = hashlib.sha256((root / filepath).read_bytes()).hexdigest()
         except OSError:
@@ -186,6 +183,96 @@ def run_fallback_routing(root: Path, goal: str, boundaries: tuple[tuple[str, str
     return results
 
 
+def route_rules_and_references(
+    sacas_root: Path,
+    goal: str,
+    explicit_rules: tuple[str, ...],
+    explicit_refs: tuple[str, ...]
+) -> tuple[list[ActiveRuleContext], list[ActiveReferenceContext]]:
+    import re
+    from sacas.tasks import extract_keywords
+    keywords = extract_keywords(goal)
+    
+    rules_list = []
+    refs_list = []
+    
+    # 1. Rules
+    if explicit_rules:
+        for r in explicit_rules:
+            r_clean = r.replace("\\", "/")
+            if not r_clean.startswith("Structure/"):
+                r_rel = "Structure/" + r_clean
+            else:
+                r_rel = r_clean
+            rules_list.append(ActiveRuleContext(path=r_rel, hash="", reason="Explicitly specified by user"))
+    else:
+        # Heuristic rules routing
+        rules_dir = sacas_root / "rules"
+        if rules_dir.is_dir():
+            for p in rules_dir.rglob("*.md"):
+                rel_path = "Structure/" + p.relative_to(sacas_root).as_posix()
+                filename = p.name.lower()
+                # Default: always load boundaries.md if it exists, otherwise check keywords
+                if filename == "boundaries.md" or any(kw in filename for kw in keywords):
+                    rules_list.append(ActiveRuleContext(path=rel_path, hash="", reason="Heuristic rule match"))
+                    
+    # 2. References
+    if explicit_refs:
+        for r in explicit_refs:
+            path_part = r
+            section_anchor = None
+            if "#" in r:
+                path_part, section_anchor = r.split("#", 1)
+                
+            path_part_clean = path_part.replace("\\", "/")
+            if not path_part_clean.startswith("Structure/"):
+                r_rel = "Structure/" + path_part_clean
+            else:
+                r_rel = path_part_clean
+                
+            if section_anchor:
+                heading_path = [section_anchor.replace("-", " ").title()]
+                sel = {"mode": "sections", "sections": [{"heading_path": heading_path}]}
+            else:
+                sel = {"mode": "full"}
+                
+            refs_list.append(ActiveReferenceContext(path=r_rel, selection=sel, hash="", reason="Explicitly specified by user"))
+    else:
+        # Heuristic references routing
+        refs_dir = sacas_root / "references"
+        if refs_dir.is_dir():
+            for p in refs_dir.rglob("*.md"):
+                rel_path = "Structure/" + p.relative_to(sacas_root).as_posix()
+                filename = p.name.lower()
+                
+                # Check keyword match in filename
+                if any(kw in filename for kw in keywords):
+                    try:
+                        content = p.read_text(encoding="utf-8")
+                        matched_headings = []
+                        for line in content.splitlines():
+                            if line.startswith("#"):
+                                match = re.match(r"^(#+)\s+(.+)$", line)
+                                if match:
+                                    heading_text = match.group(2).strip()
+                                    if any(kw in heading_text.lower() for kw in keywords):
+                                        matched_headings.append(heading_text)
+                        
+                        if matched_headings and len(matched_headings) < 3:
+                            sel = {"mode": "sections", "sections": [{"heading_path": [h]} for h in matched_headings]}
+                            reason = f"Heuristic reference section match for: {', '.join(matched_headings)}"
+                        else:
+                            sel = {"mode": "full"}
+                            reason = "Heuristic reference file match"
+                    except OSError:
+                        sel = {"mode": "full"}
+                        reason = "Heuristic reference file match"
+                        
+                    refs_list.append(ActiveReferenceContext(path=rel_path, selection=sel, hash="", reason=reason))
+                    
+    return rules_list, refs_list
+
+
 def generate_task(
     installation: Installation,
     goal: str,
@@ -196,7 +283,9 @@ def generate_task(
     files: tuple[str, ...] = (),
     symbols: tuple[str, ...] = (),
     tests: tuple[str, ...] = (),
-    rules: tuple[str, ...] = ()
+    rules: tuple[str, ...] = (),
+    references: tuple[str, ...] = (),
+    category: str | None = None
 ) -> TaskResult:
     """Create or update a SACAS task, generating its contract, context, and state."""
     from sacas.graphify import GraphifyAdapter
@@ -208,6 +297,7 @@ def generate_task(
     symbols = tuple(symbols)
     tests = tuple(tests)
     rules = tuple(rules)
+    references = tuple(references)
 
     # 1. Stable task ID
     task_id = hashlib.sha256(goal.strip().encode("utf-8")).hexdigest()[:8]
@@ -235,7 +325,22 @@ def generate_task(
     parsed_boundaries = parse_protected_boundaries(boundaries_file)
 
     commit = get_git_commit(installation.repository_root)
-    initial_scope_list = []
+    active_files = []
+    events = []
+
+    # Infer category
+    if not category:
+        goal_lower = goal.lower()
+        if "test" in goal_lower:
+            category = "test"
+        elif "refactor" in goal_lower:
+            category = "refactor"
+        elif any(kw in goal_lower for kw in ("fix", "bug", "crash", "error", "issue")):
+            category = "bugfix"
+        elif any(kw in goal_lower for kw in ("add", "implement", "new", "feature")):
+            category = "feature"
+        else:
+            category = "bugfix"
 
     if files:
         for f in files:
@@ -252,19 +357,40 @@ def generate_task(
                     f_hash = hashlib.sha256(f_path.read_bytes()).hexdigest()
                 except OSError:
                     pass
-            initial_scope_list.append({
-                "path": f_rel,
-                "symbols": list(symbols),
-                "reason": "Explicitly specified by user",
-                "source": "explicit",
-                "confidence": "high",
-                "relation": None,
-                "trigger": "cli_arg",
-                "git_revision": commit,
-                "hash": f_hash
-            })
+
+            # Repeat symbols syntax helper
+            file_symbols = []
+            for sym in symbols:
+                if "::" in sym:
+                    sym_file, sym_name = sym.split("::", 1)
+                    if sym_file == f or sym_file == f_rel:
+                        file_symbols.append(ActiveSymbolContext(name=sym_name, range=None, reason="Explicitly specified by user"))
+                else:
+                    file_symbols.append(ActiveSymbolContext(name=sym, range=None, reason="Explicitly specified by user"))
+
+            sel = {"mode": "symbols", "symbols": file_symbols} if file_symbols else {"mode": "full"}
+            active_files.append(ActiveFileContext(
+                path=f_rel,
+                selection=sel,
+                source="explicit",
+                confidence="high",
+                relation=None,
+                trigger="initial_route",
+                git_revision=commit,
+                reason="Explicitly specified by user",
+                hash=f_hash
+            ))
+            events.append(AdmissionEvent(
+                id=f"evt-init-{len(events):03d}",
+                target=f_rel,
+                action="admit",
+                source="explicit",
+                reason="Explicitly specified by user",
+                trigger="initial_route"
+            ))
     else:
         graphify_success = False
+        initial_scope_paths = []
         if old_manifest.graphify_mode != "off":
             adapter = GraphifyAdapter(installation.repository_root, installation.sacas_root)
             if adapter.verify_capabilities(required=["extract", "query"]):
@@ -288,57 +414,116 @@ def generate_task(
                                 f_hash = hashlib.sha256(f_path.read_bytes()).hexdigest()
                             except OSError:
                                 pass
-                        initial_scope_list.append({
-                            "path": f_rel,
-                            "symbols": [],
-                            "reason": f"Discovered via Graphify query matching goal: {goal}",
-                            "source": "graphify",
-                            "confidence": "high",
-                            "relation": "seed",
-                            "trigger": "task_goal",
-                            "git_revision": commit,
-                            "hash": f_hash
-                        })
-                    graphify_success = len(initial_scope_list) > 0
+                        
+                        active_files.append(ActiveFileContext(
+                            path=f_rel,
+                            selection={"mode": "full"},
+                            source="graphify",
+                            confidence="high",
+                            relation="seed",
+                            trigger="task_goal",
+                            git_revision=commit,
+                            reason=f"Discovered via Graphify query matching goal: {goal}",
+                            hash=f_hash
+                        ))
+                        events.append(AdmissionEvent(
+                            id=f"evt-init-{len(events):03d}",
+                            target=f_rel,
+                            action="admit",
+                            source="graphify",
+                            reason=f"Discovered via Graphify query matching goal: {goal}",
+                            trigger="initial_route"
+                        ))
+                    graphify_success = len(active_files) > 0
 
         if not graphify_success:
-            initial_scope_list = run_fallback_routing(installation.repository_root, goal, parsed_boundaries, commit)
+            # Fallback Lexical Search
+            fallback_results = run_fallback_routing(installation.repository_root, installation.sacas_root, goal, parsed_boundaries, commit)
+            for item in fallback_results:
+                active_files.append(ActiveFileContext(
+                    path=item["path"],
+                    selection={"mode": "full"},
+                    source="heuristic",
+                    confidence=item["confidence"],
+                    relation=item["relation"],
+                    trigger="task_goal",
+                    git_revision=commit,
+                    reason=item["reason"],
+                    hash=item["hash"]
+                ))
+                events.append(AdmissionEvent(
+                    id=f"evt-init-{len(events):03d}",
+                    target=item["path"],
+                    action="admit",
+                    source="heuristic",
+                    reason=item["reason"],
+                    trigger="initial_route"
+                ))
 
-    if not initial_scope_list:
+    if not active_files:
         import sys
         print(f"WARNING: Task contains zero source files/symbols and no routing evidence was discovered.", file=sys.stderr)
 
-    expansions_path = task_dir / "expansions.json"
-    expansions_data = {
-        "schema_version": 2,
-        "task_id": task_id,
-        "goal": goal,
-        "criteria": list(criteria),
-        "constraints": list(constraints),
-        "verification": list(verification),
-        "symbols": list(symbols),
-        "tests": list(tests),
-        "rules": list(rules),
-        "initial_scope": initial_scope_list,
-        "expansions": [],
-        "adjacent": []
-    }
-    write_text_atomic(expansions_path, stable_json(expansions_data))
+    rules_list, refs_list = route_rules_and_references(installation.sacas_root, goal, rules, references)
 
-    initial_files = tuple(item["path"] for item in initial_scope_list)
+    # Hash rules
+    hashed_rules = []
+    for r in rules_list:
+        r_path = installation.repository_root / r.path
+        r_hash = ""
+        if r_path.is_file():
+            try:
+                r_hash = hashlib.sha256(r_path.read_bytes()).hexdigest()
+            except OSError:
+                pass
+        hashed_rules.append(ActiveRuleContext(path=r.path, hash=r_hash, reason=r.reason))
+
+    # Hash references
+    hashed_refs = []
+    for ref in refs_list:
+        ref_path = installation.repository_root / ref.path
+        ref_hash = ""
+        if ref_path.is_file():
+            try:
+                ref_hash = hashlib.sha256(ref_path.read_bytes()).hexdigest()
+            except OSError:
+                pass
+        hashed_refs.append(ActiveReferenceContext(path=ref.path, selection=ref.selection, hash=ref_hash, reason=ref.reason))
+
+    # Construct manifest without budget yet
+    manifest = ActiveContextManifest(
+        task_id=task_id,
+        goal=goal,
+        category=category,
+        git_revision=commit,
+        files=tuple(active_files),
+        rules=tuple(hashed_rules),
+        references=tuple(hashed_refs),
+        events=tuple(events),
+        budget=None,
+        policy=ContextPolicyState(
+            requested="advisory",
+            effective="advisory",
+            provider="advisory",
+            file_reads="enforced" if len(active_files) > 0 else "advisory",
+            terminal_reads="advisory",
+            mcp_reads="advisory"
+        ),
+        tests=tests
+    )
+
+    # Save active_context.json
+    save_active_context(task_dir, manifest)
+    enforce_cursor_negation_patterns(installation, manifest)
+
+    # Regenerate task markdown which will calculate budget and update manifest
     regenerate_task_markdown(
         installation=installation,
         task_dir=task_dir,
-        task_id=task_id,
-        goal=goal,
+        manifest=manifest,
         criteria=criteria,
         constraints=constraints,
-        verification=verification,
-        initial_files=initial_files,
-        expanded_files=(),
-        symbols=symbols,
-        tests=tests,
-        rules=rules,
+        verification=verification
     )
 
     return TaskResult(task_id=task_id)
@@ -347,22 +532,12 @@ def generate_task(
 def regenerate_task_markdown(
     installation: Installation,
     task_dir: Path,
-    task_id: str,
-    goal: str,
-    criteria: tuple[str, ...],
-    constraints: tuple[str, ...],
-    verification: tuple[str, ...],
-    initial_files: tuple[str, ...],
-    expanded_files: tuple[str, ...],
-    symbols: tuple[str, ...],
-    tests: tuple[str, ...],
-    rules: tuple[str, ...],
+    manifest: ActiveContextManifest,
+    criteria: tuple[str, ...] = (),
+    constraints: tuple[str, ...] = (),
+    verification: tuple[str, ...] = (),
 ) -> None:
     """Regenerate TASK.md, STATE.md, PICKUP.md, and CONTEXT.md deterministically."""
-    # Read boundaries
-    boundaries_file = installation.sacas_root / "rules" / "boundaries.md"
-    parsed_boundaries = parse_protected_boundaries(boundaries_file)
-
     # 4. Generate TASK.md
     task_md_path = task_dir / "TASK.md"
     crit_lines = [f"- {item} (EXPLICIT)" for item in criteria] if criteria else ["UNKNOWN"]
@@ -370,7 +545,7 @@ def regenerate_task_markdown(
     ver_lines = [f"- {item} (EXPLICIT)" for item in verification] if verification else ["UNKNOWN"]
     
     contract_lines = [
-        f"Goal: {goal}",
+        f"Goal: {manifest.goal}",
         "",
         "### Acceptance Criteria",
         *crit_lines,
@@ -387,13 +562,13 @@ def regenerate_task_markdown(
         old_text = task_md_path.read_text(encoding="utf-8")
         task_md_content = replace_generated_region(old_text, "task-contract", contract_text)
     else:
-        task_md_content = f"# Task {task_id}\n\n" + render_generated_region("task-contract", contract_text)
+        task_md_content = f"# Task {manifest.task_id}\n\n" + render_generated_region("task-contract", contract_text)
     write_text_atomic(task_md_path, task_md_content)
 
     # 5. Generate STATE.md and PICKUP.md
     state_md_path = task_dir / "STATE.md"
     old_state_content = state_md_path.read_text(encoding="utf-8") if state_md_path.exists() else None
-    state_text = render_state_markdown(task_id, goal, criteria, verification, old_content=old_state_content)
+    state_text = render_state_markdown(manifest.task_id, manifest.goal, criteria, verification, old_content=old_state_content)
     
     if state_md_path.exists():
         state_md_content = replace_generated_region(old_state_content, "task-state", state_text)
@@ -407,8 +582,38 @@ def regenerate_task_markdown(
     pickup_content = generate_pickup_markdown(completed, pending)
     write_text_atomic(pickup_md_path, pickup_content)
 
+    # Calculate unified budget
+    breakdown = calculate_manifest_tokens(installation, manifest)
+    budget_state = ContextBudgetState(
+        limit=breakdown.limit,
+        used=breakdown.used,
+        tokenizer=breakdown.tokenizer,
+        source_tokens=breakdown.source_tokens,
+        rule_tokens=breakdown.rule_tokens,
+        reference_tokens=breakdown.reference_tokens,
+        control_tokens=breakdown.control_tokens
+    )
+
+    # Save active_context.json with updated budget
+    manifest = ActiveContextManifest(
+        task_id=manifest.task_id,
+        goal=manifest.goal,
+        category=manifest.category,
+        git_revision=manifest.git_revision,
+        files=manifest.files,
+        rules=manifest.rules,
+        references=manifest.references,
+        events=manifest.events,
+        budget=budget_state,
+        policy=manifest.policy,
+        tests=manifest.tests,
+        schema_version=manifest.schema_version
+    )
+    save_active_context(task_dir, manifest)
+
     # 6. Generate CONTEXT.md
     context_md_path = task_dir / "CONTEXT.md"
+    
     graphify_manifest_path = installation.sacas_root / ".sacas" / "graphify.json"
     evidence = None
     if graphify_manifest_path.is_file():
@@ -417,13 +622,13 @@ def regenerate_task_markdown(
         except Exception:
             pass
 
-    # Budget
-    all_files = tuple(initial_files) + tuple(expanded_files)
-    total_size = calculate_context_size(installation.repository_root, all_files)
-    budget_limit = installation.manifest.context_budget
+    # Read boundaries
+    boundaries_file = installation.sacas_root / "rules" / "boundaries.md"
+    parsed_boundaries = parse_protected_boundaries(boundaries_file)
 
-    # Effects
+    # Bounded Effects
     effects_lines = []
+    all_files = tuple(f.path for f in manifest.files)
     if evidence is not None:
         effects = calculate_task_effects(evidence, all_files)
         if effects:
@@ -437,10 +642,10 @@ def regenerate_task_markdown(
 
     # Boundaries
     protected_files = []
-    for file_path in all_files:
-        reason = is_file_protected(file_path, parsed_boundaries)
+    for f in manifest.files:
+        reason = is_file_protected(f.path, parsed_boundaries)
         if reason:
-            protected_files.append(f"- `{file_path}`: {reason}")
+            protected_files.append(f"- `{f.path}`: {reason}")
 
     protected_section = ""
     if protected_files:
@@ -448,6 +653,9 @@ def regenerate_task_markdown(
 
     # Context.md lines
     context_lines = ["## Files"]
+    initial_files = [f.path for f in manifest.files if f.trigger == "initial_route"]
+    expanded_files = [f.path for f in manifest.files if f.trigger != "initial_route"]
+
     if initial_files:
         context_lines.extend(f"- `{f}`" for f in initial_files)
     if expanded_files:
@@ -459,22 +667,39 @@ def regenerate_task_markdown(
     context_lines.append("")
     
     context_lines.append("## Symbols")
-    if symbols:
-        context_lines.extend(f"- `{s}`" for s in symbols)
-    else:
+    symbols_present = False
+    for f in manifest.files:
+        if f.selection.get("mode") == "symbols":
+            for sym in f.selection.get("symbols", []):
+                symbols_present = True
+                rng_str = f" L{sym.range.start_line}-L{sym.range.end_line}" if sym.range else ""
+                context_lines.append(f"- `{f.path}::{sym.name}`{rng_str}")
+    if not symbols_present:
         context_lines.append("- None")
     context_lines.append("")
     
     context_lines.append("## Tests")
-    if tests:
-        context_lines.extend(f"- `{t}`" for t in tests)
+    if manifest.tests:
+        context_lines.extend(f"- `{t}`" for t in manifest.tests)
     else:
         context_lines.append("- None")
     context_lines.append("")
     
     context_lines.append("## Rules")
-    if rules:
-        context_lines.extend(f"- `{r}`" for r in rules)
+    if manifest.rules:
+        context_lines.extend(f"- `{r.path}`" for r in manifest.rules)
+    else:
+        context_lines.append("- None")
+    context_lines.append("")
+
+    context_lines.append("## References")
+    if manifest.references:
+        for ref in manifest.references:
+            if ref.selection.get("mode") == "sections":
+                sec_names = ", ".join(" > ".join(sec.get("heading_path", [])) for sec in ref.selection.get("sections", []))
+                context_lines.append(f"- `{ref.path}` (Sections: {sec_names})")
+            else:
+                context_lines.append(f"- `{ref.path}`")
     else:
         context_lines.append("- None")
     context_lines.append("")
@@ -484,8 +709,10 @@ def regenerate_task_markdown(
         
     context_lines.extend([
         "## Budget",
-        f"- Limit: {budget_limit} tokens",
-        f"- Estimated context size: {total_size} tokens",
+        f"- Limit: {breakdown.limit} tokens",
+        f"- Estimated context size: {breakdown.used} tokens",
+        f"  - Payload: {breakdown.source_tokens} source, {breakdown.rule_tokens} rules, {breakdown.reference_tokens} references",
+        f"  - Control: {breakdown.control_tokens} task documents",
         "",
         "## Evidence & Freshness",
         f"- Graphify Status: {evidence.status if evidence else 'unavailable'}",

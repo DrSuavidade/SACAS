@@ -163,19 +163,17 @@ def test_goal_driven_routing_and_fallbacks(tmp_path: Path) -> None:
     )
     
     task_dir = init_result.sacas_root / "tasks" / "current"
-    expansions_path = task_dir / "expansions.json"
-    assert expansions_path.is_file()
-    
-    data = json.loads(expansions_path.read_text(encoding="utf-8"))
-    assert data.get("schema_version") == 2
+    from sacas.active_context import load_active_context
+    manifest = load_active_context(task_dir)
+    assert manifest is not None
+    assert manifest.schema_version == 1
     
     # Check that src/auth.py was matched by heuristic fallback
-    initial_scope = data.get("initial_scope", [])
-    paths = [item["path"] for item in initial_scope]
+    paths = [item.path for item in manifest.files]
     assert "src/auth.py" in paths
     
-    auth_item = next(item for item in initial_scope if item["path"] == "src/auth.py")
-    assert auth_item["source"] == "heuristic"
-    assert "auth" in auth_item["reason"] or "Session" in auth_item["reason"]
+    auth_item = next(item for item in manifest.files if item.path == "src/auth.py")
+    assert auth_item.source == "heuristic"
+    assert "auth" in auth_item.reason or "Session" in auth_item.reason
 
 

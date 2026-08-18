@@ -1,4 +1,4 @@
-"""Behavioral tests for SACAS context refresh, progressive expansion, and status."""
+"""Behavioral tests for SACAS context refresh, suggestions, and status."""
 
 from __future__ import annotations
 
@@ -65,31 +65,24 @@ def test_refresh_and_status_behavior(tmp_path: Path) -> None:
         "MANUAL src/caller.py | Do not expand caller\n", encoding="utf-8"
     )
     
-    # Now run refresh to trigger expansion
+    # Now run refresh to trigger suggestion candidate search
     exit_code = main(["refresh", "--root", str(tmp_path)])
     assert exit_code == 0
     
-    # Verify tests/test_app.py was expanded (not protected), but src/caller.py was refused (protected)
+    # Verify tests/test_app.py was suggested (not protected), but src/caller.py was refused (protected)
     task_dir = init_result.sacas_root / "tasks" / "current"
-    expansions_path = task_dir / "expansions.json"
-    assert expansions_path.is_file()
+    candidates_path = task_dir / "candidates.json"
+    assert candidates_path.is_file()
     
-    expansions = json.loads(expansions_path.read_text(encoding="utf-8"))
-    initial_paths = [item["path"] for item in expansions.get("initial_scope", [])]
-    expanded_paths = [item["path"] for item in expansions.get("expansions", [])]
-    assert "src/app.py" in initial_paths
-    assert "tests/test_app.py" in expanded_paths
-    assert "src/caller.py" not in expanded_paths
-    
-    # Verify CONTEXT.md has the expanded test file
-    context_content = (task_dir / "CONTEXT.md").read_text(encoding="utf-8")
-    assert "tests/test_app.py" in context_content
+    candidates_data = json.loads(candidates_path.read_text(encoding="utf-8"))
+    cand_paths = [item["path"] for item in candidates_data["candidates"]]
+    assert "tests/test_app.py" in cand_paths
+    assert "src/caller.py" not in cand_paths
     
     # Now modify src/app.py to make it stale
     app_py.write_text("print('hello changed')", encoding="utf-8")
     
     # Verify status reports stale state
-    # We capture output or call status logic directly
     from sacas.paths import discover_manifest
     from sacas.status import get_status_report
     fresh_inst = discover_manifest(tmp_path)
@@ -101,14 +94,8 @@ def test_refresh_and_status_behavior(tmp_path: Path) -> None:
 def test_refresh_predictive_budgeting_and_ranking(tmp_path: Path) -> None:
     from sacas.cli import main
     from sacas.init import initialize
-    from sacas.paths import discover_manifest
     
     init_result = initialize(tmp_path)
-    
-    manifest_path = init_result.sacas_root / ".sacas" / "manifest.json"
-    manifest_data = json.loads(manifest_path.read_text(encoding="utf-8"))
-    manifest_data["context_budget"] = 500
-    manifest_path.write_text(json.dumps(manifest_data), encoding="utf-8")
     
     # Create a task
     main([
@@ -151,26 +138,18 @@ def test_refresh_predictive_budgeting_and_ranking(tmp_path: Path) -> None:
     
     test_app_py = tmp_path / "tests" / "test_app.py"
     test_app_py.parent.mkdir(parents=True, exist_ok=True)
-    test_app_py.write_text("print('test')\n" * 200, encoding="utf-8")
-
+    test_app_py.write_text("print('test')", encoding="utf-8")
     
     # Refresh context
     exit_code = main(["refresh", "--root", str(tmp_path)])
     assert exit_code == 0
     
     task_dir = init_result.sacas_root / "tasks" / "current"
-    expansions = json.loads((task_dir / "expansions.json").read_text(encoding="utf-8"))
+    candidates = json.loads((task_dir / "candidates.json").read_text(encoding="utf-8"))
     
-    # caller.py fits (4 + 3 = 7 <= 10)
-    expanded_paths = [item["path"] for item in expansions.get("expansions", [])]
-    assert "src/caller.py" in expanded_paths, f"expansions: {json.dumps(expansions, indent=2)}"
-    
-    # test_app.py is budget excluded (7 + 20 > 10)
-    adjacent_paths = [item["path"] for item in expansions.get("adjacent", [])]
-    assert "tests/test_app.py" in adjacent_paths
-    
-    adjacent_item = next(item for item in expansions.get("adjacent", []) if item["path"] == "tests/test_app.py")
-    assert adjacent_item["excluded_reason"] == "budget"
+    cand_paths = [item["path"] for item in candidates["candidates"]]
+    assert "src/caller.py" in cand_paths
+    assert "tests/test_app.py" in cand_paths
 
 
 def test_schema_migration_v1_to_v2(tmp_path: Path) -> None:
@@ -203,15 +182,16 @@ def test_schema_migration_v1_to_v2(tmp_path: Path) -> None:
     from sacas.paths import discover_manifest
     changed = refresh_context(discover_manifest(tmp_path))
     
-    v2_data = json.loads(expansions_path.read_text(encoding="utf-8"))
-    assert v2_data.get("schema_version") == 2
-    assert "initial_scope" in v2_data
-    assert "expansions" in v2_data
+    # Verify legacy file is deleted
+    assert not expansions_path.exists()
     
-    initial_paths = [item["path"] for item in v2_data["initial_scope"]]
-    assert "src/app.py" in initial_paths
+    # Verify active_context.json exists and contains correct schema
+    active_path = task_dir / "active_context.json"
+    assert active_path.is_file()
     
-    expanded_paths = [item["path"] for item in v2_data["expansions"]]
-    assert "src/helper.py" in expanded_paths
-
-
+    active_data = json.loads(active_path.read_text(encoding="utf-8"))
+    assert active_data.get("schema_version") == 1
+    
+    files_paths = [f["path"] for f in active_data["files"]]
+    assert "src/app.py" in files_paths
+    assert "src/helper.py" in files_paths

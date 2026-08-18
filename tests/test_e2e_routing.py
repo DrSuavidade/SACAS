@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 from sacas.cli import main
 from sacas.paths import discover_manifest
+from sacas.active_context import load_active_context
 
 
 def test_e2e_routing_loop(tmp_path: Path) -> None:
@@ -41,28 +42,28 @@ def test_e2e_routing_loop(tmp_path: Path) -> None:
     exit_code = main(["task", "fix Session restoration", "--root", str(repo)])
     assert exit_code == 0
     
-    # Verify TASK.md and expansions.json exist
+    # Verify TASK.md and active_context.json exist
     installation = discover_manifest(repo)
     assert installation is not None
     
     task_dir = installation.sacas_root / "tasks" / "current"
-    expansions_path = task_dir / "expansions.json"
-    assert expansions_path.is_file()
+    active_path = task_dir / "active_context.json"
+    assert active_path.is_file()
     
-    expansions_data = json.loads(expansions_path.read_text(encoding="utf-8"))
-    assert expansions_data.get("schema_version") == 2
+    manifest = load_active_context(task_dir)
+    assert manifest is not None
+    assert manifest.schema_version == 1
     
-    # Verify initial_scope has auth.py
-    initial_scope = expansions_data.get("initial_scope", [])
-    paths = [item["path"] for item in initial_scope]
+    # Verify files has auth.py
+    paths = [item.path for item in manifest.files]
     assert "src/auth.py" in paths
     
     # Check provenance
-    auth_item = next(item for item in initial_scope if item["path"] == "src/auth.py")
-    assert auth_item["source"] == "graphify"
-    assert auth_item["relation"] == "seed"
-    assert auth_item["trigger"] == "task_goal"
-    assert auth_item["confidence"] == "high"
+    auth_item = next(item for item in manifest.files if item.path == "src/auth.py")
+    assert auth_item.source == "graphify"
+    assert auth_item.relation == "seed"
+    assert auth_item.trigger == "task_goal"
+    assert auth_item.confidence == "high"
     
     # Run validate
     exit_code = main(["validate", "--root", str(repo)])
@@ -79,7 +80,7 @@ def test_e2e_routing_loop(tmp_path: Path) -> None:
     exit_code = main(["status", "--root", str(repo), "--format", "json"])
     assert exit_code == 0
 
-    # 8. Test budget limitation during E2E refresh
+    # 8. Test candidates generation during E2E refresh
     # Set a tiny budget of 300 tokens
     manifest_path = installation.sacas_root / ".sacas" / "manifest.json"
     manifest_data = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -101,7 +102,7 @@ def test_e2e_routing_loop(tmp_path: Path) -> None:
     ]
     graphify_manifest_path.write_text(json.dumps(g_data), encoding="utf-8")
 
-    # Create logger.py as a large file to exceed budget
+    # Create logger.py as a file
     logger_py = repo / "src" / "logger.py"
     logger_py.write_text("print('logger')\n" * 150, encoding="utf-8")
 
@@ -109,15 +110,12 @@ def test_e2e_routing_loop(tmp_path: Path) -> None:
     exit_code = main(["refresh", "--root", str(repo)])
     assert exit_code == 0
 
-    # Check expansions.json
-    exp_data = json.loads(expansions_path.read_text(encoding="utf-8"))
-    adjacent_paths = [item["path"] for item in exp_data.get("adjacent", [])]
-    assert "src/logger.py" in adjacent_paths
-    
-    adj_item = next(item for item in exp_data["adjacent"] if item["path"] == "src/logger.py")
-
-    assert adj_item["excluded_reason"] == "budget"
-
+    # Check candidates.json
+    candidates_path = task_dir / "candidates.json"
+    assert candidates_path.is_file()
+    candidates_data = json.loads(candidates_path.read_text(encoding="utf-8"))
+    cand_paths = [item["path"] for item in candidates_data["candidates"]]
+    assert "src/logger.py" in cand_paths
 
 
 def test_e2e_routing_fallback_on_incompatible_graphify(tmp_path: Path) -> None:
@@ -143,12 +141,13 @@ def test_e2e_routing_fallback_on_incompatible_graphify(tmp_path: Path) -> None:
     assert installation is not None
     task_dir = installation.sacas_root / "tasks" / "current"
     
-    expansions_data = json.loads((task_dir / "expansions.json").read_text(encoding="utf-8"))
-    initial_scope = expansions_data.get("initial_scope", [])
-    paths = [item["path"] for item in initial_scope]
+    manifest = load_active_context(task_dir)
+    assert manifest is not None
+    
+    paths = [item.path for item in manifest.files]
     
     # Heuristics should discover auth.py
     assert "src/auth.py" in paths
-    auth_item = next(item for item in initial_scope if item["path"] == "src/auth.py")
-    assert auth_item["source"] == "heuristic"
-    assert auth_item["relation"] == "keyword_match"
+    auth_item = next(item for item in manifest.files if item.path == "src/auth.py")
+    assert auth_item.source == "heuristic"
+    assert auth_item.relation == "keyword_match"

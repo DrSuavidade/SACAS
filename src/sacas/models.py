@@ -7,7 +7,9 @@ from dataclasses import dataclass
 from typing import Any
 
 
-SCHEMA_VERSION = 1
+INSTALLATION_SCHEMA_VERSION = 1
+SCHEMA_VERSION = INSTALLATION_SCHEMA_VERSION
+ACTIVE_CONTEXT_SCHEMA_VERSION = 1
 GRAPHIFY_MODES = frozenset({"off", "existing", "code-only", "semantic"})
 
 

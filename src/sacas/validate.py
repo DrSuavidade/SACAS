@@ -140,16 +140,12 @@ def run_diagnostics(root: Path) -> dict[str, Any]:
                 "message": "Legacy PROGRESS.md file found. State should be tracked exclusively in STATE.md."
             })
 
-        # Read expansions and check task files
-        expansions_path = task_dir / "expansions.json"
-        if expansions_path.is_file():
+        # Read active_context.json and check task files
+        from sacas.active_context import load_active_context
+        active_manifest = load_active_context(task_dir)
+        if active_manifest is not None:
             try:
-                data = json.loads(expansions_path.read_text(encoding="utf-8"))
-                from sacas.tasks import get_initial_files, get_expanded_files
-                initials = get_initial_files(data)
-                expanded = get_expanded_files(data)
-                
-                if not initials and not expanded and not data.get("symbols"):
+                if not active_manifest.files:
                     diagnostics.append({
                         "severity": "WARNING",
                         "check": "empty_scope",
@@ -160,27 +156,15 @@ def run_diagnostics(root: Path) -> dict[str, Any]:
                 stale_files = []
                 missing_files = []
                 
-                # Check initials
-                for f, recorded_hash in initials.items():
-                    all_files.append(f)
-                    f_path = installation.repository_root / f
+                for f in active_manifest.files:
+                    all_files.append(f.path)
+                    f_path = installation.repository_root / f.path
                     if not f_path.is_file():
-                        missing_files.append(f)
+                        missing_files.append(f.path)
                     else:
                         curr_hash = hashlib.sha256(f_path.read_bytes()).hexdigest()
-                        if curr_hash != recorded_hash:
-                            stale_files.append(f)
-
-                # Check expanded
-                for f, recorded_hash in expanded.items():
-                    all_files.append(f)
-                    f_path = installation.repository_root / f
-                    if not f_path.is_file():
-                        missing_files.append(f)
-                    else:
-                        curr_hash = hashlib.sha256(f_path.read_bytes()).hexdigest()
-                        if curr_hash != recorded_hash:
-                            stale_files.append(f)
+                        if curr_hash != f.hash:
+                            stale_files.append(f.path)
 
                 if missing_files:
                     diagnostics.append({
@@ -222,13 +206,13 @@ def run_diagnostics(root: Path) -> dict[str, Any]:
                 diagnostics.append({
                     "severity": "FAIL",
                     "check": "missing_references",
-                    "message": f"expansions.json is malformed or unreadable: {err}"
+                    "message": f"active_context.json is malformed or unreadable: {err}"
                 })
         else:
             diagnostics.append({
                 "severity": "FAIL",
                 "check": "missing_references",
-                "message": "expansions.json is missing in current task directory."
+                "message": "active_context.json is missing in current task directory."
             })
 
     # Calculate status

@@ -155,34 +155,39 @@ def run_benchmark(installation: Installation) -> dict[str, Any]:
     if not task_id:
         return {"active_task": False}
 
+    from sacas.active_context import load_active_context
     task_dir = installation.sacas_root / "tasks" / "current"
-    expansions_path = task_dir / "expansions.json"
-    if not expansions_path.is_file():
+    manifest = load_active_context(task_dir)
+    if not manifest:
         return {"active_task": False}
 
-    try:
-        data = json.loads(expansions_path.read_text(encoding="utf-8"))
-    except Exception:
-        return {"active_task": False}
-
-    initial_scope = data.get("initial_scope", [])
-    expansions = data.get("expansions", [])
-    adjacent = data.get("adjacent", [])
+    initial_scope = [f for f in manifest.files if f.trigger == "initial_route"]
+    expansions = [f for f in manifest.files if f.trigger != "initial_route"]
 
     initial_count = len(initial_scope)
     expansion_count = len(expansions)
-    adjacent_count = len(adjacent)
-    total_count = initial_count + expansion_count
+    total_count = len(manifest.files)
     
+    # Read adjacent count from candidates.json
+    adjacent_count = 0
+    candidates_path = task_dir / "candidates.json"
+    if candidates_path.is_file():
+        try:
+            candidates_data = json.loads(candidates_path.read_text(encoding="utf-8"))
+            adjacent_count = len(candidates_data.get("candidates", []))
+        except Exception:
+            pass
+
     expansion_ratio = (expansion_count / initial_count) if initial_count > 0 else 0.0
 
-    all_files = tuple(item["path"] for item in initial_scope) + tuple(item["path"] for item in expansions)
-    total_size = calculate_total_context_size(installation, all_files)
+    from sacas.budget import calculate_manifest_tokens
+    breakdown = calculate_manifest_tokens(installation, manifest)
+    total_size = breakdown.used
 
     return {
         "active_task": True,
         "task_id": task_id,
-        "goal": data.get("goal", ""),
+        "goal": manifest.goal,
         "metadata": {
             "sacas_version": __version__,
             "graphify_version": GraphifyAdapter.get_installed_version() or "N/A",

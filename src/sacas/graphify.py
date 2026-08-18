@@ -402,3 +402,47 @@ class GraphifyAdapter:
         return True
 
 
+class GraphifyProvider:
+    def verify_capabilities(self, required: list[str]) -> bool:
+        raise NotImplementedError
+
+    def query(self, goal: str, graph_path: Path) -> GraphifyQueryResult | None:
+        raise NotImplementedError
+
+
+class CliGraphifyProvider(GraphifyProvider):
+    def __init__(self, repository_root: Path, sacas_root: Path):
+        self.repository_root = repository_root
+        self.sacas_root = sacas_root
+        self.adapter = GraphifyAdapter(repository_root, sacas_root)
+
+    def verify_capabilities(self, required: list[str]) -> bool:
+        return self.adapter.verify_capabilities(required)
+
+    def query(self, goal: str, graph_path: Path) -> GraphifyQueryResult | None:
+        return self.adapter.query(goal, graph_path)
+
+
+class JsonGraphifyProvider(GraphifyProvider):
+    def __init__(self, graph_path: Path):
+        self.graph_path = graph_path
+
+    def verify_capabilities(self, required: list[str]) -> bool:
+        return self.graph_path.is_file()
+
+    def query(self, goal: str, graph_path: Path) -> GraphifyQueryResult | None:
+        if not self.graph_path.is_file():
+            return None
+        try:
+            data = json.loads(self.graph_path.read_text(encoding="utf-8"))
+            paths = []
+            for node in data.get("nodes", []):
+                if isinstance(node, dict) and "path" in node:
+                    paths.append(node["path"])
+                elif isinstance(node, list) and len(node) > 1:
+                    paths.append(node[1])
+            return GraphifyQueryResult(raw_output=json.dumps(data), paths=tuple(dict.fromkeys(paths)), status="success")
+        except Exception:
+            return None
+
+
