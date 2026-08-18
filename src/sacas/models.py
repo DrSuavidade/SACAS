@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, Mapping
+from typing import Any
 
 
 SCHEMA_VERSION = 1
@@ -33,8 +34,9 @@ class Manifest:
         object.__setattr__(self, "adapters", tuple(self.adapters))
         _non_empty_string(self.repository_root, "repository_root")
         _non_empty_string(self.sacas_root, "sacas_root")
+        _non_empty_string(self.graphify_mode, "graphify_mode")
         _non_empty_string(self.graphify_output, "graphify_output")
-        _optional_string_value(self.current_task_id, "current_task_id")
+        _optional_non_empty_string_value(self.current_task_id, "current_task_id")
         if isinstance(self.schema_version, bool) or not isinstance(self.schema_version, int):
             raise SchemaVersionError("schema_version must be an integer")
         if self.schema_version != SCHEMA_VERSION:
@@ -65,6 +67,8 @@ class Manifest:
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "Manifest":
         """Load and validate the current manifest schema."""
+        if not isinstance(data, Mapping):
+            raise ValueError("manifest must be a JSON object")
         version = data.get("schema_version")
         if version != SCHEMA_VERSION:
             raise SchemaVersionError(
@@ -81,7 +85,7 @@ class Manifest:
             graphify_output=_required_string(data, "graphify_output", "graphify-out"),
             adapters=tuple(adapters),
             context_budget=_positive_integer(data, "context_budget", 12_000),
-            current_task_id=_optional_string(data, "current_task_id"),
+            current_task_id=_optional_non_empty_string(data, "current_task_id"),
         )
 
 
@@ -91,9 +95,9 @@ def _required_string(data: Mapping[str, Any], key: str, default: str) -> str:
     return value
 
 
-def _optional_string(data: Mapping[str, Any], key: str) -> str | None:
+def _optional_non_empty_string(data: Mapping[str, Any], key: str) -> str | None:
     value = data.get(key)
-    _optional_string_value(value, key)
+    _optional_non_empty_string_value(value, key)
     return value
 
 
@@ -108,9 +112,9 @@ def _non_empty_string(value: object, key: str) -> None:
         raise ValueError(f"{key} must be a non-empty string")
 
 
-def _optional_string_value(value: object, key: str) -> None:
-    if value is not None and not isinstance(value, str):
-        raise ValueError(f"{key} must be a string or null")
+def _optional_non_empty_string_value(value: object, key: str) -> None:
+    if value is not None and (not isinstance(value, str) or not value):
+        raise ValueError(f"{key} must be a non-empty string or null")
 
 
 def _positive_integer_value(value: object, key: str) -> None:

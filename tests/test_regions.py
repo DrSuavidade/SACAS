@@ -46,6 +46,14 @@ def test_manifest_rejects_unsupported_schema_version() -> None:
         Manifest.from_dict({"schema_version": 999})
 
 
+@pytest.mark.parametrize("data", [[], "not a manifest", 42])
+def test_manifest_rejects_non_object_json_roots_with_controlled_error(data: object) -> None:
+    from sacas.models import Manifest
+
+    with pytest.raises(ValueError, match="manifest"):
+        Manifest.from_dict(data)  # type: ignore[arg-type]
+
+
 def test_manifest_converts_directly_supplied_mutable_adapters_to_an_immutable_tuple() -> None:
     from sacas.models import Manifest
 
@@ -62,6 +70,21 @@ def test_manifest_rejects_unknown_graphify_mode() -> None:
 
     with pytest.raises(ValueError, match="graphify_mode"):
         Manifest(graphify_mode="automatic")
+
+
+@pytest.mark.parametrize("mode", [[], ""])
+def test_manifest_rejects_non_string_or_empty_graphify_mode(mode: object) -> None:
+    from sacas.models import Manifest
+
+    with pytest.raises(ValueError, match="graphify_mode"):
+        Manifest(graphify_mode=mode)  # type: ignore[arg-type]
+
+
+def test_manifest_rejects_empty_current_task_id() -> None:
+    from sacas.models import Manifest
+
+    with pytest.raises(ValueError, match="current_task_id"):
+        Manifest(current_task_id="")
 
 
 @pytest.mark.parametrize(
@@ -145,6 +168,20 @@ def test_replace_region_changes_only_owned_region_and_preserves_manual_text() ->
         "with a second line\n"
         "<!-- SACAS:END router -->\n\n"
         "This footer is human-authored.\n"
+    )
+
+
+def test_generated_region_helpers_normalize_lone_carriage_returns() -> None:
+    from sacas.regions import render_generated_region, replace_generated_region
+
+    source = "<!-- SACAS:START router -->\nold\n<!-- SACAS:END router -->\n"
+    generated = "first\rsecond\r\nthird\n"
+
+    assert render_generated_region("router", generated) == (
+        "<!-- SACAS:START router -->\nfirst\nsecond\nthird\n<!-- SACAS:END router -->\n"
+    )
+    assert replace_generated_region(source, "router", generated) == (
+        "<!-- SACAS:START router -->\nfirst\nsecond\nthird\n<!-- SACAS:END router -->\n"
     )
 
 

@@ -9,7 +9,7 @@ class RegionError(ValueError):
     """Raised when a generated region is absent, duplicated, or malformed."""
 
 
-def replace_region(document: str, name: str, generated: str) -> str:
+def replace_generated_region(document: str, name: str, generated: str) -> str:
     """Replace exactly one named SACAS region without touching manual content."""
     _validate_name(name)
     start = re.compile(rf"<!-- SACAS:START {re.escape(name)} -->\r?\n?")
@@ -19,17 +19,31 @@ def replace_region(document: str, name: str, generated: str) -> str:
     if len(starts) != 1 or len(ends) != 1 or starts[0].start() >= ends[0].start():
         raise RegionError(f"Expected one complete SACAS region named {name!r}.")
 
-    content = generated.replace("\r\n", "\n").strip("\n")
+    content = _normalize_generated(generated)
     replacement = f"{content}\n" if content else ""
     return document[: starts[0].end()] + replacement + document[ends[0].start() :]
 
 
-def render_region(name: str, generated: str) -> str:
+def render_generated_region(name: str, generated: str) -> str:
     """Render a deterministic, standalone generated region."""
     _validate_name(name)
-    content = generated.replace("\r\n", "\n").strip("\n")
+    content = _normalize_generated(generated)
     body = f"{content}\n" if content else ""
     return f"<!-- SACAS:START {name} -->\n{body}<!-- SACAS:END {name} -->\n"
+
+
+def replace_region(document: str, name: str, generated: str) -> str:
+    """Backward-compatible name for :func:`replace_generated_region`."""
+    return replace_generated_region(document, name, generated)
+
+
+def render_region(name: str, generated: str) -> str:
+    """Backward-compatible name for :func:`render_generated_region`."""
+    return render_generated_region(name, generated)
+
+
+def _normalize_generated(generated: str) -> str:
+    return generated.replace("\r\n", "\n").replace("\r", "\n").strip("\n")
 
 
 def _validate_name(name: str) -> None:
