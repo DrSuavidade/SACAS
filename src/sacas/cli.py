@@ -7,7 +7,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from sacas import __version__
-from sacas.graphify import collect_graphify, write_graphify_manifest
+from sacas.graphify import collect_graphify, repository_relative_path, write_graphify_manifest
 from sacas.init import initialize
 from sacas.map import build_system_map, write_system_map
 
@@ -39,8 +39,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         initialize(arguments.root, sacas_root=arguments.sacas_root)
     elif arguments.command == "map":
         root = Path(arguments.root).resolve()
-        sacas_root = root / arguments.sacas_root
-        evidence = collect_graphify(root, mode=arguments.mode, output=arguments.output)
+        sacas_root_relative = repository_relative_path(root, arguments.sacas_root)
+        output = repository_relative_path(root, arguments.output)
+        sacas_root = root / sacas_root_relative
+        evidence = collect_graphify(
+            root, mode=arguments.mode, output=output, sacas_root=sacas_root_relative
+        )
         write_graphify_manifest(sacas_root / ".sacas" / "graphify.json", evidence)
         write_system_map(sacas_root / "map" / "SYSTEM.md", build_system_map(evidence))
     return 0

@@ -225,3 +225,33 @@ def test_cli_map_consumes_existing_graph_and_writes_only_map_artifacts(tmp_path:
     assert (tmp_path / "Structure" / "map" / "SYSTEM.md").is_file()
     assert (tmp_path / "Structure" / ".sacas" / "graphify.json").is_file()
     assert not (tmp_path / "Structure" / "tasks").exists()
+
+
+@pytest.mark.parametrize("sacas_root", ["Structure", "agent-state"])
+def test_sacas_generated_map_state_does_not_make_graphify_stale_on_repeat_map(
+    tmp_path: Path, sacas_root: str
+) -> None:
+    from sacas.cli import main
+    from sacas.graphify import collect_graphify
+
+    graph_fixture(tmp_path)
+    arguments = ["map", "--root", str(tmp_path), "--mode", "existing", "--sacas-root", sacas_root]
+    assert main(arguments) == 0
+
+    assert collect_graphify(tmp_path, mode="existing", sacas_root=sacas_root).status == "fresh"
+    assert main(arguments) == 0
+
+
+def test_runnable_graphify_modes_reject_custom_output_without_supported_output_flag(tmp_path: Path) -> None:
+    from sacas.graphify import collect_graphify
+
+    with pytest.raises(ValueError, match="custom Graphify output"):
+        collect_graphify(tmp_path, mode="code-only", output="custom-output")
+
+
+@pytest.mark.parametrize("output", ["../outside", "C:/absolute-output"])
+def test_cli_map_rejects_output_paths_outside_repository(tmp_path: Path, output: str) -> None:
+    from sacas.cli import main
+
+    with pytest.raises(ValueError, match="relative path inside the repository"):
+        main(["map", "--root", str(tmp_path), "--output", output])

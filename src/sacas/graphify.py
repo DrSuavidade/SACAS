@@ -11,6 +11,7 @@ from dataclasses import dataclass
 import hashlib
 import json
 from pathlib import Path
+from pathlib import PureWindowsPath
 import subprocess
 from typing import Any
 
@@ -54,14 +55,19 @@ def collect_graphify(
     *,
     mode: str,
     output: str = "graphify-out",
+    sacas_root: str = "Structure",
     runner: GraphifyRunner | None = None,
 ) -> GraphifyEvidence:
     """Collect optional Graphify evidence, never silently enabling semantics."""
     root_path = Path(root).resolve()
+    output = repository_relative_path(root_path, output)
+    sacas_root = repository_relative_path(root_path, sacas_root)
     if mode == "off":
         return _empty(root_path, output, status="disabled", provenance="disabled")
     if mode not in {"existing", *_RUNNABLE_MODES}:
         raise ValueError(f"Unsupported Graphify mode: {mode}")
+    if mode in _RUNNABLE_MODES and output != "graphify-out":
+        raise ValueError("Runnable Graphify modes do not support a custom Graphify output")
     if mode in _RUNNABLE_MODES:
         command = ("graphify", "extract", str(root_path), "--no-viz")
         if mode == "code-only":
@@ -105,7 +111,7 @@ def collect_graphify(
         )
     nodes = _nodes(graph.get("nodes"))
     edges = _edges(graph.get("edges"))
-    status = "stale" if _has_newer_source(root_path, graph_path, output) else "fresh"
+    status = "stale" if _has_newer_source(root_path, graph_path, output, sacas_root) else "fresh"
     return GraphifyEvidence(
         output=output,
         status=status,
@@ -129,6 +135,22 @@ def safe_query(
     command = ("graphify", "query", query, "--graph", str(output_path / "graph.json"))
     result = _run(command, runner)
     return result if isinstance(result, str) else None
+
+
+def repository_relative_path(root: Path | str, value: str) -> str:
+    """Validate a user path is relative and remains within *root*."""
+    if not isinstance(value, str) or not value:
+        raise ValueError("Path must be a relative path inside the repository")
+    candidate = Path(value)
+    if candidate.is_absolute() or PureWindowsPath(value).is_absolute():
+        raise ValueError("Path must be a relative path inside the repository")
+    root_path = Path(root).resolve()
+    resolved = (root_path / candidate).resolve()
+    try:
+        relative = resolved.relative_to(root_path)
+    except ValueError as error:
+        raise ValueError("Path must be a relative path inside the repository") from error
+    return relative.as_posix()
 
 
 def write_graphify_manifest(path: Path, evidence: GraphifyEvidence) -> None:
@@ -219,11 +241,17 @@ def _communities(raw: object) -> tuple[tuple[str, tuple[str, ...]], ...]:
     return tuple((name, tuple(sorted(paths))) for name, paths in sorted(grouped.items()))
 
 
-def _has_newer_source(root: Path, graph_path: Path, output: str) -> bool:
+def _has_newer_source(root: Path, graph_path: Path, output: str, sacas_root: str) -> bool:
     graph_time = graph_path.stat().st_mtime_ns
-    ignored = {output, ".git", ".sacas", "__pycache__"}
+    ignored = {".git", ".sacas", "__pycache__"}
+    generated_roots = (Path(output), Path(sacas_root))
     for path in root.rglob("*"):
-        if not path.is_file() or any(part in ignored for part in path.relative_to(root).parts):
+        if not path.is_file():
+            continue
+        relative = path.relative_to(root)
+        if any(part in ignored for part in relative.parts) or any(
+            relative.is_relative_to(generated_root) for generated_root in generated_roots
+        ):
             continue
         try:
             if path.stat().st_mtime_ns > graph_time:
