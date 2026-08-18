@@ -7,6 +7,8 @@ import os
 import shutil
 from pathlib import Path
 
+import pytest
+
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -74,7 +76,7 @@ def test_code_only_uses_graphify_cli_local_extraction_without_semantic_flags(tmp
     evidence = collect_graphify(tmp_path, mode="code-only", runner=runner)
 
     assert evidence.status == "fresh"
-    assert observed == [("graphify", str(tmp_path.resolve()), "--no-viz", "--code-only")]
+    assert observed == [("graphify", "extract", str(tmp_path.resolve()), "--no-viz", "--code-only")]
     assert "semantic" not in " ".join(observed[0])
 
 
@@ -91,7 +93,8 @@ def test_semantic_mode_requires_explicit_mode_and_is_the_only_mode_with_semantic
     evidence = collect_graphify(tmp_path, mode="semantic", runner=runner)
 
     assert evidence.status == "fresh"
-    assert observed == [("graphify", str(tmp_path.resolve()), "--no-viz", "--semantic")]
+    assert observed == [("graphify", "extract", str(tmp_path.resolve()), "--no-viz")]
+    assert "explicitly selected" in evidence.warning
 
 
 def test_failed_optional_graphify_execution_returns_evidence_warning(tmp_path: Path) -> None:
@@ -108,6 +111,20 @@ def test_safe_query_returns_no_result_when_graphify_cli_is_unavailable(tmp_path:
 
     graph_fixture(tmp_path)
     assert safe_query(tmp_path / "graphify-out", "what calls api", runner=lambda _args: 127) is None
+
+
+def test_safe_query_targets_the_supplied_custom_output_graph(tmp_path: Path) -> None:
+    from sacas.graphify import safe_query
+
+    output = tmp_path / "custom-output"
+    output.mkdir()
+    (output / "graph.json").write_text("{}", encoding="utf-8")
+    observed: list[tuple[str, ...]] = []
+
+    assert safe_query(output, "what calls api", runner=lambda args: observed.append(args) or "answer") == "answer"
+    assert observed == [
+        ("graphify", "query", "what calls api", "--graph", str(output / "graph.json"))
+    ]
 
 
 def test_system_map_uses_community_evidence_without_tasks_or_protected_boundaries(tmp_path: Path) -> None:
@@ -155,7 +172,48 @@ def test_graph_manifest_and_system_map_persist_deterministically(tmp_path: Path)
     write_system_map(output, build_system_map(evidence))
 
     assert read_graphify_manifest(manifest) == evidence
-    assert output.read_text(encoding="utf-8") == render_system_map(build_system_map(evidence))
+    first = output.read_text(encoding="utf-8")
+    write_system_map(output, build_system_map(evidence))
+    assert output.read_text(encoding="utf-8") == first
+    assert "<!-- SACAS:START system-map -->" in first
+    assert render_system_map(build_system_map(evidence)) in first
+
+
+def test_system_map_update_replaces_only_owned_region_and_preserves_manual_content(tmp_path: Path) -> None:
+    from sacas.graphify import collect_graphify
+    from sacas.map import build_system_map, write_system_map
+
+    graph_fixture(tmp_path)
+    output = tmp_path / "Structure" / "map" / "SYSTEM.md"
+    output.parent.mkdir(parents=True)
+    output.write_text(
+        "# Human map\n\nManual introduction.\n\n<!-- SACAS:START system-map -->\nold\n"
+        "<!-- SACAS:END system-map -->\n\nManual conclusion.\n",
+        encoding="utf-8",
+    )
+
+    write_system_map(output, build_system_map(collect_graphify(tmp_path, mode="existing")))
+
+    rendered = output.read_text(encoding="utf-8")
+    assert "Manual introduction." in rendered
+    assert "Manual conclusion." in rendered
+    assert "old" not in rendered
+
+
+def test_system_map_refuses_to_overwrite_an_unowned_human_document(tmp_path: Path) -> None:
+    from sacas.graphify import collect_graphify
+    from sacas.map import build_system_map, write_system_map
+    from sacas.regions import RegionError
+
+    graph_fixture(tmp_path)
+    output = tmp_path / "Structure" / "map" / "SYSTEM.md"
+    output.parent.mkdir(parents=True)
+    output.write_text("# Human map\n\nDo not replace.\n", encoding="utf-8")
+
+    with pytest.raises(RegionError, match="complete SACAS region"):
+        write_system_map(output, build_system_map(collect_graphify(tmp_path, mode="existing")))
+
+    assert output.read_text(encoding="utf-8") == "# Human map\n\nDo not replace.\n"
 
 
 def test_cli_map_consumes_existing_graph_and_writes_only_map_artifacts(tmp_path: Path) -> None:

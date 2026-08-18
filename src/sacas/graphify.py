@@ -63,7 +63,9 @@ def collect_graphify(
     if mode not in {"existing", *_RUNNABLE_MODES}:
         raise ValueError(f"Unsupported Graphify mode: {mode}")
     if mode in _RUNNABLE_MODES:
-        command = ("graphify", str(root_path), "--no-viz", f"--{mode}")
+        command = ("graphify", "extract", str(root_path), "--no-viz")
+        if mode == "code-only":
+            command += ("--code-only",)
         result = _run(command, runner)
         if result != 0:
             return _empty(
@@ -113,7 +115,7 @@ def collect_graphify(
         communities=_communities(graph.get("nodes")),
         nodes=nodes,
         edges=edges,
-        warning="Graphify graph.json is older than repository source" if status == "stale" else "",
+        warning=_warning(mode, status),
     )
 
 
@@ -124,7 +126,7 @@ def safe_query(
     output_path = Path(output)
     if not (output_path / "graph.json").is_file():
         return None
-    command = ("graphify", "query", query)
+    command = ("graphify", "query", query, "--graph", str(output_path / "graph.json"))
     result = _run(command, runner)
     return result if isinstance(result, str) else None
 
@@ -168,6 +170,15 @@ def _run(command: tuple[str, ...], runner: GraphifyRunner | None) -> int | str:
 
 def _empty(root: Path, output: str, *, status: str, provenance: str, warning: str = "") -> GraphifyEvidence:
     return GraphifyEvidence(str(root / output), status, provenance, status, "", warning=warning)
+
+
+def _warning(mode: str, status: str) -> str:
+    warnings: list[str] = []
+    if mode == "semantic":
+        warnings.append("Semantic Graphify extraction was explicitly selected")
+    if status == "stale":
+        warnings.append("Graphify graph.json is older than repository source")
+    return "; ".join(warnings)
 
 
 def _nodes(raw: object) -> tuple[tuple[str, str], ...]:

@@ -7,6 +7,7 @@ from pathlib import Path
 
 from .graphify import GraphifyEvidence
 from .io import write_text_atomic
+from .regions import render_generated_region, replace_generated_region
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,7 +61,12 @@ def render_system_map(system_map: SystemMap) -> str:
 
 def write_system_map(path: Path, system_map: SystemMap) -> None:
     """Persist a generated map while keeping Graphify state in its own manifest."""
-    write_text_atomic(path, render_system_map(system_map))
+    generated = render_system_map(system_map)
+    if path.exists():
+        document = replace_generated_region(path.read_text(encoding="utf-8"), "system-map", generated)
+    else:
+        document = "# System map\n\n" + render_generated_region("system-map", generated)
+    write_text_atomic(path, document)
 
 
 def impact_records(evidence: GraphifyEvidence, target: str) -> tuple[ImpactRecord, ...]:
