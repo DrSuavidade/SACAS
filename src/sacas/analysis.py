@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 
 from .io import write_json_atomic
-from .modules import Module, detect_modules, module_metadata_paths
+from .modules import Module, detect_modules, module_metadata_paths, workspace_containers
 from .repository import Evidence, collect_repository_evidence
 
 
@@ -77,7 +77,9 @@ def analyze_repository(root: Path) -> Analysis:
     paths = tuple(sorted({item.path for item in repository.evidence} | set(module_metadata_paths(root))))
     # Record every conventional container, even absent ones, so creating a
     # future module cannot leave a prior analysis falsely fresh.
-    inventory_roots = MODULE_CONTAINERS
+    inventory_roots = tuple(
+        dict.fromkeys((*MODULE_CONTAINERS, *workspace_containers(root)))
+    )
     return Analysis(
         root=str(root),
         ecosystems=repository.ecosystems,

@@ -207,3 +207,34 @@ def test_analysis_detects_root_marker_creation_or_removal(
         descriptor.unlink()
 
     assert analysis.freshness.is_current(root) is False
+
+
+@pytest.mark.parametrize(
+    ("workspace_file", "workspace_content", "container"),
+    [
+        ("package.json", '{"private":true,"workspaces":["components/*"]}', "components"),
+        ("pnpm-workspace.yaml", 'packages:\n  - "services/*"\n', "services"),
+    ],
+)
+def test_declared_simple_workspace_globs_discover_modules_and_invalidate_freshness(
+    tmp_path: Path, workspace_file: str, workspace_content: str, container: str
+) -> None:
+    from sacas.analysis import analyze_repository
+
+    root = tmp_path / "declared-workspace"
+    root.mkdir()
+    (root / workspace_file).write_text(workspace_content, encoding="utf-8")
+    first = root / container / "first" / "package.json"
+    first.parent.mkdir(parents=True)
+    first.write_text('{"name":"first","version":"1"}', encoding="utf-8")
+    analysis = analyze_repository(root)
+
+    assert any(module.name == "first" and module.path == f"{container}/first" for module in analysis.modules)
+    first.write_text('{"name":"first","version":"2"}', encoding="utf-8")
+    assert analysis.freshness.is_current(root) is False
+
+    refreshed = analyze_repository(root)
+    second = root / container / "second" / "package.json"
+    second.parent.mkdir(parents=True)
+    second.write_text('{"name":"second"}', encoding="utf-8")
+    assert refreshed.freshness.is_current(root) is False

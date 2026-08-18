@@ -5,6 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 from pathlib import Path
+import re
+
+
+DEFAULT_MODULE_CONTAINERS = ("apps", "packages")
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,14 +40,51 @@ def module_metadata_paths(root: Path) -> tuple[str, ...]:
     """Return every module descriptor that contributes to metadata discovery."""
     root = root.resolve()
     paths: list[Path] = []
-    paths.extend(sorted(root.glob("apps/*/package.json")))
-    paths.extend(sorted(root.glob("packages/*/package.json")))
+    for container in workspace_containers(root):
+        paths.extend(sorted((root / container).glob("*/package.json")))
     for filename in ("pyproject.toml", "Cargo.toml", "go.mod", "pom.xml", "build.gradle", "build.gradle.kts"):
         candidate = root / filename
         if candidate.is_file():
             paths.append(candidate)
     paths.extend(sorted(root.glob("*.csproj")))
     return tuple(sorted({path.relative_to(root).as_posix() for path in paths}))
+
+
+def workspace_containers(root: Path) -> tuple[str, ...]:
+    """Return bounded roots from simple declared workspace globs.
+
+    Only ``container/*`` patterns are supported.  Complex or negated globs
+    deliberately remain outside this lightweight detector.
+    """
+    root = root.resolve()
+    containers = set(DEFAULT_MODULE_CONTAINERS)
+    package = root / "package.json"
+    if package.is_file():
+        try:
+            data = json.loads(package.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            data = {}
+        workspaces = data.get("workspaces", []) if isinstance(data, dict) else []
+        if isinstance(workspaces, dict):
+            workspaces = workspaces.get("packages", [])
+        if isinstance(workspaces, list):
+            containers.update(_simple_workspace_container(item) for item in workspaces if isinstance(item, str))
+    for filename in ("pnpm-workspace.yaml", "pnpm-workspace.yml"):
+        path = root / filename
+        if path.is_file():
+            for line in path.read_text(encoding="utf-8").splitlines():
+                match = re.match(r"^\s*-\s*['\"]?([^'\"\s]+)['\"]?\s*$", line)
+                if match:
+                    containers.add(_simple_workspace_container(match.group(1)))
+    return tuple(sorted(container for container in containers if container))
+
+
+def _simple_workspace_container(pattern: str) -> str | None:
+    candidate = pattern.strip().replace("\\", "/")
+    parts = candidate.split("/")
+    if len(parts) == 2 and parts[1] == "*" and parts[0] and not parts[0].startswith("!"):
+        return parts[0]
+    return None
 
 
 def _package_modules(root: Path) -> list[Module]:
@@ -56,8 +97,9 @@ def _package_modules(root: Path) -> list[Module]:
             Module(name or path.parent.name, relative, "workspace_metadata", "high"),
         )
 
-    for package in sorted(root.glob("apps/*/package.json")) + sorted(root.glob("packages/*/package.json")):
-        add(package, _package_name(package))
+    for container in workspace_containers(root):
+        for package in sorted((root / container).glob("*/package.json")):
+            add(package, _package_name(package))
     for filename in ("pyproject.toml", "Cargo.toml", "go.mod", "pom.xml", "build.gradle", "build.gradle.kts"):
         path = root / filename
         if path.is_file():
