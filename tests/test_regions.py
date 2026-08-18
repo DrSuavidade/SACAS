@@ -64,6 +64,24 @@ def test_manifest_rejects_unknown_graphify_mode() -> None:
         Manifest(graphify_mode="automatic")
 
 
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"adapters": "codex"},
+        {"adapters": 42},
+        {"repository_root": ""},
+        {"sacas_root": ""},
+        {"graphify_output": ""},
+        {"current_task_id": 42},
+    ],
+)
+def test_manifest_direct_constructor_validates_machine_fields(kwargs: dict[str, object]) -> None:
+    from sacas.models import Manifest
+
+    with pytest.raises((TypeError, ValueError)):
+        Manifest(**kwargs)  # type: ignore[arg-type]
+
+
 def test_write_json_atomic_is_deterministic(tmp_path: Path) -> None:
     from sacas.io import write_json_atomic
 
@@ -75,6 +93,34 @@ def test_write_json_atomic_is_deterministic(tmp_path: Path) -> None:
 
     assert first_write == target.read_text(encoding="utf-8")
     assert first_write == '{\n  "a": [\n    "é"\n  ],\n  "z": 1\n}\n'
+
+
+def test_write_text_atomic_normalizes_all_carriage_return_variants(tmp_path: Path) -> None:
+    from sacas.io import write_text_atomic
+
+    target = tmp_path / "text.txt"
+    write_text_atomic(target, "one\rtwo\r\nthree\n")
+
+    assert target.read_text(encoding="utf-8") == "one\ntwo\nthree\n"
+
+
+@pytest.mark.parametrize("failure_name", ["fsync", "replace"])
+def test_write_text_atomic_removes_temp_file_after_persistence_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure_name: str
+) -> None:
+    from sacas import io
+
+    target = tmp_path / "nested" / "text.txt"
+
+    def fail(*_args: object, **_kwargs: object) -> None:
+        raise OSError("simulated persistence failure")
+
+    monkeypatch.setattr(io.os, failure_name, fail)
+
+    with pytest.raises(OSError, match="simulated persistence failure"):
+        io.write_text_atomic(target, "content")
+
+    assert list(target.parent.iterdir()) == []
 
 
 def test_replace_region_changes_only_owned_region_and_preserves_manual_text() -> None:

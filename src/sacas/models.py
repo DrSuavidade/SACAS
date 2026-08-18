@@ -28,7 +28,15 @@ class Manifest:
     schema_version: int = SCHEMA_VERSION
 
     def __post_init__(self) -> None:
+        if isinstance(self.adapters, str) or not isinstance(self.adapters, (list, tuple)):
+            raise ValueError("adapters must be a sequence of non-empty strings")
         object.__setattr__(self, "adapters", tuple(self.adapters))
+        _non_empty_string(self.repository_root, "repository_root")
+        _non_empty_string(self.sacas_root, "sacas_root")
+        _non_empty_string(self.graphify_output, "graphify_output")
+        _optional_string_value(self.current_task_id, "current_task_id")
+        if isinstance(self.schema_version, bool) or not isinstance(self.schema_version, int):
+            raise SchemaVersionError("schema_version must be an integer")
         if self.schema_version != SCHEMA_VERSION:
             raise SchemaVersionError(
                 f"Unsupported SACAS schema version {self.schema_version}; "
@@ -37,8 +45,7 @@ class Manifest:
         if self.graphify_mode not in GRAPHIFY_MODES:
             valid_modes = ", ".join(sorted(GRAPHIFY_MODES))
             raise ValueError(f"graphify_mode must be one of: {valid_modes}")
-        if self.context_budget <= 0:
-            raise ValueError("context_budget must be positive")
+        _positive_integer_value(self.context_budget, "context_budget")
         if not all(isinstance(adapter, str) and adapter for adapter in self.adapters):
             raise ValueError("adapters must contain non-empty strings")
 
@@ -80,20 +87,32 @@ class Manifest:
 
 def _required_string(data: Mapping[str, Any], key: str, default: str) -> str:
     value = data.get(key, default)
-    if not isinstance(value, str) or not value:
-        raise ValueError(f"{key} must be a non-empty string")
+    _non_empty_string(value, key)
     return value
 
 
 def _optional_string(data: Mapping[str, Any], key: str) -> str | None:
     value = data.get(key)
-    if value is not None and not isinstance(value, str):
-        raise ValueError(f"{key} must be a string or null")
+    _optional_string_value(value, key)
     return value
 
 
 def _positive_integer(data: Mapping[str, Any], key: str, default: int) -> int:
     value = data.get(key, default)
+    _positive_integer_value(value, key)
+    return value
+
+
+def _non_empty_string(value: object, key: str) -> None:
+    if not isinstance(value, str) or not value:
+        raise ValueError(f"{key} must be a non-empty string")
+
+
+def _optional_string_value(value: object, key: str) -> None:
+    if value is not None and not isinstance(value, str):
+        raise ValueError(f"{key} must be a string or null")
+
+
+def _positive_integer_value(value: object, key: str) -> None:
     if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
         raise ValueError(f"{key} must be a positive integer")
-    return value

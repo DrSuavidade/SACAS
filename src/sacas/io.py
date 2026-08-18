@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import suppress
 import json
 import os
 from pathlib import Path
@@ -17,15 +18,22 @@ def stable_json(data: Any) -> str:
 def write_text_atomic(path: Path, content: str) -> None:
     """Atomically replace *path* with UTF-8, LF-normalized text."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    normalized = content.replace("\r\n", "\n")
-    with tempfile.NamedTemporaryFile(
-        mode="w", encoding="utf-8", newline="\n", dir=path.parent, delete=False
-    ) as temporary:
-        temporary.write(normalized)
-        temporary.flush()
-        os.fsync(temporary.fileno())
-        temporary_path = Path(temporary.name)
-    os.replace(temporary_path, path)
+    normalized = content.replace("\r\n", "\n").replace("\r", "\n")
+    temporary_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", newline="\n", dir=path.parent, delete=False
+        ) as temporary:
+            temporary_path = Path(temporary.name)
+            temporary.write(normalized)
+            temporary.flush()
+            os.fsync(temporary.fileno())
+        os.replace(temporary_path, path)
+    except BaseException:
+        if temporary_path is not None:
+            with suppress(OSError):
+                temporary_path.unlink(missing_ok=True)
+        raise
 
 
 def write_json_atomic(path: Path, data: Any) -> None:
