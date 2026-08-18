@@ -15,6 +15,7 @@ Thumbs.db
 # SACAS generated data
 Structure/
 graphify-out/
+.worktrees/
 
 # SACAS generated data
 Structure/.sacas/
