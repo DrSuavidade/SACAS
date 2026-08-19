@@ -295,6 +295,7 @@ def route_goal(
     commit = get_git_commit(installation.repository_root)
     active_files = []
     events = []
+    graph_snapshot_hash = ""  # Will be set if Graphify succeeds
 
     # Infer category
     if not category:
@@ -395,7 +396,7 @@ def route_goal(
                 trigger="initial_route",
                 ranking_score=1.0,
                 confidence=1.0,
-                evidence=("explicit_user_input",)
+                evidence=("explicit_user_input",),
             ))
 
     # 3. Process tests as ordinary context with role="test"
@@ -533,6 +534,25 @@ def route_goal(
                         if node and node.label:
                             ev.append("goal_symbol_match")
                         
+                        # Extract graph IDs for provenance (WP3)
+                        graph_query_id = getattr(query_res, 'query_id', '')
+                        graph_snapshot_hash = getattr(query_res, 'graph_snapshot_hash', '')
+                        graph_node_id = node.id if node else ''
+                        graph_edge_source_id = ''
+                        graph_edge_target_id = ''
+                        graph_edge_kind = relation or ''
+                        graph_confidence = edge_conf if 'edge_conf' in locals() and edge_conf else conf_float
+                        
+                        # Find edge info
+                        for edge in query_res.edges:
+                            if edge.target == node.id:
+                                graph_edge_source_id = edge.source
+                                graph_edge_target_id = edge.target
+                                graph_edge_kind = edge.relation
+                                if edge.confidence:
+                                    graph_confidence = float(edge.confidence.lower() == 'high' and 1.0 or edge.confidence.lower() == 'medium' and 0.7 or 0.4)
+                                break
+                        
                         active_files.append(ActiveFileContext(
                             path=f_rel,
                             selection=selection,
@@ -557,7 +577,14 @@ def route_goal(
                             confidence=conf_float,
                             evidence=tuple(ev),
                             relation=relation,
-                            direction="forward"
+                            direction="forward",
+                            graph_snapshot_hash=graph_snapshot_hash,
+                            graph_query_id=graph_query_id,
+                            graph_node_id=graph_node_id,
+                            graph_edge_source_id=graph_edge_source_id,
+                            graph_edge_target_id=graph_edge_target_id,
+                            graph_edge_kind=graph_edge_kind,
+                            graph_confidence=graph_confidence,
                         ))
                     graphify_success = len(active_files) > 0
 
@@ -602,7 +629,10 @@ def route_goal(
                     confidence=conf_map.get(item["confidence"], 0.5),
                     evidence=("heuristic_keyword_match",),
                     relation=item["relation"],
-                    direction="forward"
+                    direction="forward",
+                    lexical_query_hash=item.get("query_hash", ""),
+                    lexical_matched_terms=tuple(item.get("matched", [])),
+                    lexical_score=conf_map.get(item["confidence"], 0.5),
                 ))
 
     # Construct final manifest without policy yet
@@ -610,6 +640,7 @@ def route_goal(
         task_id=task_id,
         task_contract_hash=task_contract_hash,
         git_revision=commit,
+        graph_snapshot_hash=graph_snapshot_hash,
         files=tuple(active_files),
         rules=tuple(hashed_rules),
         references=tuple(hashed_refs),

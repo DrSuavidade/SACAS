@@ -182,6 +182,18 @@ class AdmissionEvent:
     ranking_score: float = 0.0
     confidence: float = 0.0
     evidence: tuple[str, ...] = ()
+    # Graphify-specific provenance (WP3.2)
+    graph_snapshot_hash: str = ""
+    graph_query_id: str = ""
+    graph_node_id: str = ""
+    graph_edge_source_id: str = ""
+    graph_edge_target_id: str = ""
+    graph_edge_kind: str = ""
+    graph_confidence: float = 0.0
+    # Lexical provenance
+    lexical_query_hash: str = ""
+    lexical_matched_terms: tuple[str, ...] = ()
+    lexical_score: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -197,6 +209,16 @@ class AdmissionEvent:
             "ranking_score": self.ranking_score,
             "confidence": self.confidence,
             "evidence": list(self.evidence),
+            "graph_snapshot_hash": self.graph_snapshot_hash,
+            "graph_query_id": self.graph_query_id,
+            "graph_node_id": self.graph_node_id,
+            "graph_edge_source_id": self.graph_edge_source_id,
+            "graph_edge_target_id": self.graph_edge_target_id,
+            "graph_edge_kind": self.graph_edge_kind,
+            "graph_confidence": self.graph_confidence,
+            "lexical_query_hash": self.lexical_query_hash,
+            "lexical_matched_terms": list(self.lexical_matched_terms),
+            "lexical_score": self.lexical_score,
         }
 
     @classmethod
@@ -214,6 +236,16 @@ class AdmissionEvent:
             ranking_score=data.get("ranking_score", 0.0),
             confidence=data.get("confidence", 0.0),
             evidence=tuple(data.get("evidence", ())),
+            graph_snapshot_hash=data.get("graph_snapshot_hash", ""),
+            graph_query_id=data.get("graph_query_id", ""),
+            graph_node_id=data.get("graph_node_id", ""),
+            graph_edge_source_id=data.get("graph_edge_source_id", ""),
+            graph_edge_target_id=data.get("graph_edge_target_id", ""),
+            graph_edge_kind=data.get("graph_edge_kind", ""),
+            graph_confidence=data.get("graph_confidence", 0.0),
+            lexical_query_hash=data.get("lexical_query_hash", ""),
+            lexical_matched_terms=tuple(data.get("lexical_matched_terms", ())),
+            lexical_score=data.get("lexical_score", 0.0),
         )
 
 @dataclass(frozen=True)
@@ -284,6 +316,7 @@ class ActiveContextManifest:
     task_id: str
     task_contract_hash: str = ""
     git_revision: str = "unknown"
+    graph_snapshot_hash: str = ""  # Hash of graphify.json snapshot used for routing
     files: tuple[ActiveFileContext, ...] = ()  # Legacy: all files (backward compat)
     reference_files: tuple[ActiveFileContext, ...] = ()  # Layer 3: Stable refs (internalize as constraints)
     working_files: tuple[ActiveFileContext, ...] = ()  # Layer 4: Per-run artifacts (process as input)
@@ -303,6 +336,7 @@ class ActiveContextManifest:
             "task_id": self.task_id,
             "task_contract_hash": self.task_contract_hash,
             "git_revision": self.git_revision,
+            "graph_snapshot_hash": self.graph_snapshot_hash,
             "files": [f.to_dict() for f in self.files],
             "reference_files": [f.to_dict() for f in self.reference_files],
             "working_files": [f.to_dict() for f in self.working_files],
@@ -334,6 +368,7 @@ class ActiveContextManifest:
             task_id=data["task_id"],
             task_contract_hash=data.get("task_contract_hash", ""),
             git_revision=data.get("git_revision", "unknown"),
+            graph_snapshot_hash=data.get("graph_snapshot_hash", ""),
             files=files,
             reference_files=reference_files,
             working_files=working_files,

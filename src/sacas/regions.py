@@ -299,6 +299,36 @@ def find_python_ast_symbol_at_line(content: str, line_num: int) -> tuple[str, in
     return None
 
 
+def merge_ranges(ranges: list[tuple[int, int]]) -> list[tuple[int, int]]:
+    """Merge overlapping and adjacent line ranges.
+    
+    Args:
+        ranges: List of (start_line, end_line) tuples
+        
+    Returns:
+        List of merged (start_line, end_line) tuples, sorted by start_line
+    """
+    if not ranges:
+        return []
+    
+    # Sort by start line
+    sorted_ranges = sorted(ranges, key=lambda x: x[0])
+    
+    merged = []
+    current_start, current_end = sorted_ranges[0]
+    
+    for start, end in sorted_ranges[1:]:
+        # If overlapping or adjacent (current_end + 1 >= start)
+        if start <= current_end + 1:
+            current_end = max(current_end, end)
+        else:
+            merged.append((current_start, current_end))
+            current_start, current_end = start, end
+    
+    merged.append((current_start, current_end))
+    return merged
+
+
 def normalize_selections(symbols: tuple[ActiveSymbolContext, ...]) -> tuple[ActiveSymbolContext, ...]:
     """Merge overlapping and adjacent line ranges and deduplicate symbols."""
     if not symbols:

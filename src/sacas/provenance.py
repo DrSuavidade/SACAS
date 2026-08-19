@@ -8,6 +8,7 @@ from typing import Any
 
 from sacas.active_context import ActiveContextManifest, AdmissionEvent, ActiveFileContext
 from sacas.paths import Installation
+from sacas.compiler import read_context_pack
 
 
 @dataclass(frozen=True)
@@ -20,7 +21,7 @@ class ProvenanceNode:
 
 
 def trace_file_to_goal(installation: Installation, target_path: str, manifest: ActiveContextManifest) -> ProvenanceNode:
-    """Build provenance chain from a file back to the task goal."""
+    """Build provenance chain from a file back to the task goal using persisted evidence."""
     # Start with the task goal
     root = ProvenanceNode(
         type="task",
@@ -29,6 +30,7 @@ def trace_file_to_goal(installation: Installation, target_path: str, manifest: A
             "task_id": manifest.task_id,
             "category": manifest.category,
             "git_revision": manifest.git_revision,
+            "task_contract_hash": manifest.task_contract_hash,
         },
         children=()
     )
@@ -43,53 +45,112 @@ def trace_file_to_goal(installation: Installation, target_path: str, manifest: A
     if not admission_event:
         return root
     
-    # Build chain: task -> graphify_query -> graph_node -> graph_edge -> admission -> context_pack -> file
+    # Build chain: task -> graphify/lexical evidence -> admission -> context_pack -> file
     children = []
     
-    # Graphify query
-    if admission_event.source == "graphify":
+    # Graphify evidence chain (if applicable)
+    if admission_event.source == "graphify" and admission_event.graph_snapshot_hash:
+        # Graphify query node
         query_node = ProvenanceNode(
             type="graphify_query",
-            label=f"Graphify query: {admission_event.reason}",
+            label=f"Graphify query: {admission_event.graph_query_id or 'unknown'}",
             details={
-                "source": admission_event.source,
+                "graph_snapshot_hash": admission_event.graph_snapshot_hash,
+                "graph_query_id": admission_event.graph_query_id or "unknown",
                 "trigger": admission_event.trigger,
             },
             children=()
         )
         
-        # Find the graph node/edge that led to this
-        # Look at evidence in admission event
-        evidence = list(admission_event.evidence) if admission_event.evidence else []
+        # Graph node
+        if admission_event.graph_node_id:
+            node_node = ProvenanceNode(
+                type="graph_node",
+                label=f"Graph node: {admission_event.graph_node_id}",
+                details={
+                    "node_id": admission_event.graph_node_id,
+                    "graph_snapshot_hash": admission_event.graph_snapshot_hash,
+                },
+                children=()
+            )
+            query_node = ProvenanceNode(
+                type="graphify_query",
+                label=f"Graphify query: {admission_event.graph_query_id or 'unknown'}",
+                details={
+                    "graph_snapshot_hash": admission_event.graph_snapshot_hash,
+                    "graph_query_id": admission_event.graph_query_id or "unknown",
+                    "trigger": admission_event.trigger,
+                },
+                children=(node_node,)
+            )
         
-        if "graphify_query" in evidence:
-            # Graph node
-            node_label = "Graphify node"
-            for e in manifest.events:
-                if e.triggered_by and e.target == target_path:
-                    # This is complex - we'd need graph data
-                    pass
-            
-            # Simplified: add graph edge info
-            if admission_event.relation:
-                edge_node = ProvenanceNode(
-                    type="graph_edge",
-                    label=f"Graph edge: {admission_event.relation}",
-                    details={
-                        "relation": admission_event.relation,
-                        "direction": admission_event.direction,
-                        "confidence": admission_event.confidence,
-                    },
-                    children=()
-                )
+        # Graph edge
+        if admission_event.graph_edge_source_id and admission_event.graph_edge_target_id:
+            edge_node = ProvenanceNode(
+                type="graph_edge",
+                label=f"Graph edge: {admission_event.graph_edge_kind}",
+                details={
+                    "source_id": admission_event.graph_edge_source_id,
+                    "target_id": admission_event.graph_edge_target_id,
+                    "relation": admission_event.graph_edge_kind,
+                    "direction": admission_event.direction,
+                    "confidence": admission_event.graph_confidence,
+                },
+                children=()
+            )
+            # Add edge as child of query or node
+            if query_node.children:
+                # Has node child, add edge as sibling or to node
                 query_node = ProvenanceNode(
                     type="graphify_query",
-                    label=f"Graphify query: {admission_event.reason}",
-                    details={"source": admission_event.source, "trigger": admission_event.trigger},
+                    label=f"Graphify query: {admission_event.graph_query_id or 'unknown'}",
+                    details={
+                        "graph_snapshot_hash": admission_event.graph_snapshot_hash,
+                        "graph_query_id": admission_event.graph_query_id or "unknown",
+                        "trigger": admission_event.trigger,
+                    },
+                    children=(query_node.children[0], edge_node)
+                )
+            else:
+                query_node = ProvenanceNode(
+                    type="graphify_query",
+                    label=f"Graphify query: {admission_event.graph_query_id or 'unknown'}",
+                    details={
+                        "graph_snapshot_hash": admission_event.graph_snapshot_hash,
+                        "graph_query_id": admission_event.graph_query_id or "unknown",
+                        "trigger": admission_event.trigger,
+                    },
                     children=(edge_node,)
                 )
         
         children.append(query_node)
+    
+    # Lexical evidence chain (if applicable)
+    elif admission_event.source == "heuristic" and admission_event.lexical_query_hash:
+        lexical_node = ProvenanceNode(
+            type="lexical_query",
+            label=f"Lexical query: {admission_event.lexical_query_hash[:16]}",
+            details={
+                "query_hash": admission_event.lexical_query_hash,
+                "matched_terms": list(admission_event.lexical_matched_terms),
+                "score": admission_event.lexical_score,
+            },
+            children=()
+        )
+        children.append(lexical_node)
+    
+    # Explicit user context
+    elif admission_event.source == "explicit":
+        explicit_node = ProvenanceNode(
+            type="explicit_context",
+            label=f"Explicit user context",
+            details={
+                "source": "explicit",
+                "trigger": admission_event.trigger,
+            },
+            children=()
+        )
+        children.append(explicit_node)
     
     # Admission event
     admit_node = ProvenanceNode(
@@ -105,18 +166,28 @@ def trace_file_to_goal(installation: Installation, target_path: str, manifest: A
             "evidence": list(admission_event.evidence),
             "relation": admission_event.relation,
             "direction": admission_event.direction,
+            "graph_snapshot_hash": admission_event.graph_snapshot_hash,
+            "graph_node_id": admission_event.graph_node_id,
+            "graph_edge_source_id": admission_event.graph_edge_source_id,
+            "graph_edge_target_id": admission_event.graph_edge_target_id,
+            "graph_edge_kind": admission_event.graph_edge_kind,
+            "graph_confidence": admission_event.graph_confidence,
+            "lexical_query_hash": admission_event.lexical_query_hash,
+            "lexical_matched_terms": list(admission_event.lexical_matched_terms),
+            "lexical_score": admission_event.lexical_score,
         },
         children=()
     )
     children.append(admit_node)
     
-    # Context pack entry
+    # Context pack entry - read from actual pack file
+    pack_hash = _get_pack_fragment_hash(installation, target_path)
     pack_node = ProvenanceNode(
         type="context_pack",
         label=f"Context pack entry",
         details={
             "file": target_path,
-            "hash": _get_file_hash(installation, target_path),
+            "content_hash": pack_hash,
         },
         children=()
     )
@@ -140,18 +211,36 @@ def trace_file_to_goal(installation: Installation, target_path: str, manifest: A
             "task_id": manifest.task_id,
             "category": manifest.category,
             "git_revision": manifest.git_revision,
+            "task_contract_hash": manifest.task_contract_hash,
         },
         children=tuple(children)
     )
 
 
-def _get_file_hash(installation: Installation, path: str) -> str:
-    """Get file hash from manifest."""
-    import hashlib
-    f_path = installation.repository_root / path
-    if f_path.is_file():
-        return hashlib.sha256(f_path.read_bytes()).hexdigest()[:16]
+def _get_pack_fragment_hash(installation: Installation, target_path: str) -> str:
+    """Get fragment hash from context pack."""
+    pack_path = installation.sacas_root / ".sacas" / "runtime" / "context.pack.jsonl"
+    if not pack_path.is_file():
+        return ""
+    try:
+        header, fragments = read_context_pack(pack_path)
+        for frag in fragments:
+            if frag.source == target_path:
+                return frag.content_hash
+    except Exception:
+        pass
     return ""
+
+
+def _get_file_hash(installation: Installation, path: str) -> str:
+    """Get file hash from repository."""
+    import hashlib
+    from sacas.io import read_repo_bytes
+    try:
+        content_bytes = read_repo_bytes(installation.repository_root, path)
+        return hashlib.sha256(content_bytes).hexdigest()[:16]
+    except Exception:
+        return ""
 
 
 def render_provenance_chain(node: ProvenanceNode, indent: int = 0) -> list[str]:
@@ -196,6 +285,6 @@ def query_why_file(installation: Installation, target_path: str) -> list[str]:
                 return [f"Reference: {ref.path}", f"  Selection: {ref.selection}", f"  Rationale: {ref.reason}"]
         return [f"File '{target_path}' not found in active context."]
     
-    # Build provenance chain
+    # Build provenance chain from persisted evidence
     root = trace_file_to_goal(installation, found_file.path, manifest)
     return render_provenance_chain(root)

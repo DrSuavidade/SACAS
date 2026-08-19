@@ -1,0 +1,72 @@
+{
+  "budget": {
+    "control_tokens": 243,
+    "limit": 12000,
+    "reference_tokens": 0,
+    "rule_tokens": 0,
+    "source_tokens": 0,
+    "tokenizer": "char_heuristic",
+    "used": 243
+  },
+  "category": "investigate",
+  "events": [
+    {
+      "action": "admit",
+      "confidence": 1.0,
+      "direction": null,
+      "evidence": [
+        "explicit_user_input"
+      ],
+      "graph_confidence": 0.0,
+      "graph_edge_kind": "",
+      "graph_edge_source_id": "",
+      "graph_edge_target_id": "",
+      "graph_node_id": "",
+      "graph_query_id": "",
+      "graph_snapshot_hash": "",
+      "id": "evt-init-000",
+      "lexical_matched_terms": [],
+      "lexical_query_hash": "",
+      "lexical_score": 0.0,
+      "ranking_score": 1.0,
+      "reason": "Explicitly specified by user",
+      "relation": null,
+      "source": "explicit",
+      "target": "src/temp.py",
+      "trigger": "initial_route",
+      "triggered_by": null
+    }
+  ],
+  "files": [
+    {
+      "confidence": 1.0,
+      "evidence": [
+        "explicit_user_input"
+      ],
+      "git_revision": "e914dd8721904c29fd20c9fe6b64b8cc2915e6f9",
+      "hash": "",
+      "path": "src/temp.py",
+      "ranking_score": 1.0,
+      "reason": "Explicitly specified by user",
+      "relation": null,
+      "role": "source",
+      "selection": {
+        "mode": "full"
+      },
+      "source": "explicit",
+      "trigger": "initial_route"
+    }
+  ],
+  "git_revision": "rev",
+  "goal": "test",
+  "graph_snapshot_hash": "b397170b0e1373fa3e71dcfc9cf7e31f542fceaef28a54c78b01bc40f05acffc",
+  "policy": null,
+  "reference_files": [],
+  "references": [],
+  "rules": [],
+  "schema_version": 1,
+  "task_contract_hash": "sha256:task",
+  "task_id": "test-deleted",
+  "tests": [],
+  "working_files": []
+}

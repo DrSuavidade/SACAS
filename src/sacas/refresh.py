@@ -7,7 +7,7 @@ import json
 from dataclasses import replace
 from pathlib import Path
 from sacas.graphify import read_graphify_manifest
-from sacas.io import stable_json, write_text_atomic
+from sacas.io import stable_json, write_text_atomic, read_repo_bytes
 from sacas.paths import Installation
 from sacas.tasks import (
     is_file_protected,
@@ -15,6 +15,86 @@ from sacas.tasks import (
     regenerate_task_markdown,
 )
 from sacas.active_context import load_active_context, load_task_state, save_active_context, ActiveFileContext
+
+
+def _compute_graph_snapshot_hash(installation: Installation) -> str:
+    """Compute hash of graphify.json snapshot."""
+    graphify_manifest_path = installation.sacas_root / ".sacas" / "graphify.json"
+    if not graphify_manifest_path.is_file():
+        return ""
+    try:
+        content = graphify_manifest_path.read_bytes()
+        return hashlib.sha256(content).hexdigest()
+    except OSError:
+        return ""
+
+
+def _compute_source_hashes(installation: Installation, file_paths: tuple[str, ...]) -> dict[str, str]:
+    """Compute content hashes for a set of source files."""
+    hashes = {}
+    for path in file_paths:
+        try:
+            content_bytes = read_repo_bytes(installation.repository_root, path)
+            hashes[path] = hashlib.sha256(content_bytes).hexdigest()
+        except (ValueError, FileNotFoundError, OSError):
+            hashes[path] = ""
+    return hashes
+
+
+def _is_task_changed(manifest: ActiveContextManifest, current_task_hash: str) -> bool:
+    """Check if task contract has changed."""
+    return manifest.task_contract_hash != current_task_hash
+
+
+def _is_graph_changed(manifest: ActiveContextManifest, current_graph_hash: str) -> bool:
+    """Check if graph snapshot has changed."""
+    # If manifest has no graph hash, it wasn't using graphify
+    if not manifest.graph_snapshot_hash:
+        return False
+    # If current graph hash is empty, graphify.json was removed
+    if not current_graph_hash:
+        return True
+    return manifest.graph_snapshot_hash != current_graph_hash
+
+
+def _get_stale_files(
+    installation: Installation,
+    manifest: ActiveContextManifest
+) -> tuple[set[str], set[str], set[str]]:
+    """
+    Determine which files are stale based on three fingerprints.
+    
+    Returns:
+        (source_changed, graph_derived_stale, task_dependent)
+    """
+    source_changed = set()
+    graph_derived_stale = set()
+    task_dependent = set()
+    
+    current_graph_hash = _compute_graph_snapshot_hash(installation)
+    
+    # Check each file in manifest
+    for f in manifest.all_files:
+        # Compute current source hash
+        try:
+            content_bytes = read_repo_bytes(installation.repository_root, f.path)
+            curr_hash = hashlib.sha256(content_bytes).hexdigest()
+        except (ValueError, FileNotFoundError, OSError):
+            curr_hash = ""
+        
+        if f.hash != curr_hash:
+            source_changed.add(f.path)
+        
+        # Check if graph-derived and graph changed
+        if f.source == "graphify" and _is_graph_changed(manifest, current_graph_hash):
+            graph_derived_stale.add(f.path)
+        
+        # Check if task-dependent (ranking/admission may change if task changed)
+        # We'll handle task change at the manifest level
+        pass
+    
+    return source_changed, graph_derived_stale, task_dependent
+
 
 def refresh_context(
     installation: Installation,
@@ -32,7 +112,7 @@ def refresh_context(
 
     changed = False
     updated_files = []
-    changed_file_paths = set()
+    source_changed = set()
 
     # 1. Update hashes of existing files and detect changes
     for f in manifest.files:
@@ -41,14 +121,12 @@ def refresh_context(
             updated_files.append(f)
             continue
             
-        file_path = installation.repository_root / filepath
-        curr_hash = ""
-        if file_path.is_file():
-            try:
-                curr_hash = hashlib.sha256(file_path.read_bytes()).hexdigest()
-            except OSError:
-                pass
-                
+        try:
+            content_bytes = read_repo_bytes(installation.repository_root, filepath)
+            curr_hash = hashlib.sha256(content_bytes).hexdigest()
+        except (ValueError, FileNotFoundError, OSError):
+            curr_hash = ""
+            
         if f.hash != curr_hash:
             updated_files.append(ActiveFileContext(
                 path=f.path,
@@ -65,21 +143,64 @@ def refresh_context(
                 role=f.role
             ))
             changed = True
-            changed_file_paths.add(f.path)
+            source_changed.add(f.path)
         else:
             updated_files.append(f)
 
     # Reconstruct manifest with updated file hashes
-    from dataclasses import replace
     manifest = replace(manifest, files=tuple(updated_files))
     save_active_context(task_dir, manifest)
 
-    # 2. If files changed, perform incremental invalidation and re-routing
-    if changed_file_paths:
-        manifest = _incremental_re_route(installation, manifest, changed_file_paths, task_dir)
-        changed = True
+    # 2. Check for invalidation triggers
+    current_graph_hash = _compute_graph_snapshot_hash(installation)
+    graph_changed = _is_graph_changed(manifest, current_graph_hash)
+    task_changed = _is_task_changed(manifest, manifest.task_contract_hash)  # Will be checked when re-routing
 
-    # 3. Scope expansion analysis to output candidates.json (only if NOT selective refresh)
+    # Determine what needs re-routing
+    needs_reroute = False
+    reroute_files = set()
+    reroute_symbols = set()
+    
+    if source_changed or graph_changed:
+        needs_reroute = True
+        
+        # Files with source changes need re-resolution
+        for f in manifest.files:
+            if f.path in source_changed:
+                reroute_files.add(f.path)
+                if f.selection.get("mode") == "symbols":
+                    for sym in f.selection.get("symbols", []):
+                        name = getattr(sym, "name", None) or (sym.get("name") if isinstance(sym, dict) else None)
+                        if name:
+                            reroute_symbols.add(f"{f.path}::{name}")
+        
+        # Graph-derived files need re-discovery if graph changed
+        if graph_changed:
+            for f in manifest.files:
+                if f.source == "graphify" and f.path not in source_changed:
+                    reroute_files.add(f.path)
+                    if f.selection.get("mode") == "symbols":
+                        for sym in f.selection.get("symbols", []):
+                            name = getattr(sym, "name", None) or (sym.get("name") if isinstance(sym, dict) else None)
+                            if name:
+                                reroute_symbols.add(f"{f.path}::{name}")
+    
+    # 3. If task contract changed, full re-route needed
+    # (In practice, task_contract_hash in manifest vs current would be compared)
+    # For now, we don't have current task hash separate from manifest
+    # This is handled by the caller when they re-create the task
+    
+    # 4. Perform re-routing if needed
+    if needs_reroute:
+        manifest = _re_route_files(
+            installation, manifest, reroute_files, reroute_symbols, task_dir
+        )
+        changed = True
+        # Update graph snapshot hash after re-routing
+        manifest = replace(manifest, graph_snapshot_hash=current_graph_hash)
+        save_active_context(task_dir, manifest)
+
+    # 5. Scope expansion analysis to output candidates.json (only if NOT selective refresh)
     if not selective_files:
         candidates_list = generate_candidates_for_manifest(installation, manifest)
         candidates_data = {
@@ -88,7 +209,7 @@ def refresh_context(
         }
         write_text_atomic(task_dir / "candidates.json", stable_json(candidates_data))
 
-    # 4. Always regenerate markdown documents
+    # 6. Always regenerate markdown documents
     manifest, contract = load_task_state(task_dir)
     if manifest is None:
         raise ValueError("Active task metadata (active_context.json) is missing or unreadable.")
@@ -102,77 +223,35 @@ def refresh_context(
     return changed
 
 
-def _incremental_re_route(
+def _re_route_files(
     installation: Installation,
     manifest: ActiveContextManifest,
-    changed_file_paths: set[str],
+    reroute_files: set[str],
+    reroute_symbols: set[str],
     task_dir: Path
 ) -> ActiveContextManifest:
-    """Re-route only selectors affected by changed files.
-    
-    Uses admission event triggered_by chains to find downstream dependencies.
-    """
+    """Re-route only the specified files/symbols using the original task goal."""
     from sacas.tasks import route_goal
     
-    # Find admission events for changed files
-    affected_event_ids = set()
-    for event in manifest.events:
-        if event.target in changed_file_paths:
-            affected_event_ids.add(event.id)
-    
-    # Traverse triggered_by chain to find all downstream events
-    all_affected = set(affected_event_ids)
-    to_process = list(affected_event_ids)
-    
-    while to_process:
-        current_id = to_process.pop()
-        # Find events that were triggered by this event
-        for event in manifest.events:
-            if event.triggered_by == current_id and event.id not in all_affected:
-                all_affected.add(event.id)
-                to_process.append(event.id)
-    
-    # Find all files affected by these events
-    affected_file_paths = set()
-    for event in manifest.events:
-        if event.id in all_affected:
-            affected_file_paths.add(event.target)
-    
-    # Keep unaffected files as-is
-    unaffected_files = [f for f in manifest.files if f.path not in affected_file_paths]
-    
-    # For affected files, we need to re-route them
-    # Use the original task goal to re-route all affected files
-    affected_files = [f for f in manifest.files if f.path in affected_file_paths]
-    
-    if not affected_files:
+    if not reroute_files:
         return manifest
     
-    # Extract ALL affected file paths and symbols for re-routing
-    re_route_files = []
-    re_route_symbols = []
-    for f in affected_files:
-        re_route_files.append(f.path)
-        if f.selection.get("mode") == "symbols":
-            for sym in f.selection.get("symbols", []):
-                name = getattr(sym, "name", None) or (sym.get("name") if isinstance(sym, dict) else None)
-                if name:
-                    re_route_symbols.append(f"{f.path}::{name}")
-    
     # Re-route with the same goal and affected files
-    # This will re-run Graphify/heuristic routing for them
     new_manifest = route_goal(
         installation=installation,
         goal=manifest.goal,
         category=manifest.category,
-        files=tuple(re_route_files),
-        symbols=tuple(re_route_symbols),
+        files=tuple(reroute_files),
+        symbols=tuple(reroute_symbols),
         tests=tuple(manifest.tests),
         rules=tuple(r.path for r in manifest.rules),
         references=tuple(ref.path for ref in manifest.references),
         context_policy="advisory",
         task_contract_hash=manifest.task_contract_hash
     )
+    
+    # Keep unaffected files as-is
+    unaffected_files = [f for f in manifest.files if f.path not in reroute_files]
     
     # Merge: keep unaffected files, replace affected with newly routed
     final_files = list(unaffected_files) + list(new_manifest.files)
@@ -186,7 +265,7 @@ def _incremental_re_route(
     merged_files = list(file_map.values())
     
     # Merge events: keep unaffected events, add new ones
-    unaffected_events = [e for e in manifest.events if e.target not in affected_file_paths]
+    unaffected_events = [e for e in manifest.events if e.target not in reroute_files]
     merged_events = unaffected_events + list(new_manifest.events)
     
     merged_manifest = replace(

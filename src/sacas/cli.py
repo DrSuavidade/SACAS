@@ -367,7 +367,14 @@ def expand_context_command(
                             confidence=conf_float,
                             evidence=tuple(ev),
                             relation=cand.get("relation"),
-                            direction="forward"
+                            direction="forward",
+                            graph_snapshot_hash=cand.get("graph_snapshot_hash", ""),
+                            graph_query_id=cand.get("graph_query_id", ""),
+                            graph_node_id=cand.get("graph_node_id", ""),
+                            graph_edge_source_id=cand.get("graph_edge_source_id", ""),
+                            graph_edge_target_id=cand.get("graph_edge_target_id", ""),
+                            graph_edge_kind=cand.get("graph_edge_kind", ""),
+                            graph_confidence=conf_float,
                         ))
                     else:
                         print(f"Skipping candidate {path} due to token budget constraint ({breakdown.used} > {manifest.budget.limit})")

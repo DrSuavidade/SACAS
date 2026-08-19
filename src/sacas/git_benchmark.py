@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
+import tempfile
 import hashlib
 from dataclasses import dataclass, asdict
 from pathlib import Path
@@ -20,6 +22,7 @@ class HistoricalTask:
     child_commit: str          # child commit hash
     goal: str                  # commit message (first line)
     expected: dict[str, list[str]]  # files, symbols, tests from diff
+    metadata: dict[str, Any]  # generation info
 
 
 def _run_git(repo: Path, args: list[str]) -> str:
@@ -45,6 +48,20 @@ def _get_commit_history(repo: Path, max_commits: int = 1000) -> list[dict]:
     return commits
 
 
+def _get_parent_commit(repo: Path, commit: str) -> str | None:
+    """Get the first parent of a commit (skip merge commits)."""
+    output = _run_git(repo, ["rev-parse", f"{commit}^"])
+    if output:
+        return output.strip()
+    return None
+
+
+def _is_merge_commit(repo: Path, commit: str) -> bool:
+    """Check if a commit is a merge commit."""
+    output = _run_git(repo, ["rev-parse", "--verify", f"{commit}^2"])
+    return output != ""
+
+
 def _get_diff_files(repo: Path, parent: str, child: str) -> list[str]:
     """Get list of files changed between two commits."""
     output = _run_git(repo, ["diff", "--name-only", parent, child])
@@ -53,17 +70,12 @@ def _get_diff_files(repo: Path, parent: str, child: str) -> list[str]:
 
 
 def _get_diff_symbols(repo: Path, parent: str, child: str) -> list[str]:
-    """Get list of symbols (functions/classes) changed between two commits.
-    
-    Uses git diff with function context to extract symbol names.
-    """
+    """Get list of symbols (functions/classes) changed between two commits."""
     output = _run_git(repo, ["diff", parent, child])
     symbols = []
     
-    # Parse diff hunks for function/class definitions
     import re
     for line in output.splitlines():
-        # Look for function/class definitions in diff context
         if line.startswith("+") or line.startswith("-"):
             content = line[1:].strip()
             # Python
@@ -97,7 +109,7 @@ def _get_diff_symbols(repo: Path, parent: str, child: str) -> list[str]:
                 if match:
                     symbols.append(match.group(1))
     
-    return list(dict.fromkeys(symbols))  # deduplicate, preserve order
+    return list(dict.fromkeys(symbols))
 
 
 def _get_diff_tests(repo: Path, parent: str, child: str) -> list[str]:
@@ -111,44 +123,72 @@ def _get_diff_tests(repo: Path, parent: str, child: str) -> list[str]:
 
 def generate_historical_tasks(repo: Path, max_commits: int = 500) -> list[HistoricalTask]:
     """Generate historical benchmark tasks from git history.
-    
+
     For each commit pair (parent, child), creates a task where:
-    - Goal = commit message
-    - Expected files/symbols/tests = what actually changed
+    - Goal = commit message (child commit)
+    - Expected = what changed in child vs parent
+    - Uses explicit Git parent lookup (not list position)
+    - Skips merge commits
     """
     commits = _get_commit_history(repo, max_commits)
     tasks = []
     
-    for i in range(1, len(commits)):
-        parent = commits[i-1]
+    for i in range(len(commits)):
         child = commits[i]
         
-        changed_files = _get_diff_files(repo, parent["hash"], child["hash"])
+        # Get actual parent (not list position)
+        parent_hash = _get_parent_commit(repo, child["hash"])
+        if not parent_hash:
+            continue  # root commit
+        
+        # Skip merge commits
+        if _is_merge_commit(repo, child["hash"]):
+            continue
+        
+        changed_files = _get_diff_files(repo, parent_hash, child["hash"])
         if not changed_files:
             continue
             
         # Skip trivial commits
-        if len(changed_files) > 50:  # likely a large refactor or generated files
+        if len(changed_files) > 50:
             continue
             
         goal = child["message"].split("\n")[0]
-        if len(goal) < 10:  # too short to be meaningful
+        if len(goal) < 10:
             continue
             
-        changed_symbols = _get_diff_symbols(repo, parent["hash"], child["hash"])
-        changed_tests = _get_diff_tests(repo, parent["hash"], child["hash"])
+        changed_symbols = _get_diff_symbols(repo, parent_hash, child["hash"])
+        changed_tests = _get_diff_tests(repo, parent_hash, child["hash"])
         
-        task_id = f"hist-{parent['hash'][:8]}"
+        task_id = f"hist-{child['hash'][:8]}"
+        
+        # Build file::symbol pairs only for symbols actually in the file
+        file_symbol_pairs = []
+        for f in changed_files:
+            try:
+                content = (repo / f).read_text(encoding="utf-8", errors="ignore")
+                for s in changed_symbols:
+                    if s in content:
+                        file_symbol_pairs.append(f"{f}::{s}")
+            except OSError:
+                pass
         
         task = HistoricalTask(
             id=task_id,
-            parent_commit=parent["hash"],
+            parent_commit=parent_hash,
             child_commit=child["hash"],
             goal=goal,
             expected={
                 "files": changed_files,
-                "symbols": [f"{f}::{s}" for f in changed_files for s in changed_symbols if s in open(repo / f, encoding="utf-8", errors="ignore").read()],
+                "symbols": file_symbol_pairs,
                 "tests": changed_tests,
+            },
+            metadata={
+                "parent_commit": parent_hash,
+                "child_commit": child["hash"],
+                "source": "git_history",
+                "generation_schema": "v1",
+                "weak_gold": True,
             }
         )
         tasks.append(task)
@@ -164,55 +204,98 @@ def save_historical_benchmarks(tasks: list[HistoricalTask], output_dir: Path) ->
         benchmark = {
             "id": task.id,
             "goal": task.goal,
-            "category": "investigate",  # historical tasks are investigation by nature
+            "category": "investigate",
             "expected": task.expected,
-            "metadata": {
-                "parent_commit": task.parent_commit,
-                "child_commit": task.child_commit,
-                "source": "git_history"
-            }
+            "metadata": task.metadata
         }
         file_path = output_dir / f"{task.id}.json"
         file_path.write_text(json.dumps(benchmark, indent=2))
 
 
+def _run_in_detached_worktree(repo: Path, commit: str, callback) -> Any:
+    """Run a callback in a detached git worktree at the given commit."""
+    with tempfile.TemporaryDirectory() as tmp:
+        worktree_path = Path(tmp) / "worktree"
+        
+        # Add worktree at specific commit
+        result = subprocess.run(
+            ["git", "worktree", "add", "--detach", str(worktree_path), commit],
+            cwd=repo,
+            capture_output=True,
+            text=True,
+            check=False
+        )
+        if result.returncode != 0:
+            raise RuntimeError(f"Failed to create worktree: {result.stderr}")
+        
+        try:
+            return callback(worktree_path)
+        finally:
+            # Cleanup worktree
+            subprocess.run(
+                ["git", "worktree", "remove", "--force", str(worktree_path)],
+                cwd=repo,
+                capture_output=True,
+                check=False
+            )
+
+
 def run_historical_benchmarks(installation: Installation, benchmark_dir: Path) -> list[dict[str, Any]]:
-    """Run SACAS routing against historical benchmarks and collect results."""
-    from sacas.benchmark_runner import load_and_run_all_benchmarks
+    """Run SACAS routing against historical benchmarks in isolated parent worktrees.
+
+    Never mutates the user's active checkout.
+    """
     from sacas.tasks import route_goal
     
     results = []
+    repo_root = installation.repository_root
     
     for bench_file in benchmark_dir.glob("*.json"):
         try:
             gold_task = json.loads(bench_file.read_text(encoding="utf-8"))
             
-            # Need to checkout parent commit temporarily
             parent_commit = gold_task.get("metadata", {}).get("parent_commit")
             if not parent_commit:
                 continue
                 
-            # Run isolated routing
-            manifest = route_goal(
-                installation=installation,
-                goal=gold_task.get("goal", ""),
-                category=gold_task.get("category"),
-                files=tuple(gold_task.get("files", ())),
-                symbols=tuple(gold_task.get("symbols", ())),
-                tests=tuple(gold_task.get("tests", ())),
-                rules=tuple(gold_task.get("rules", ())),
-                references=tuple(gold_task.get("references", ())),
-            )
+            # Run routing in detached worktree at parent commit
+            def do_routing(worktree: Path):
+                # Need a new Installation for the worktree
+                # Discover or create SACAS in the worktree
+                from sacas.paths import discover_manifest
+                worktree_install = discover_manifest(worktree)
+                if not worktree_install:
+                    raise RuntimeError("No SACAS installation in worktree")
+                
+                manifest = route_goal(
+                    installation=worktree_install,
+                    goal=gold_task.get("goal", ""),
+                    category=gold_task.get("category", "investigate"),
+                    files=(),
+                    symbols=(),
+                    tests=(),
+                    rules=(),
+                    references=(),
+                    context_policy="advisory",
+                )
+                return manifest
             
-            # This would need the benchmark runner to evaluate
-            # For now, return the task info
+            manifest = _run_in_detached_worktree(repo_root, parent_commit, do_routing)
+            
+            # Evaluate against expected (gold is evaluation data only, never used for routing)
+            from sacas.benchmark_runner import evaluate_retrieval
+            eval_result = evaluate_retrieval(manifest, gold_task["expected"])
+            
             results.append({
                 "task_id": gold_task["id"],
                 "goal": gold_task["goal"],
                 "parent_commit": parent_commit,
+                "child_commit": gold_task.get("metadata", {}).get("child_commit"),
                 "expected_files": gold_task["expected"].get("files", []),
                 "expected_symbols": gold_task["expected"].get("symbols", []),
                 "expected_tests": gold_task["expected"].get("tests", []),
+                "retrieved_files": [f.path for f in manifest.files],
+                "eval": eval_result,
             })
         except Exception as e:
             results.append({
@@ -221,3 +304,28 @@ def run_historical_benchmarks(installation: Installation, benchmark_dir: Path) -
             })
     
     return results
+
+
+def generate_and_run_historical_benchmarks(
+    repo: Path,
+    sacas_root: Path,
+    max_commits: int = 200,
+    output_dir: Path | None = None
+) -> list[dict[str, Any]]:
+    """Generate historical tasks from repo history and run benchmarks."""
+    from sacas.paths import discover_manifest
+    
+    # Generate tasks
+    tasks = generate_historical_tasks(repo, max_commits)
+    
+    if output_dir is None:
+        output_dir = sacas_root / "benchmarks" / "historical"
+    
+    save_historical_benchmarks(tasks, output_dir)
+    
+    # Run benchmarks
+    installation = discover_manifest(repo)
+    if not installation:
+        raise RuntimeError("No SACAS installation found")
+    
+    return run_historical_benchmarks(installation, output_dir)

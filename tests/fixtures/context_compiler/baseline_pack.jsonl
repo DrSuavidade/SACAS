@@ -1,0 +1,3 @@
+{"id": "ctx-001", "source": "src/auth.py", "selector": "src/auth.py::AuthService.validate_token", "lines": [10, 20], "hash": "aedc5d12fcaea6e3", "reason": "validate token", "estimated_tokens": 98, "admission_event_id": "", "role": "source"}
+{"id": "ctx-002", "source": "src/auth.py", "selector": "src/auth.py::AuthService.refresh_token", "lines": [25, 35], "hash": "89ad22ea095bbe03", "reason": "refresh token", "estimated_tokens": 105, "admission_event_id": "", "role": "source"}
+{"id": "ctx-003", "source": "src/user.py", "selector": "src/user.py", "lines": null, "hash": "3c595b072bb95816", "reason": "Full user service", "estimated_tokens": 382, "admission_event_id": "", "role": "source"}

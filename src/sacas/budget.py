@@ -6,6 +6,8 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from sacas.io import read_repo_text
+
 if TYPE_CHECKING:
     from sacas.active_context import ActiveContextManifest
     from sacas.paths import Installation
@@ -77,13 +79,11 @@ def calculate_context_size(repository_root: Path, files: tuple[str, ...], tokeni
     total_tokens = 0
     tok = get_tokenizer(tokenizer)
     for file_rel in files:
-        file_path = repository_root / file_rel
-        if file_path.is_file():
-            try:
-                content = file_path.read_text(encoding="utf-8", errors="ignore")
-                total_tokens += tok.count(content)
-            except OSError:
-                pass
+        try:
+            content = read_repo_text(repository_root, file_rel)
+            total_tokens += tok.count(content)
+        except (ValueError, FileNotFoundError, OSError):
+            pass
     return total_tokens
 
 def calculate_total_context_size(installation, files: tuple[str, ...], tokenizer: str = "char_heuristic") -> int:
@@ -213,41 +213,39 @@ def compile_budget_report(
     explicit_source_tokens = 0
     # Use all_files property which combines legacy files + reference_files + working_files
     for f in manifest.all_files:
-        f_path = installation.repository_root / f.path
         f_tokens = 0
-        if f_path.is_file():
-            try:
-                content = f_path.read_text(encoding="utf-8", errors="ignore")
-                if f.selection.get("mode") == "symbols":
-                    symbols_content = []
-                    from sacas.regions import normalize_selections
-                    from sacas.active_context import ActiveSymbolContext
-                    raw_symbols = f.selection.get("symbols", [])
-                    sym_objects = []
-                    for s in raw_symbols:
-                        if isinstance(s, dict):
-                            sym_objects.append(ActiveSymbolContext.from_dict(s))
-                        else:
-                            sym_objects.append(s)
-                    normalized = normalize_selections(tuple(sym_objects))
-                    for sym in normalized:
-                        name = getattr(sym, "name", None) or (sym.get("name") if isinstance(sym, dict) else None)
-                        rng = getattr(sym, "range", None) or (sym.get("range") if isinstance(sym, dict) else None)
-                        if rng:
-                            start = getattr(rng, "start_line", None) or (rng.get("start_line") if isinstance(rng, dict) else None)
-                            end = getattr(rng, "end_line", None) or (rng.get("end_line") if isinstance(rng, dict) else None)
-                            lines = content.splitlines()
-                            if start is not None and end is not None and 1 <= start <= len(lines) and 1 <= end <= len(lines):
-                                symbols_content.append("\n".join(lines[start-1:end]))
-                            else:
-                                symbols_content.append(content)
+        try:
+            content = read_repo_text(installation.repository_root, f.path)
+            if f.selection.get("mode") == "symbols":
+                symbols_content = []
+                from sacas.regions import normalize_selections
+                from sacas.active_context import ActiveSymbolContext
+                raw_symbols = f.selection.get("symbols", [])
+                sym_objects = []
+                for s in raw_symbols:
+                    if isinstance(s, dict):
+                        sym_objects.append(ActiveSymbolContext.from_dict(s))
+                    else:
+                        sym_objects.append(s)
+                normalized = normalize_selections(tuple(sym_objects))
+                for sym in normalized:
+                    name = getattr(sym, "name", None) or (sym.get("name") if isinstance(sym, dict) else None)
+                    rng = getattr(sym, "range", None) or (sym.get("range") if isinstance(sym, dict) else None)
+                    if rng:
+                        start = getattr(rng, "start_line", None) or (rng.get("start_line") if isinstance(rng, dict) else None)
+                        end = getattr(rng, "end_line", None) or (rng.get("end_line") if isinstance(rng, dict) else None)
+                        lines = content.splitlines()
+                        if start is not None and end is not None and 1 <= start <= len(lines) and 1 <= end <= len(lines):
+                            symbols_content.append("\n".join(lines[start-1:end]))
                         else:
                             symbols_content.append(content)
-                    f_tokens = estimate_tokens("\n".join(symbols_content), tokenizer)
-                else:
-                    f_tokens = estimate_tokens(content, tokenizer)
-            except OSError:
-                pass
+                    else:
+                        symbols_content.append(content)
+                f_tokens = estimate_tokens("\n".join(symbols_content), tokenizer)
+            else:
+                f_tokens = estimate_tokens(content, tokenizer)
+        except (ValueError, FileNotFoundError, OSError):
+            pass
         source_tokens += f_tokens
         if f.source == "explicit":
             explicit_source_tokens += f_tokens
@@ -255,31 +253,27 @@ def compile_budget_report(
     # 2. Payload: Rules
     rule_tokens = 0
     for r in manifest.rules:
-        r_path = installation.repository_root / r.path
-        if r_path.is_file():
-            try:
-                rule_tokens += estimate_tokens(r_path.read_text(encoding="utf-8", errors="ignore"), tokenizer)
-            except OSError:
-                pass
+        try:
+            rule_tokens += estimate_tokens(read_repo_text(installation.repository_root, r.path), tokenizer)
+        except (ValueError, FileNotFoundError, OSError):
+            pass
 
     # 3. Payload: References
     reference_tokens = 0
     for ref in manifest.references:
-        ref_path = installation.repository_root / ref.path
-        if ref_path.is_file():
-            try:
-                content = ref_path.read_text(encoding="utf-8", errors="ignore")
-                if ref.selection.get("mode") == "sections":
-                    sections_content = []
-                    for sec in ref.selection.get("sections", []):
-                        heading_path = sec.get("heading_path", []) if isinstance(sec, dict) else getattr(sec, "heading_path", [])
-                        if heading_path:
-                            sections_content.append(extract_markdown_section(content, heading_path))
-                    reference_tokens += estimate_tokens("\n".join(sections_content), tokenizer)
-                else:
-                    reference_tokens += estimate_tokens(content, tokenizer)
-            except OSError:
-                pass
+        try:
+            content = read_repo_text(installation.repository_root, ref.path)
+            if ref.selection.get("mode") == "sections":
+                sections_content = []
+                for sec in ref.selection.get("sections", []):
+                    heading_path = sec.get("heading_path", []) if isinstance(sec, dict) else getattr(sec, "heading_path", [])
+                    if heading_path:
+                        sections_content.append(extract_markdown_section(content, heading_path))
+                reference_tokens += estimate_tokens("\n".join(sections_content), tokenizer)
+            else:
+                reference_tokens += estimate_tokens(content, tokenizer)
+        except (ValueError, FileNotFoundError, OSError):
+            pass
 
     # 4. Control tokens
     control_tokens = 0
@@ -294,8 +288,9 @@ def compile_budget_report(
                 p = installation.sacas_root / "tasks" / "current" / view_name
             if p.is_file():
                 try:
-                    control_tokens += estimate_tokens(p.read_text(encoding="utf-8", errors="ignore"), tokenizer)
-                except OSError:
+                    rel_path = p.relative_to(installation.sacas_root).as_posix()
+                    control_tokens += estimate_tokens(read_repo_text(installation.sacas_root, rel_path), tokenizer)
+                except (ValueError, FileNotFoundError, OSError):
                     pass
 
     explicit_payload = explicit_source_tokens + rule_tokens + reference_tokens
@@ -324,32 +319,28 @@ def calculate_manifest_tokens(installation: Installation, manifest: ActiveContex
     # We do a quick count of rules & refs as before
     rule_tokens = 0
     for r in manifest.rules:
-        r_path = installation.repository_root / r.path
-        if r_path.is_file():
-            try:
-                rule_tokens += estimate_tokens(r_path.read_text(encoding="utf-8", errors="ignore"), tokenizer)
-            except OSError:
-                pass
-                
+        try:
+            rule_tokens += estimate_tokens(read_repo_text(installation.repository_root, r.path), tokenizer)
+        except (ValueError, FileNotFoundError, OSError):
+            pass
+            
     reference_tokens = 0
     from sacas.regions import extract_markdown_section
     for ref in manifest.references:
-        ref_path = installation.repository_root / ref.path
-        if ref_path.is_file():
-            try:
-                content = ref_path.read_text(encoding="utf-8", errors="ignore")
-                if ref.selection.get("mode") == "sections":
-                    sections_content = []
-                    for sec in ref.selection.get("sections", []):
-                        heading_path = sec.get("heading_path", []) if isinstance(sec, dict) else getattr(sec, "heading_path", [])
-                        if heading_path:
-                            sections_content.append(extract_markdown_section(content, heading_path))
-                    reference_tokens += estimate_tokens("\n".join(sections_content), tokenizer)
-                else:
-                    reference_tokens += estimate_tokens(content, tokenizer)
-            except OSError:
-                pass
-                
+        try:
+            content = read_repo_text(installation.repository_root, ref.path)
+            if ref.selection.get("mode") == "sections":
+                sections_content = []
+                for sec in ref.selection.get("sections", []):
+                    heading_path = sec.get("heading_path", []) if isinstance(sec, dict) else getattr(sec, "heading_path", [])
+                    if heading_path:
+                        sections_content.append(extract_markdown_section(content, heading_path))
+                reference_tokens += estimate_tokens("\n".join(sections_content), tokenizer)
+            else:
+                reference_tokens += estimate_tokens(content, tokenizer)
+        except (ValueError, FileNotFoundError, OSError):
+            pass
+            
     # Source tokens include legacy files + reference_files + working_files
     # Use all_files property which combines all three
     source_tokens = max(0, plan.payload_used - rule_tokens - reference_tokens)

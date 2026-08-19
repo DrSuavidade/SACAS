@@ -104,22 +104,22 @@ def run_context_simulation(installation: Installation) -> dict[str, Any]:
             "cache_state": "cold"
         },
         "metrics": {
-            "Baseline": {
+            "B0_whole_repo": {
                 "median": percentile(baseline_sizes, 0.5),
                 "p75": percentile(baseline_sizes, 0.75),
                 "p95": percentile(baseline_sizes, 0.95)
             },
-            "Graphify-only": {
+            "B3_graphify_whole": {
                 "median": percentile(graphify_sizes, 0.5),
                 "p75": percentile(graphify_sizes, 0.75),
                 "p95": percentile(graphify_sizes, 0.95)
             },
-            "SACAS-only": {
+            "B2_lexical_routing": {
                 "median": percentile(sacas_sizes, 0.5),
                 "p75": percentile(sacas_sizes, 0.75),
                 "p95": percentile(sacas_sizes, 0.95)
             },
-            "SACAS+Graphify": {
+            "B5_hybrid_lexical_graph": {
                 "median": percentile(combined_sizes, 0.5),
                 "p75": percentile(combined_sizes, 0.75),
                 "p95": percentile(combined_sizes, 0.95)
@@ -140,7 +140,8 @@ def print_context_simulation(installation: Installation, format_type: str = "tex
         print(f"Commit:           {report['metadata']['repository_commit']}")
         print(f"SACAS Version:    {report['metadata']['sacas_version']}")
         print(f"Graphify Version: {report['metadata']['graphify_version']}")
-        print("\nSimulated Context Sizes (tokens) by Mode:")
+        print("\nSimulated Context Sizes (tokens) by Retrieval Mode:")
+        print("  (Primary metrics: Recall@K, Precision@K, MRR - not whole-repo reduction)")
         for mode, metrics in report["metrics"].items():
             print(f"  {mode}:")
             print(f"    Median: {metrics['median']:.1f}")

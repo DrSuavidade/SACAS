@@ -88,7 +88,7 @@ def _load_from_locator(repository_root: Path, locator_path: Path) -> Installatio
     return _load_if_owned(repository_root, manifest_path)
 
 
-def resolve_repo_path(repository_root: Path, user_path: str) -> str:
+def resolve_repo_path(repository_root: Path, user_path: str | Path) -> str:
     """Resolve and normalize a user path inside the repository.
 
     Rejects absolute paths, escaping paths (e.g. via ../), and symlink escapes.
@@ -97,14 +97,14 @@ def resolve_repo_path(repository_root: Path, user_path: str) -> str:
     repo_resolved = repository_root.resolve()
 
     from pathlib import PureWindowsPath
-    clean_path = user_path.replace("\\", "/")
-    if (clean_path.startswith("/") or 
-            Path(user_path).is_absolute() or 
-            PureWindowsPath(user_path).is_absolute() or
-            (len(user_path) > 1 and user_path[1] == ":")):
+    path_str = str(user_path).replace("\\", "/")
+    if (path_str.startswith("/") or 
+            Path(path_str).is_absolute() or 
+            PureWindowsPath(path_str).is_absolute() or
+            (len(path_str) > 1 and path_str[1] == ":")):
         raise ValueError("Absolute paths are not allowed")
 
-    candidate = (repo_resolved / user_path).resolve()
+    candidate = (repo_resolved / path_str).resolve()
 
     try:
         relative = candidate.relative_to(repo_resolved)

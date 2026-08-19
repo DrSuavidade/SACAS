@@ -31,8 +31,12 @@ def _baseline_b0_whole_repo(installation: Installation) -> tuple[int, list[str]]
     return tokens, repo_files
 
 
-def _baseline_b1_ripgrep(installation: Installation, goal: str) -> tuple[int, list[str]]:
-    """B1: Filename + ripgrep retrieval (simulated)."""
+def _baseline_b1_basic_search(installation: Installation, goal: str) -> tuple[int, list[str]]:
+    """B1: Basic search baseline - filename + content keyword matching.
+    
+    Simulates what a developer/agent can achieve with basic repository search.
+    """
+    from sacas.tasks import extract_keywords
     keywords = extract_keywords(goal)
     if not keywords:
         return 0, []
@@ -42,11 +46,25 @@ def _baseline_b1_ripgrep(installation: Installation, goal: str) -> tuple[int, li
     for f in repo_files:
         score = 0
         fname = Path(f).name.lower()
+        
+        # Filename matching
         for kw in keywords:
             if kw in fname:
                 score += 10
                 if fname.startswith(kw):
                     score += 5
+        
+        # Content keyword matching (simulated - read first 50 lines)
+        try:
+            content = (installation.repository_root / f).read_text(encoding="utf-8", errors="ignore")
+            lines = content.splitlines()[:50]
+            content_sample = " ".join(lines).lower()
+            for kw in keywords:
+                if kw in content_sample:
+                    score += 3
+        except OSError:
+            pass
+        
         if score > 0:
             scored_files.append((score, f))
     
@@ -91,9 +109,13 @@ def _baseline_b3_graphify_whole_files(installation: Installation, goal: str) -> 
         return 0, []
 
 
-def _baseline_b5_combined(installation: Installation, goal: str) -> tuple[int, list[str]]:
-    """B5: Combined B1 + B3 (approximate coding agent search)."""
-    b1_tokens, b1_files = _baseline_b1_ripgrep(installation, goal)
+def _baseline_b5_hybrid_lexical_graph(installation: Installation, goal: str) -> tuple[int, list[str]]:
+    """B5: Hybrid lexical + Graphify whole-file retrieval.
+    
+    Combines basic search (B1) with Graphify whole-file (B3).
+    Does NOT approximate a full coding agent - just hybrid retrieval.
+    """
+    b1_tokens, b1_files = _baseline_b1_basic_search(installation, goal)
     b3_tokens, b3_files = _baseline_b3_graphify_whole_files(installation, goal)
     
     combined_files = list(dict.fromkeys(b1_files + b3_files))
@@ -270,9 +292,9 @@ def run_routing_benchmark_suite(
     b0_tokens, b0_files = _baseline_b0_whole_repo(installation)
     baselines["B0_whole_repo"] = _compute_baseline_metrics(installation, goal, gold_files, b0_files)
     
-    # B1: Ripgrep/filename search
-    b1_tokens, b1_files = _baseline_b1_ripgrep(installation, goal)
-    baselines["B1_ripgrep"] = _compute_baseline_metrics(installation, goal, gold_files, b1_files)
+    # B1: Basic search (filename + content keywords)
+    b1_tokens, b1_files = _baseline_b1_basic_search(installation, goal)
+    baselines["B1_basic_search"] = _compute_baseline_metrics(installation, goal, gold_files, b1_files)
     
     # B2: Lexical SACAS fallback
     b2_tokens, b2_files = _baseline_b2_lexical_fallback(installation, goal)
@@ -290,9 +312,9 @@ def run_routing_benchmark_suite(
         "tokens": breakdown.used
     }
     
-    # B5: Combined B1 + B3 (approximate coding agent)
-    b5_tokens, b5_files = _baseline_b5_combined(installation, goal)
-    baselines["B5_combined"] = _compute_baseline_metrics(installation, goal, gold_files, b5_files)
+    # B5: Hybrid lexical + Graphify whole-file retrieval
+    b5_tokens, b5_files = _baseline_b5_hybrid_lexical_graph(installation, goal)
+    baselines["B5_hybrid_lexical_graph"] = _compute_baseline_metrics(installation, goal, gold_files, b5_files)
     
     # Token reduction vs B0 (whole repo)
     token_reduction = 1.0 - (breakdown.used / b0_tokens) if b0_tokens > 0 else 0.0
