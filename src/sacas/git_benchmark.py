@@ -163,13 +163,25 @@ def generate_historical_tasks(repo: Path, max_commits: int = 500) -> list[Histor
         task_id = f"hist-{child['hash'][:8]}"
         
         # Build file::symbol pairs only for symbols actually in the file
+        # Read file content from child commit using git show to avoid contamination
         file_symbol_pairs = []
         for f in changed_files:
             try:
-                content = (repo / f).read_text(encoding="utf-8", errors="ignore")
-                for s in changed_symbols:
-                    if s in content:
-                        file_symbol_pairs.append(f"{f}::{s}")
+                # Read file content from child commit
+                result = subprocess.run(
+                    ["git", "show", f"{child['hash']}:{f}"],
+                    cwd=repo,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                    encoding="utf-8",
+                    errors="ignore"
+                )
+                if result.returncode == 0:
+                    content = result.stdout
+                    for s in changed_symbols:
+                        if s in content:
+                            file_symbol_pairs.append(f"{f}::{s}")
             except OSError:
                 pass
         
@@ -246,6 +258,7 @@ def run_historical_benchmarks(installation: Installation, benchmark_dir: Path) -
     Never mutates the user's active checkout.
     """
     from sacas.tasks import route_goal
+    from sacas.init import initialize
     
     results = []
     repo_root = installation.repository_root
@@ -265,7 +278,12 @@ def run_historical_benchmarks(installation: Installation, benchmark_dir: Path) -
                 from sacas.paths import discover_manifest
                 worktree_install = discover_manifest(worktree)
                 if not worktree_install:
-                    raise RuntimeError("No SACAS installation in worktree")
+                    # Initialize minimal SACAS in worktree if not present
+                    try:
+                        initialize(worktree, sacas_root="Structure", graphify_mode="off")
+                        worktree_install = discover_manifest(worktree)
+                    except Exception:
+                        raise RuntimeError("Failed to initialize SACAS in worktree")
                 
                 manifest = route_goal(
                     installation=worktree_install,

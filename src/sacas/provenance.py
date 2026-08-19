@@ -35,17 +35,94 @@ def trace_file_to_goal(installation: Installation, target_path: str, manifest: A
         children=()
     )
     
-    # Find admission event for this file
+    # Find the fragment in the context pack to get admission_event_ids
+    fragment = None
+    try:
+        pack_path = installation.sacas_root / ".sacas" / "runtime" / "context.pack.jsonl"
+        if pack_path.is_file():
+            header, fragments = read_context_pack(pack_path)
+            for frag in fragments:
+                if frag.source == target_path:
+                    fragment = frag
+                    break
+    except Exception:
+        pass
+    
+    # Find admission event for this file from manifest (for backward compatibility)
     admission_event = None
     for event in manifest.events:
         if event.target == target_path:
             admission_event = event
             break
     
-    if not admission_event:
+    # If we have a fragment with admission_event_ids, use those
+    fragment_admission_ids = ()
+    if fragment and fragment.admission_event_ids:
+        fragment_admission_ids = fragment.admission_event_ids
+    
+    if not admission_event and not fragment_admission_ids:
         return root
     
     # Build chain: task -> graphify/lexical evidence -> admission -> context_pack -> file
+    children = []
+    
+    # Use fragment admission IDs if available, otherwise fall back to manifest event
+    if fragment_admission_ids:
+        # Build chain from fragment admission IDs
+        for adm_id in fragment_admission_ids:
+            # Find the admission event in manifest
+            adm_event = None
+            for event in manifest.events:
+                if event.id == adm_id:
+                    adm_event = event
+                    break
+            if adm_event:
+                # Add evidence chain for this admission
+                children.extend(_build_evidence_chain(adm_event))
+    elif admission_event:
+        # Fall back to single admission event
+        children.extend(_build_evidence_chain(admission_event))
+    
+    # Context pack entry - read from actual pack file
+    pack_hash = _get_pack_fragment_hash(installation, target_path)
+    pack_node = ProvenanceNode(
+        type="context_pack",
+        label=f"Context pack entry",
+        details={
+            "file": target_path,
+            "content_hash": pack_hash,
+            "fragment_id": fragment.id if fragment else None,
+        },
+        children=()
+    )
+    children.append(pack_node)
+    
+    # File
+    file_node = ProvenanceNode(
+        type="file",
+        label=f"File: {target_path}",
+        details={
+            "path": target_path,
+        },
+        children=()
+    )
+    children.append(file_node)
+    
+    return ProvenanceNode(
+        type="task",
+        label=f"Task: {manifest.goal}",
+        details={
+            "task_id": manifest.task_id,
+            "category": manifest.category,
+            "git_revision": manifest.git_revision,
+            "task_contract_hash": manifest.task_contract_hash,
+        },
+        children=tuple(children)
+    )
+
+
+def _build_evidence_chain(admission_event: AdmissionEvent) -> list[ProvenanceNode]:
+    """Build provenance nodes for a single admission event."""
     children = []
     
     # Graphify evidence chain (if applicable)
@@ -100,7 +177,6 @@ def trace_file_to_goal(installation: Installation, target_path: str, manifest: A
             )
             # Add edge as child of query or node
             if query_node.children:
-                # Has node child, add edge as sibling or to node
                 query_node = ProvenanceNode(
                     type="graphify_query",
                     label=f"Graphify query: {admission_event.graph_query_id or 'unknown'}",
@@ -180,59 +256,10 @@ def trace_file_to_goal(installation: Installation, target_path: str, manifest: A
     )
     children.append(admit_node)
     
-    # Context pack entry - read from actual pack file
-    pack_hash = _get_pack_fragment_hash(installation, target_path)
-    pack_node = ProvenanceNode(
-        type="context_pack",
-        label=f"Context pack entry",
-        details={
-            "file": target_path,
-            "content_hash": pack_hash,
-        },
-        children=()
-    )
-    children.append(pack_node)
-    
-    # File
-    file_node = ProvenanceNode(
-        type="file",
-        label=f"File: {target_path}",
-        details={
-            "path": target_path,
-        },
-        children=()
-    )
-    children.append(file_node)
-    
-    return ProvenanceNode(
-        type="task",
-        label=f"Task: {manifest.goal}",
-        details={
-            "task_id": manifest.task_id,
-            "category": manifest.category,
-            "git_revision": manifest.git_revision,
-            "task_contract_hash": manifest.task_contract_hash,
-        },
-        children=tuple(children)
-    )
+    return children
 
 
 def _get_pack_fragment_hash(installation: Installation, target_path: str) -> str:
-    """Get fragment hash from context pack."""
-    pack_path = installation.sacas_root / ".sacas" / "runtime" / "context.pack.jsonl"
-    if not pack_path.is_file():
-        return ""
-    try:
-        header, fragments = read_context_pack(pack_path)
-        for frag in fragments:
-            if frag.source == target_path:
-                return frag.content_hash
-    except Exception:
-        pass
-    return ""
-
-
-def _get_file_hash(installation: Installation, path: str) -> str:
     """Get file hash from repository."""
     import hashlib
     from sacas.io import read_repo_bytes

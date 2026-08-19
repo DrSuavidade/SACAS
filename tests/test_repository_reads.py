@@ -328,35 +328,3 @@ class TestSacasIgnore:
         assert content.strip() == "debug info"
 
 
-# Baseline: Current behavior documentation
-def test_current_compiler_reads_directly():
-    """Document current compiler behavior for WP1.2 migration."""
-    # compiler.py line 40: f_path = installation.repository_root / f.path
-    # No validation - direct path join
-    # This is the behavior WP1.2 will fix
-    assert True
-
-
-def test_current_refresh_reads_directly():
-    """Document current refresh behavior for WP1.2 migration."""
-    # refresh.py line 44: file_path = installation.repository_root / filepath
-    # No validation - direct path join
-    assert True
-
-
-def test_current_regions_reads_directly():
-    """Document current regions behavior for WP1.2 migration."""
-    # regions.py reads files directly
-    assert True
-
-
-def test_current_tasks_reads_directly():
-    """Document current tasks behavior for WP1.2 migration."""
-    # tasks.py reads files directly
-    assert True
-
-
-def test_current_benchmark_reads_directly():
-    """Document current benchmark behavior for WP1.2 migration."""
-    # git_benchmark.py, benchmark_runner.py read files directly
-    assert True

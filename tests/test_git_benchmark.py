@@ -221,10 +221,11 @@ def test_generate_historical_tasks_correct_commit_order(temp_git_repo: Path):
     tasks = generate_historical_tasks(temp_git_repo, max_commits=10)
     
     # Tasks should be ordered by child commit (which follows git history order)
+    # git log returns newest first, so tasks should be in reverse chronological order
     for i in range(len(tasks) - 1):
         # Each task's child should be a descendant of the previous task's child
         # In practice, they follow git log order (newest first)
-        pass
+        assert tasks[i].child_commit != tasks[i+1].child_commit
 
 
 def test_run_in_detached_worktree_isolation(temp_git_repo: Path):

@@ -51,6 +51,9 @@ def test_expand_why_doctor_cli_commands(tmp_path: Path) -> None:
     (tmp_path / "src" / "session.py").write_text("print('session')", encoding="utf-8")
     (tmp_path / "src" / "auth.py").write_text("def login():\n    pass\n", encoding="utf-8")
     (tmp_path / "src" / "helper.py").write_text("print('helper')", encoding="utf-8")
+    # Create the rule file that will be added
+    (tmp_path / "Structure" / "rules" / "new_rule.md").parent.mkdir(parents=True, exist_ok=True)
+    (tmp_path / "Structure" / "rules" / "new_rule.md").write_text("# New Rule\n\nContent\n", encoding="utf-8")
     
     exit_code = main([
         "expand",

@@ -115,15 +115,21 @@ def read_repo_text(
 
     Validates path, rejects secret/ignored files, enforces size limit,
     and detects binary content.
+    
+    Secrets are ALWAYS rejected regardless of allow_ignored.
+    allow_ignored only bypasses .sacasignore and ignored directories.
     """
     if max_bytes is None:
         max_bytes = DEFAULT_MAX_BYTES
 
     rel_path = resolve_repo_path(repository_root, user_path)
 
+    # SECRET CHECK - ALWAYS ENFORCED
+    if _is_secret_path(rel_path):
+        raise ValueError(f"Secret file access denied: {rel_path}")
+
+    # Ignored directory / .sacasignore - optionally bypassable
     if not allow_ignored:
-        if _is_secret_path(rel_path):
-            raise ValueError(f"Secret file access denied: {rel_path}")
         if _is_ignored_dir(rel_path):
             raise ValueError(f"Ignored directory access denied: {rel_path}")
         sacasignore_patterns = _load_sacasignore(repository_root)
@@ -156,15 +162,22 @@ def read_repo_bytes(
     allow_ignored: bool = False,
     max_bytes: int | None = DEFAULT_MAX_BYTES,
 ) -> bytes:
-    """Safely read raw bytes from the repository (for hashing)."""
+    """Safely read raw bytes from the repository (for hashing).
+    
+    Secrets are ALWAYS rejected regardless of allow_ignored.
+    allow_ignored only bypasses .sacasignore and ignored directories.
+    """
     if max_bytes is None:
         max_bytes = DEFAULT_MAX_BYTES
 
     rel_path = resolve_repo_path(repository_root, user_path)
 
+    # SECRET CHECK - ALWAYS ENFORCED
+    if _is_secret_path(rel_path):
+        raise ValueError(f"Secret file access denied: {rel_path}")
+
+    # Ignored directory / .sacasignore - optionally bypassable
     if not allow_ignored:
-        if _is_secret_path(rel_path):
-            raise ValueError(f"Secret file access denied: {rel_path}")
         if _is_ignored_dir(rel_path):
             raise ValueError(f"Ignored directory access denied: {rel_path}")
         sacasignore_patterns = _load_sacasignore(repository_root)

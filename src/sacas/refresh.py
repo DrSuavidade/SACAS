@@ -41,9 +41,14 @@ def _compute_source_hashes(installation: Installation, file_paths: tuple[str, ..
     return hashes
 
 
-def _is_task_changed(manifest: ActiveContextManifest, current_task_hash: str) -> bool:
-    """Check if task contract has changed."""
-    return manifest.task_contract_hash != current_task_hash
+def _is_task_changed(manifest: ActiveContextManifest, task_dir: Path) -> bool:
+    """Check if task contract has changed by comparing with current task.json on disk."""
+    from sacas.task_contract import load_task_contract, task_contract_hash
+    current_contract = load_task_contract(task_dir)
+    if current_contract is None:
+        return False
+    current_hash = task_contract_hash(current_contract)
+    return manifest.task_contract_hash != current_hash
 
 
 def _is_graph_changed(manifest: ActiveContextManifest, current_graph_hash: str) -> bool:
@@ -154,7 +159,7 @@ def refresh_context(
     # 2. Check for invalidation triggers
     current_graph_hash = _compute_graph_snapshot_hash(installation)
     graph_changed = _is_graph_changed(manifest, current_graph_hash)
-    task_changed = _is_task_changed(manifest, manifest.task_contract_hash)  # Will be checked when re-routing
+    task_changed = _is_task_changed(manifest, task_dir)
 
     # Determine what needs re-routing
     needs_reroute = False
@@ -176,24 +181,38 @@ def refresh_context(
         
         # Graph-derived files need re-discovery if graph changed
         if graph_changed:
-            for f in manifest.files:
-                if f.source == "graphify" and f.path not in source_changed:
-                    reroute_files.add(f.path)
-                    if f.selection.get("mode") == "symbols":
-                        for sym in f.selection.get("symbols", []):
-                            name = getattr(sym, "name", None) or (sym.get("name") if isinstance(sym, dict) else None)
-                            if name:
-                                reroute_symbols.add(f"{f.path}::{name}")
+            # Clear graph-derived files so they get re-discovered by Graphify
+            # We don't add them to reroute_files - instead we let the full re-route logic handle it
+            # But since it's not a task change, we need special handling
+            # Mark that we need graph rediscovery
+            pass
     
     # 3. If task contract changed, full re-route needed
-    # (In practice, task_contract_hash in manifest vs current would be compared)
-    # For now, we don't have current task hash separate from manifest
-    # This is handled by the caller when they re-create the task
+    if task_changed:
+        needs_reroute = True
+        # Full re-route: re-run discovery from task goal
+        reroute_files = set()
+        reroute_symbols = set()
+        # Clear graph-derived files so they get re-discovered
+        # Explicit files will be re-routed with the new goal
     
-    # 4. Perform re-routing if needed
+    # 4. If graph changed, need graph rediscovery
+    if graph_changed:
+        needs_reroute = True
+        # Graph rediscovery: re-run Graphify discovery from task goal
+        # Preserve explicit files, re-discover graph-derived ones
+        reroute_files = set()
+        reroute_symbols = set()
+    
+    # 5. Perform re-routing if needed
     if needs_reroute:
+        # Determine if this is full re-route (task) or graph rediscovery
+        full_reroute = task_changed
+        graph_rediscovery = graph_changed and not task_changed
         manifest = _re_route_files(
-            installation, manifest, reroute_files, reroute_symbols, task_dir
+            installation, manifest, reroute_files, reroute_symbols, task_dir,
+            full_reroute=full_reroute,
+            graph_rediscovery=graph_rediscovery
         )
         changed = True
         # Update graph snapshot hash after re-routing
@@ -228,33 +247,85 @@ def _re_route_files(
     manifest: ActiveContextManifest,
     reroute_files: set[str],
     reroute_symbols: set[str],
-    task_dir: Path
+    task_dir: Path,
+    full_reroute: bool = False,
+    graph_rediscovery: bool = False
 ) -> ActiveContextManifest:
-    """Re-route only the specified files/symbols using the original task goal."""
+    """Re-route specified files/symbols or do full re-route if full_reroute=True."""
     from sacas.tasks import route_goal
     
-    if not reroute_files:
-        return manifest
-    
-    # Re-route with the same goal and affected files
-    new_manifest = route_goal(
-        installation=installation,
-        goal=manifest.goal,
-        category=manifest.category,
-        files=tuple(reroute_files),
-        symbols=tuple(reroute_symbols),
-        tests=tuple(manifest.tests),
-        rules=tuple(r.path for r in manifest.rules),
-        references=tuple(ref.path for ref in manifest.references),
-        context_policy="advisory",
-        task_contract_hash=manifest.task_contract_hash
-    )
-    
-    # Keep unaffected files as-is
-    unaffected_files = [f for f in manifest.files if f.path not in reroute_files]
-    
-    # Merge: keep unaffected files, replace affected with newly routed
-    final_files = list(unaffected_files) + list(new_manifest.files)
+    if full_reroute:
+        # Full re-route: run discovery from scratch with the task goal
+        # Preserve explicit rules/references/tests but re-discover source files
+        explicit_rules = tuple(r.path for r in manifest.rules)
+        explicit_refs = tuple(ref.path for ref in manifest.references)
+        explicit_tests = tuple(manifest.tests)
+        
+        new_manifest = route_goal(
+            installation=installation,
+            goal=manifest.goal,
+            category=manifest.category,
+            files=(),
+            symbols=(),
+            tests=explicit_tests,
+            rules=explicit_rules,
+            references=explicit_refs,
+            context_policy="advisory",
+            task_contract_hash=manifest.task_contract_hash
+        )
+        
+        # Preserve explicit files (they were manually admitted)
+        explicit_files = [f for f in manifest.files if f.source == "explicit"]
+        
+        final_files = list(explicit_files) + list(new_manifest.files)
+        
+    elif graph_rediscovery:
+        # Graph rediscovery: re-run Graphify discovery from task goal
+        # Preserve explicit files and rules/references/tests
+        # Clear graph-derived source files so they get re-discovered
+        explicit_files = [f for f in manifest.files if f.source == "explicit"]
+        explicit_rules = tuple(r.path for r in manifest.rules)
+        explicit_refs = tuple(ref.path for ref in manifest.references)
+        explicit_tests = tuple(manifest.tests)
+        
+        new_manifest = route_goal(
+            installation=installation,
+            goal=manifest.goal,
+            category=manifest.category,
+            files=(),
+            symbols=(),
+            tests=explicit_tests,
+            rules=explicit_rules,
+            references=explicit_refs,
+            context_policy="advisory",
+            task_contract_hash=manifest.task_contract_hash
+        )
+        
+        final_files = list(explicit_files) + list(new_manifest.files)
+        
+    else:
+        if not reroute_files:
+            return manifest
+        
+        # Partial re-route: re-route only specified files/symbols
+        new_manifest = route_goal(
+            installation=installation,
+            goal=manifest.goal,
+            category=manifest.category,
+            files=tuple(reroute_files),
+            symbols=tuple(reroute_symbols),
+            tests=tuple(manifest.tests),
+            rules=tuple(r.path for r in manifest.rules),
+            references=tuple(ref.path for ref in manifest.references),
+            context_policy="advisory",
+            task_contract_hash=manifest.task_contract_hash
+        )
+        
+        # Keep unaffected files as-is
+        unaffected_files = [f for f in manifest.files if f.path not in reroute_files]
+        
+        # Merge: keep unaffected files, replace affected with newly routed
+        final_files = list(unaffected_files) + list(new_manifest.files)
     
     # Deduplicate by path (keep highest ranking_score)
     file_map = {}
@@ -265,8 +336,13 @@ def _re_route_files(
     merged_files = list(file_map.values())
     
     # Merge events: keep unaffected events, add new ones
-    unaffected_events = [e for e in manifest.events if e.target not in reroute_files]
-    merged_events = unaffected_events + list(new_manifest.events)
+    if full_reroute:
+        # For full re-route, preserve explicit admission events, add new ones
+        explicit_events = [e for e in manifest.events if e.source == "explicit"]
+        merged_events = explicit_events + list(new_manifest.events)
+    else:
+        unaffected_events = [e for e in manifest.events if e.target not in reroute_files]
+        merged_events = unaffected_events + list(new_manifest.events)
     
     merged_manifest = replace(
         manifest,

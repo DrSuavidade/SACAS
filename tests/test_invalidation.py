@@ -162,19 +162,59 @@ def test_is_graph_changed(fake_installation: FakeInstallation):
 
 def test_is_task_changed(fake_installation: FakeInstallation):
     """Test task contract change detection."""
-    manifest = ActiveContextManifest(
-        task_id="test",
-        task_contract_hash="sha256:old",
-        git_revision="rev",
-        graph_snapshot_hash="",
-        files=(),
-        events=(),
-        goal="test",
-        category="investigate"
-    )
+    import tempfile
+    import json
+    from sacas.task_contract import TaskContract, task_contract_hash
     
-    assert _is_task_changed(manifest, "sha256:new") == True
-    assert _is_task_changed(manifest, "sha256:old") == False
+    # Create a temp task directory with task.json
+    with tempfile.TemporaryDirectory() as tmp:
+        task_dir = Path(tmp)
+        task_file = task_dir / "task.json"
+        
+        # Write initial task
+        old_task = {
+            "schema_version": 1,
+            "task_id": "test",
+            "goal": "old goal",
+            "category": "investigate",
+            "criteria": [],
+            "constraints": [],
+            "verification": []
+        }
+        task_file.write_text(json.dumps(old_task))
+        
+        # Compute the correct hash
+        contract = TaskContract.from_dict(old_task)
+        old_hash = task_contract_hash(contract)
+        
+        manifest = ActiveContextManifest(
+            task_id="test",
+            task_contract_hash=old_hash,
+            git_revision="rev",
+            graph_snapshot_hash="",
+            files=(),
+            events=(),
+            goal="test",
+            category="investigate"
+        )
+        
+        # Same task - should not be changed
+        assert _is_task_changed(manifest, task_dir) == False
+        
+        # Modify task.json
+        new_task = {
+            "schema_version": 1,
+            "task_id": "test",
+            "goal": "new goal",
+            "category": "investigate",
+            "criteria": [],
+            "constraints": [],
+            "verification": []
+        }
+        task_file.write_text(json.dumps(new_task))
+        
+        # Different task - should be changed
+        assert _is_task_changed(manifest, task_dir) == True
 
 
 def test_get_stale_files(fake_installation: FakeInstallation):

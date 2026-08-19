@@ -10,7 +10,7 @@ from pathlib import Path
 from sacas.budget import calculate_context_size, calculate_manifest_tokens
 from sacas.effects import calculate_task_effects
 from sacas.graphify import read_graphify_manifest
-from sacas.io import stable_json, write_text_atomic
+from sacas.io import stable_json, write_text_atomic, read_repo_bytes, read_repo_text
 from sacas.models import Manifest
 from sacas.paths import Installation
 from sacas.regions import render_generated_region, replace_generated_region
@@ -321,25 +321,21 @@ def route_goal(
     # Hash rules
     hashed_rules = []
     for r in rules_list:
-        r_path = installation.repository_root / r.path
         r_hash = ""
-        if r_path.is_file():
-            try:
-                r_hash = hashlib.sha256(r_path.read_bytes()).hexdigest()
-            except OSError:
-                pass
+        try:
+            r_hash = hashlib.sha256(read_repo_bytes(installation.repository_root, r.path)).hexdigest()
+        except (ValueError, FileNotFoundError, OSError):
+            pass
         hashed_rules.append(ActiveRuleContext(path=r.path, hash=r_hash, reason=r.reason))
 
     # Hash references
     hashed_refs = []
     for ref in refs_list:
-        ref_path = installation.repository_root / ref.path
         ref_hash = ""
-        if ref_path.is_file():
-            try:
-                ref_hash = hashlib.sha256(ref_path.read_bytes()).hexdigest()
-            except OSError:
-                pass
+        try:
+            ref_hash = hashlib.sha256(read_repo_bytes(installation.repository_root, ref.path)).hexdigest()
+        except (ValueError, FileNotFoundError, OSError):
+            pass
         hashed_refs.append(ActiveReferenceContext(path=ref.path, selection=ref.selection, hash=ref_hash, reason=ref.reason))
 
     # 2. Process explicit files (if provided)
@@ -351,13 +347,11 @@ def route_goal(
             except ValueError:
                 continue
 
-            f_path = installation.repository_root / f_rel
             f_hash = ""
-            if f_path.is_file():
-                try:
-                    f_hash = hashlib.sha256(f_path.read_bytes()).hexdigest()
-                except OSError:
-                    pass
+            try:
+                f_hash = hashlib.sha256(read_repo_bytes(installation.repository_root, f_rel)).hexdigest()
+            except (ValueError, FileNotFoundError, OSError):
+                pass
 
             # Repeat symbols syntax helper
             file_symbols = []
@@ -406,13 +400,11 @@ def route_goal(
             t_rel = resolve_repo_path(installation.repository_root, t)
         except ValueError:
             continue
-        t_path = installation.repository_root / t_rel
         t_hash = ""
-        if t_path.is_file():
-            try:
-                t_hash = hashlib.sha256(t_path.read_bytes()).hexdigest()
-            except OSError:
-                pass
+        try:
+            t_hash = hashlib.sha256(read_repo_bytes(installation.repository_root, t_rel)).hexdigest()
+        except (ValueError, FileNotFoundError, OSError):
+            pass
         active_files.append(ActiveFileContext(
             path=t_rel,
             selection={"mode": "full"},
@@ -471,13 +463,11 @@ def route_goal(
                         if is_file_protected(f_rel, parsed_boundaries):
                             continue
 
-                        f_path = installation.repository_root / f_rel
                         f_hash = ""
-                        if f_path.is_file():
-                            try:
-                                f_hash = hashlib.sha256(f_path.read_bytes()).hexdigest()
-                            except OSError:
-                                pass
+                        try:
+                            f_hash = hashlib.sha256(read_repo_bytes(installation.repository_root, f_rel)).hexdigest()
+                        except (ValueError, FileNotFoundError, OSError):
+                            pass
                         
                         node = path_to_node.get(path)
                         confidence = "high"
@@ -502,22 +492,21 @@ def route_goal(
                         
                         # Preventively compile/budget admissions:
                         cand_cost = 0
-                        if f_path.is_file():
-                            try:
-                                content = f_path.read_text(encoding="utf-8", errors="ignore")
-                                if selection.get("mode") == "symbols":
-                                    symbols_content = []
-                                    for sym in selection.get("symbols", []):
-                                        rng = sym.range
-                                        if rng:
-                                            lines = content.splitlines()
-                                            if 1 <= rng.start_line <= len(lines) and 1 <= rng.end_line <= len(lines):
-                                                symbols_content.append("\n".join(lines[rng.start_line-1:rng.end_line]))
+                        try:
+                            content = read_repo_text(installation.repository_root, f_rel)
+                            if selection.get("mode") == "symbols":
+                                symbols_content = []
+                                for sym in selection.get("symbols", []):
+                                    rng = sym.range
+                                    if rng:
+                                        lines = content.splitlines()
+                                        if 1 <= rng.start_line <= len(lines) and 1 <= rng.end_line <= len(lines):
+                                            symbols_content.append("\n".join(lines[rng.start_line-1:rng.end_line]))
                                     cand_cost = estimate_tokens("\n".join(symbols_content))
                                 else:
                                     cand_cost = estimate_tokens(content)
-                            except OSError:
-                                pass
+                        except (ValueError, FileNotFoundError, OSError):
+                            pass
 
                         if cand_cost > remaining_space:
                             continue
@@ -593,12 +582,10 @@ def route_goal(
             fallback_results = run_fallback_routing(installation.repository_root, installation.sacas_root, goal, parsed_boundaries, commit)
             for item in fallback_results:
                 cand_cost = 0
-                f_path = installation.repository_root / item["path"]
-                if f_path.is_file():
-                    try:
-                        cand_cost = estimate_tokens(f_path.read_text(encoding="utf-8", errors="ignore"))
-                    except OSError:
-                        pass
+                try:
+                    cand_cost = estimate_tokens(read_repo_text(installation.repository_root, item["path"]))
+                except (ValueError, FileNotFoundError, OSError):
+                    pass
 
                 if cand_cost > remaining_space:
                     continue

@@ -305,6 +305,8 @@ class GraphifyQueryResult:
     edges: tuple[GraphQueryEdge, ...]
     raw_output: str
     paths: tuple[str, ...] = ()
+    graph_snapshot_hash: str = ""
+    query_id: str = ""
 
 
 
@@ -471,12 +473,28 @@ class GraphifyAdapter:
         else:
             status = "success"
 
+        # Compute graph snapshot hash from the graph.json file
+        graph_path = Path(self.repository_root) / "graphify-out" / "graph.json"
+        graph_snapshot_hash = ""
+        if graph_path.is_file():
+            try:
+                raw = graph_path.read_bytes()
+                graph_snapshot_hash = hashlib.sha256(raw).hexdigest()
+            except OSError:
+                pass
+        
+        # Generate a query ID
+        import uuid
+        query_id = str(uuid.uuid4())[:8]
+        
         return GraphifyQueryResult(
             status=status,
             nodes=tuple(nodes),
             edges=tuple(edges),
             raw_output=raw_output,
-            paths=tuple(dict.fromkeys(paths))
+            paths=tuple(dict.fromkeys(paths)),
+            graph_snapshot_hash=graph_snapshot_hash,
+            query_id=query_id
         )
 
     def validate_query_contract(self, result: GraphifyQueryResult) -> bool:

@@ -117,13 +117,32 @@ def _build_file_selections(
                 # Now merge ranges for this file
                 merged = _normalize_ranges_for_file(f.path, list(normalized), content_lines)
                 if merged:
-                    file_selections.setdefault(f.path, []).extend(
-                        (sym, rng, f) for sym, rng in merged
-                    )
+                    # Check each merged range for staleness
+                    for sym, rng in merged:
+                        start, end = rng
+                        # Check if range is still valid
+                        is_stale = False
+                        if start > len(content_lines) or end > len(content_lines):
+                            is_stale = True
+                        else:
+                            # Check if content at range still matches expected symbol name
+                            fragment = "\n".join(content_lines[start-1:end])
+                            if sym.name and sym.name not in fragment:
+                                is_stale = True
+                        
+                        if is_stale:
+                            # Stale selector - mark for re-resolution or fail
+                            file_selections.setdefault(f.path, []).append(
+                                (sym, rng, f, "stale_selector")
+                            )
+                        else:
+                            file_selections.setdefault(f.path, []).append(
+                                (sym, rng, f)
+                            )
                 else:
                     # No valid ranges - full file fallback
                     file_selections.setdefault(f.path, []).append(
-                        (None, None, f)
+                        (None, None, f, "no_valid_ranges")
                     )
             else:
                 file_selections.setdefault(f.path, []).append(
@@ -164,9 +183,16 @@ def _compile_fragments(
         # Sort selections by start line for deterministic ordering
         selections.sort(key=lambda x: (x[1][0] if x[1] else 0))
         
-        for sym, line_range, file_ctx in selections:
+        for item in selections:
             ctx_counter += 1
             fragment_id = f"ctx-{ctx_counter:03d}"
+            
+            # Unpack selection (supports both old and new format)
+            if len(item) == 4:
+                sym, line_range, file_ctx, stale_reason = item
+            else:
+                sym, line_range, file_ctx = item
+                stale_reason = None
             
             # Collect all admission event IDs for this source
             admission_ids = []
@@ -179,12 +205,12 @@ def _compile_fragments(
                 start, end = line_range
                 fragment = "\n".join(content_lines[start-1:end])
                 selector = f"{source_path}::{sym.name}" if sym else source_path
-                fallback_reason = None
+                fallback_reason = stale_reason
             else:
                 # Full file fragment
                 fragment = content
                 selector = source_path
-                fallback_reason = "unresolved_symbol" if (sym is not None) else "full_file_mode"
+                fallback_reason = stale_reason if stale_reason else ("unresolved_symbol" if (sym is not None) else "full_file_mode")
             
             content_hash = hashlib.sha256(fragment.encode()).hexdigest()[:16]
             tok_count = estimate_tokens(fragment)
@@ -231,7 +257,7 @@ def _compile_fragments(
         else:
             # Merge admission event IDs
             existing = seen[key]
-            merged_ids = tuple(set(existing.admission_event_ids) | set(frag.admission_event_ids))
+            merged_ids = tuple(sorted(set(existing.admission_event_ids) | set(frag.admission_event_ids)))
             # Recreate with merged IDs
             merged = ContextPackFragment(
                 id=existing.id,
@@ -306,8 +332,9 @@ def _compile_rules_and_references(
                 confidence=1.0,
                 fallback_reason=None
             ))
-        except (ValueError, FileNotFoundError, OSError):
-            pass
+        except (ValueError, FileNotFoundError, OSError) as e:
+            # Rules are mandatory - fail compilation if they can't be read
+            raise RuntimeError(f"Failed to read mandatory rule '{r.path}': {e}") from e
     
     # References
     for ref in manifest.references:
@@ -344,8 +371,9 @@ def _compile_rules_and_references(
                 confidence=1.0,
                 fallback_reason=None
             ))
-        except (ValueError, FileNotFoundError, OSError):
-            pass
+        except (ValueError, FileNotFoundError, OSError) as e:
+            # References are mandatory - fail compilation if they can't be read
+            raise RuntimeError(f"Failed to read mandatory reference '{ref.path}': {e}") from e
     
     return fragments, ctx_counter
 
@@ -386,15 +414,20 @@ def write_context_pack(
     header: ContextPackHeader,
     fragments: list[ContextPackFragment]
 ) -> Path:
-    """Write context pack to .sacas/runtime/context.pack.jsonl with header + fragments."""
+    """Write context pack to .sacas/runtime/context.pack.jsonl with header + fragments atomically."""
+    from sacas.io import write_text_atomic
     runtime_dir = installation.sacas_root / ".sacas" / "runtime"
     runtime_dir.mkdir(parents=True, exist_ok=True)
     pack_path = runtime_dir / "context.pack.jsonl"
 
-    with pack_path.open("w", encoding="utf-8") as f:
-        f.write(json.dumps(asdict(header)) + "\n")
-        for fragment in fragments:
-            f.write(json.dumps(asdict(fragment)) + "\n")
+    # Build content first
+    lines = [json.dumps(asdict(header))]
+    for fragment in fragments:
+        lines.append(json.dumps(asdict(fragment)))
+    content = "\n".join(lines) + "\n"
+    
+    # Atomic write
+    write_text_atomic(pack_path, content)
 
     return pack_path
 
@@ -406,7 +439,7 @@ def compile_and_write_context_pack(installation: Installation, manifest: ActiveC
 
 
 def read_context_pack(pack_path: Path) -> tuple[ContextPackHeader, list[ContextPackFragment]]:
-    """Read context pack from JSONL file."""
+    """Read context pack from JSONL file with validation."""
     lines = pack_path.read_text(encoding="utf-8").strip().split("\n")
     if not lines:
         raise ValueError("Empty context pack")
@@ -415,18 +448,54 @@ def read_context_pack(pack_path: Path) -> tuple[ContextPackHeader, list[ContextP
     if header_data.get("type") != "pack":
         raise ValueError("Invalid context pack: missing header")
     
+    # Validate schema version
+    schema_version = header_data.get("schema_version")
+    if schema_version != 1:
+        raise ValueError(f"Unsupported context pack schema version: {schema_version}")
+    
     header = ContextPackHeader(**header_data)
     fragments = []
-    for line in lines[1:]:
+    seen_ids = set()
+    
+    for line_num, line in enumerate(lines[1:], start=2):
         frag_data = json.loads(line)
         if frag_data.get("type") != "fragment":
             continue
+        
+        # Validate required fields
+        required_fields = ["id", "source", "selector", "lines", "content", "content_hash", "reason", "estimated_tokens", "admission_event_ids", "role", "ranking_score", "confidence", "fallback_reason"]
+        for field in required_fields:
+            if field not in frag_data:
+                raise ValueError(f"Invalid fragment at line {line_num}: missing required field '{field}'")
+        
+        # Validate fragment ID uniqueness
+        frag_id = frag_data["id"]
+        if frag_id in seen_ids:
+            raise ValueError(f"Duplicate fragment ID at line {line_num}: {frag_id}")
+        seen_ids.add(frag_id)
+        
+        # Validate content hash matches content
+        content = frag_data["content"]
+        import hashlib
+        expected_hash = hashlib.sha256(content.encode()).hexdigest()[:16]
+        if frag_data["content_hash"] != expected_hash:
+            raise ValueError(f"Fragment {frag_id} content hash mismatch: expected {expected_hash}, got {frag_data['content_hash']}")
+        
+        # Validate fragment count matches header
+        if len(fragments) >= header.fragment_count:
+            raise ValueError(f"Fragment count exceeds header fragment_count at line {line_num}")
+        
         # Convert admission_event_ids from list to tuple
         if "admission_event_ids" in frag_data and isinstance(frag_data["admission_event_ids"], list):
             frag_data["admission_event_ids"] = tuple(frag_data["admission_event_ids"])
         # Convert lines from list to tuple
         if "lines" in frag_data and isinstance(frag_data["lines"], list):
             frag_data["lines"] = tuple(frag_data["lines"])
+        
         fragments.append(ContextPackFragment(**frag_data))
+    
+    # Final validation: fragment count matches header
+    if len(fragments) != header.fragment_count:
+        raise ValueError(f"Fragment count mismatch: header says {header.fragment_count}, found {len(fragments)}")
     
     return header, fragments
