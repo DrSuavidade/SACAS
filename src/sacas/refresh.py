@@ -83,152 +83,7 @@ def refresh_context(
 
     # 2. Scope expansion analysis to output candidates.json (only if NOT selective refresh)
     if not selective_files:
-        from sacas.budget import calculate_context_size
-        
-        graphify_manifest_path = installation.sacas_root / ".sacas" / "graphify.json"
-        evidence = None
-        if graphify_manifest_path.is_file():
-            try:
-                evidence = read_graphify_manifest(graphify_manifest_path)
-            except Exception:
-                pass
-
-        active_paths = {f.path for f in manifest.files}
-        candidates_list = []
-
-        # Read boundaries
-        boundaries_file = installation.sacas_root / "rules" / "boundaries.md"
-        parsed_boundaries = parse_protected_boundaries(boundaries_file)
-
-        RELATION_DIRECTION_WEIGHTS = {
-            "bugfix": {
-                "calls": {"incoming": 100, "outgoing": 85},
-                "tests": {"incoming": 100, "outgoing": 90},
-                "imports": {"incoming": 95, "outgoing": 80},
-                "depends_on": {"incoming": 85, "outgoing": 85},
-            },
-            "feature": {
-                "calls": {"incoming": 70, "outgoing": 100},
-                "tests": {"incoming": 80, "outgoing": 95},
-                "imports": {"incoming": 65, "outgoing": 95},
-                "depends_on": {"incoming": 80, "outgoing": 85},
-            },
-        }
-
-        if evidence is not None:
-            node_paths = dict(evidence.nodes)
-            candidate_details = {}
-            for source_id, destination_id, edge_kind in evidence.edges:
-                source_path = node_paths.get(source_id)
-                dest_path = node_paths.get(destination_id)
-                if not source_path or not dest_path:
-                    continue
-
-                is_dest_active = dest_path in active_paths
-                is_source_active = source_path in active_paths
-
-                if is_dest_active and source_path not in active_paths:
-                    cand_path = source_path
-                    trigger_path = dest_path
-                    direction = "incoming"
-                elif is_source_active and dest_path not in active_paths:
-                    cand_path = dest_path
-                    trigger_path = source_path
-                    direction = "outgoing"
-                else:
-                    continue
-
-                if is_file_protected(cand_path, parsed_boundaries):
-                    continue
-
-                cat = manifest.category or "bugfix"
-                cat_weights = RELATION_DIRECTION_WEIGHTS.get(cat, RELATION_DIRECTION_WEIGHTS["bugfix"])
-                rel_weights = cat_weights.get(edge_kind, {"incoming": 85, "outgoing": 85})
-                score = rel_weights.get(direction, 85)
-
-                semantic_direction = "related"
-                if edge_kind == "calls":
-                    semantic_direction = "caller" if direction == "incoming" else "callee"
-                elif edge_kind == "imports":
-                    semantic_direction = "importer" if direction == "incoming" else "imported"
-                elif edge_kind == "tests":
-                    semantic_direction = "test" if direction == "incoming" else "test_target"
-
-                confidence = 1.0
-                final_score = score * confidence
-                if cand_path not in candidate_details or final_score > candidate_details[cand_path]["score"]:
-                    candidate_details[cand_path] = {
-                        "score": final_score,
-                        "relation": edge_kind,
-                        "direction": direction,
-                        "semantic_direction": semantic_direction,
-                        "triggered_by": trigger_path,
-                        "confidence": confidence,
-                    }
-
-            # Community check
-            for comm_name, comm_paths in evidence.communities:
-                active_in_comm = [p for p in comm_paths if p in active_paths]
-                if active_in_comm:
-                    trigger_path = active_in_comm[0]
-                    for p in comm_paths:
-                        if p not in active_paths:
-                            if is_file_protected(p, parsed_boundaries):
-                                continue
-                            score = 40
-                            confidence = 0.5
-                            final_score = score * confidence
-                            if p not in candidate_details or final_score > candidate_details[p]["score"]:
-                                candidate_details[p] = {
-                                    "score": final_score,
-                                    "relation": "community",
-                                    "direction": "outgoing",
-                                    "semantic_direction": "community_member",
-                                    "triggered_by": trigger_path,
-                                    "confidence": confidence,
-                                }
-
-            sorted_cands = sorted(candidate_details.items(), key=lambda x: (-x[1]["score"], x[0]))
-            for cand_path, details in sorted_cands:
-                cand_cost = calculate_context_size(installation.repository_root, (cand_path,))
-                reason_str = f"Active context {details['triggered_by']} calls this implementation" if details['relation'] == 'calls' and details['direction'] == 'outgoing' else f"Graph relation '{details['relation']}' ({details['semantic_direction']}) triggered by {details['triggered_by']}"
-                candidates_list.append({
-                    "path": cand_path,
-                    "score": details["score"],
-                    "reason": reason_str,
-                    "source": "graphify",
-                    "confidence": "high" if details["confidence"] >= 0.9 else "medium",
-                    "relation": details["relation"],
-                    "direction": details["direction"],
-                    "semantic_direction": details["semantic_direction"],
-                    "triggered_by": details["triggered_by"],
-                    "estimated_tokens": cand_cost
-                })
-        else:
-            # Fallback search ranking
-            from sacas.search import FallbackIndex
-            index = FallbackIndex(installation.repository_root, installation.sacas_root)
-            index.update()
-            
-            # search using keywords in goal
-            raw_cands = index.search(manifest.goal)
-            for score, filepath, matched in raw_cands:
-                if filepath in active_paths:
-                    continue
-                if is_file_protected(filepath, parsed_boundaries):
-                    continue
-                cand_cost = calculate_context_size(installation.repository_root, (filepath,))
-                candidates_list.append({
-                    "path": filepath,
-                    "score": float(score),
-                    "reason": f"Fallback lexical match (score={score}) matching: {', '.join(matched)}",
-                    "source": "heuristic",
-                    "confidence": "high" if score >= 8 else "medium",
-                    "relation": "keyword_match",
-                    "estimated_tokens": cand_cost
-                })
-
-        # Save disposable candidates.json
+        candidates_list = generate_candidates_for_manifest(installation, manifest)
         candidates_data = {
             "task_id": manifest.task_id,
             "candidates": candidates_list
@@ -246,3 +101,179 @@ def refresh_context(
     )
 
     return changed
+
+
+def generate_candidates_for_manifest(
+    installation: Installation,
+    manifest: ActiveContextManifest
+) -> list[dict[str, Any]]:
+    from sacas.budget import calculate_context_size
+    from sacas.refresh import read_graphify_manifest, parse_protected_boundaries, is_file_protected
+    
+    graphify_manifest_path = installation.sacas_root / ".sacas" / "graphify.json"
+    evidence = None
+    if graphify_manifest_path.is_file():
+        try:
+            evidence = read_graphify_manifest(graphify_manifest_path)
+        except Exception:
+            pass
+
+    active_paths = {f.path for f in manifest.files}
+    candidates_list = []
+
+    boundaries_file = installation.sacas_root / "rules" / "boundaries.md"
+    parsed_boundaries = parse_protected_boundaries(boundaries_file)
+
+    RELATION_DIRECTION_WEIGHTS = {
+        "bugfix": {
+            "calls": {"incoming": 100, "outgoing": 85},
+            "tests": {"incoming": 100, "outgoing": 90},
+            "imports": {"incoming": 95, "outgoing": 80},
+            "depends_on": {"incoming": 85, "outgoing": 85},
+        },
+        "feature": {
+            "calls": {"incoming": 70, "outgoing": 100},
+            "tests": {"incoming": 80, "outgoing": 95},
+            "imports": {"incoming": 65, "outgoing": 95},
+            "depends_on": {"incoming": 80, "outgoing": 85},
+        },
+        "test": {
+            "calls": {"incoming": 80, "outgoing": 80},
+            "tests": {"incoming": 100, "outgoing": 100},
+            "imports": {"incoming": 80, "outgoing": 80},
+            "depends_on": {"incoming": 70, "outgoing": 70},
+        },
+        "refactor": {
+            "calls": {"incoming": 90, "outgoing": 90},
+            "tests": {"incoming": 80, "outgoing": 80},
+            "imports": {"incoming": 90, "outgoing": 90},
+            "depends_on": {"incoming": 80, "outgoing": 80},
+        },
+        "docs": {
+            "calls": {"incoming": 30, "outgoing": 30},
+            "tests": {"incoming": 30, "outgoing": 30},
+            "imports": {"incoming": 30, "outgoing": 30},
+            "depends_on": {"incoming": 40, "outgoing": 40},
+        },
+        "security": {
+            "calls": {"incoming": 100, "outgoing": 90},
+            "tests": {"incoming": 95, "outgoing": 95},
+            "imports": {"incoming": 95, "outgoing": 95},
+            "depends_on": {"incoming": 90, "outgoing": 90},
+        },
+    }
+
+    if evidence is not None:
+        node_paths = dict(evidence.nodes)
+        candidate_details = {}
+        for source_id, destination_id, edge_kind in evidence.edges:
+            source_path = node_paths.get(source_id)
+            dest_path = node_paths.get(destination_id)
+            if not source_path or not dest_path:
+                continue
+
+            is_dest_active = dest_path in active_paths
+            is_source_active = source_path in active_paths
+
+            if is_dest_active and source_path not in active_paths:
+                cand_path = source_path
+                trigger_path = dest_path
+                direction = "incoming"
+            elif is_source_active and dest_path not in active_paths:
+                cand_path = dest_path
+                trigger_path = source_path
+                direction = "outgoing"
+            else:
+                continue
+
+            if is_file_protected(cand_path, parsed_boundaries):
+                continue
+
+            cat = manifest.category or "bugfix"
+            cat_weights = RELATION_DIRECTION_WEIGHTS.get(cat, RELATION_DIRECTION_WEIGHTS["bugfix"])
+            rel_weights = cat_weights.get(edge_kind, {"incoming": 85, "outgoing": 85})
+            score = rel_weights.get(direction, 85)
+
+            semantic_direction = "related"
+            if edge_kind == "calls":
+                semantic_direction = "caller" if direction == "incoming" else "callee"
+            elif edge_kind == "imports":
+                semantic_direction = "importer" if direction == "incoming" else "imported"
+            elif edge_kind == "tests":
+                semantic_direction = "test" if direction == "incoming" else "test_target"
+
+            confidence = 1.0
+            final_score = score * confidence
+            if cand_path not in candidate_details or final_score > candidate_details[cand_path]["score"]:
+                candidate_details[cand_path] = {
+                    "score": final_score,
+                    "relation": edge_kind,
+                    "direction": direction,
+                    "semantic_direction": semantic_direction,
+                    "triggered_by": trigger_path,
+                    "confidence": confidence,
+                }
+
+        # Community check
+        for comm_name, comm_paths in evidence.communities:
+            active_in_comm = [p for p in comm_paths if p in active_paths]
+            if active_in_comm:
+                trigger_path = active_in_comm[0]
+                for p in comm_paths:
+                    if p not in active_paths:
+                        if is_file_protected(p, parsed_boundaries):
+                            continue
+                        score = 40
+                        confidence = 0.5
+                        final_score = score * confidence
+                        if p not in candidate_details or final_score > candidate_details[p]["score"]:
+                            candidate_details[p] = {
+                                "score": final_score,
+                                "relation": "community",
+                                "direction": "outgoing",
+                                "semantic_direction": "community_member",
+                                "triggered_by": trigger_path,
+                                "confidence": confidence,
+                            }
+
+        sorted_cands = sorted(candidate_details.items(), key=lambda x: (-x[1]["score"], x[0]))
+        for cand_path, details in sorted_cands:
+            cand_cost = calculate_context_size(installation.repository_root, (cand_path,))
+            reason_str = f"Active context {details['triggered_by']} calls this implementation" if details['relation'] == 'calls' and details['direction'] == 'outgoing' else f"Graph relation '{details['relation']}' ({details['semantic_direction']}) triggered by {details['triggered_by']}"
+            candidates_list.append({
+                "path": cand_path,
+                "score": details["score"],
+                "reason": reason_str,
+                "source": "graphify",
+                "confidence": "high" if details["confidence"] >= 0.9 else "medium",
+                "relation": details["relation"],
+                "direction": details["direction"],
+                "semantic_direction": details["semantic_direction"],
+                "triggered_by": details["triggered_by"],
+                "estimated_tokens": cand_cost
+            })
+    else:
+        # Fallback search ranking
+        from sacas.search import FallbackIndex
+        index = FallbackIndex(installation.repository_root, installation.sacas_root)
+        index.update()
+        
+        # search using keywords in goal
+        raw_cands = index.search(manifest.goal)
+        for score, filepath, matched in raw_cands:
+            if filepath in active_paths:
+                continue
+            if is_file_protected(filepath, parsed_boundaries):
+                continue
+            cand_cost = calculate_context_size(installation.repository_root, (filepath,))
+            candidates_list.append({
+                "path": filepath,
+                "score": float(score),
+                "reason": f"Fallback lexical match (score={score}) matching: {', '.join(matched)}",
+                "source": "heuristic",
+                "confidence": "high" if score >= 8 else "medium",
+                "relation": "keyword_match",
+                "estimated_tokens": cand_cost
+            })
+            
+    return candidates_list

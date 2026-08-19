@@ -309,12 +309,11 @@ class GraphifyAdapter:
             return None
 
     def verify_capabilities(self, required: list[str]) -> bool:
-        """Verify version is supported and required commands exist in help text."""
+        """Verify version is >= floor and required commands exist in help text."""
         version_str = self.get_installed_version()
         if not version_str:
             return False
 
-        # Version check
         def parse_ver(v_str: str) -> tuple[int, ...]:
             try:
                 parts = []
@@ -328,12 +327,9 @@ class GraphifyAdapter:
 
         v_parsed = parse_ver(version_str)
         floor_parsed = parse_ver(self.API_VERSION_FLOOR)
-        ceiling_parsed = parse_ver(self.API_VERSION_CEILING)
-
-        if v_parsed < floor_parsed or v_parsed >= ceiling_parsed:
+        if v_parsed < floor_parsed:
             return False
 
-        # Verify executable resolves and CLI --help contains required command names
         try:
             completed = subprocess.run(["graphify", "--help"], capture_output=True, text=True, check=False)
             if completed.returncode != 0:
@@ -441,11 +437,17 @@ class CliGraphifyProvider(GraphifyProvider):
             query=True,
             neighbors=True,
             communities=True,
-            symbol_locations=True
+            symbol_locations=False
         )
 
     def verify_capabilities(self, required: set[str]) -> bool:
-        if not self.adapter.verify_capabilities(list(required)):
+        cli_cmds = []
+        for req in required:
+            if req == "query":
+                cli_cmds.append("query")
+            elif req == "symbol_locations":
+                return False
+        if cli_cmds and not self.adapter.verify_capabilities(cli_cmds):
             return False
         for req in required:
             if not getattr(self.capabilities, req, False):

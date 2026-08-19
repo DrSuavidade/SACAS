@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import pytest
-from sacas.active_context import ActiveContextManifest, ActiveFileContext
+from sacas.active_context import ActiveContextManifest, ActiveFileContext, ActiveSymbolContext, SourceRange
 from sacas.benchmark_runner import run_routing_benchmark_suite, load_and_run_all_benchmarks
 from sacas.init import initialize
 from sacas.paths import discover_manifest
@@ -26,7 +26,9 @@ def test_benchmark_suite_metrics(tmp_path: Path) -> None:
         "id": "t_gold_001",
         "goal": "Fix session restoration",
         "expected": {
-            "files": ["src/auth.py", "src/session.py"]
+            "files": ["src/auth.py", "src/session.py"],
+            "symbols": ["src/auth.py::auth"],
+            "tests": ["tests/test_auth.py"]
         }
     }
     
@@ -38,7 +40,17 @@ def test_benchmark_suite_metrics(tmp_path: Path) -> None:
         git_revision="unknown",
         files=(
             ActiveFileContext(
-                path="src/auth.py", selection={"mode": "full"}, source="explicit",
+                path="src/auth.py",
+                selection={
+                    "mode": "symbols",
+                    "symbols": [
+                        ActiveSymbolContext(
+                            name="auth",
+                            range=SourceRange(start_line=1, end_line=1, source="parser", confidence=1.0)
+                        )
+                    ]
+                },
+                source="explicit",
                 confidence="high", relation=None, trigger="initial_route",
                 git_revision="unknown", reason="Needed", hash=""
             ),
@@ -50,7 +62,8 @@ def test_benchmark_suite_metrics(tmp_path: Path) -> None:
         ),
         rules=(),
         references=(),
-        events=()
+        events=(),
+        tests=("tests/test_auth.py",)
     )
     
     # Candidates list has session.py (score 90), auth.py (score 100)
@@ -62,17 +75,10 @@ def test_benchmark_suite_metrics(tmp_path: Path) -> None:
     res = run_routing_benchmark_suite(installation, gold_task, manifest, candidates_list)
     assert res.precision == 0.5  # tp=1 (auth.py), fp=1 (helper.py)
     assert res.recall == 0.5  # tp=1, fn=1 (session.py is missing from manifest)
+    assert res.symbol_recall == 1.0  # auth is matched
+    assert res.test_recall == 1.0  # tests/test_auth.py matches
     
-    # Ranked retrieved list: admitted files first ["src/auth.py", "src/helper.py"], then remaining candidates ["src/session.py"]
-    # ranked_list = ["src/auth.py", "src/helper.py", "src/session.py"]
-    # Gold files: {"src/auth.py", "src/session.py"}
-    # Precision@1: 1/1 = 1.0
-    # Precision@2: 1/2 = 0.5
-    # Precision@3: 2/3 = 0.667
-    # Precision_at_5: set of ranked[:5] is {"src/auth.py", "src/helper.py", "src/session.py"} -> tp=2 -> prec@5 = 2/5 = 0.4
     assert res.precision_at_5 == 0.4
-    
-    # MRR: rank of first relevant is 1 (src/auth.py) -> 1/1 = 1.0
     assert res.mrr == 1.0
 
 def test_load_and_run_all_benchmarks(tmp_path: Path) -> None:

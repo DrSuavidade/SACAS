@@ -272,58 +272,24 @@ def route_rules_and_references(
     return rules_list, refs_list
 
 
-def generate_task(
+def route_goal(
     installation: Installation,
     goal: str,
-    *,
-    criteria: tuple[str, ...] = (),
-    constraints: tuple[str, ...] = (),
-    verification: tuple[str, ...] = (),
+    category: str | None = None,
     files: tuple[str, ...] = (),
     symbols: tuple[str, ...] = (),
     tests: tuple[str, ...] = (),
     rules: tuple[str, ...] = (),
     references: tuple[str, ...] = (),
-    category: str | None = None,
     context_policy: str = "advisory"
-) -> TaskResult:
-    """Create or update a SACAS task, generating its contract, context, and state."""
+) -> ActiveContextManifest:
     from sacas.graphify import get_graphify_provider
+    from sacas.enforce import negotiate_policy
 
-    criteria = tuple(criteria)
-    constraints = tuple(constraints)
-    verification = tuple(verification)
-    files = tuple(files)
-    symbols = tuple(symbols)
-    tests = tuple(tests)
-    rules = tuple(rules)
-    references = tuple(references)
-
-    # 1. Stable task ID
     task_id = hashlib.sha256(goal.strip().encode("utf-8")).hexdigest()[:8]
-
-    # 2. Update manifest's current task
-    manifest_path = installation.manifest_path
     old_manifest = installation.manifest
-    new_manifest = Manifest(
-        repository_root=old_manifest.repository_root,
-        sacas_root=old_manifest.sacas_root,
-        graphify_mode=old_manifest.graphify_mode,
-        graphify_output=old_manifest.graphify_output,
-        adapters=old_manifest.adapters,
-        context_budget=old_manifest.context_budget,
-        current_task_id=task_id,
-        schema_version=old_manifest.schema_version,
-    )
-    write_text_atomic(manifest_path, stable_json(new_manifest.to_dict()))
-
-    # Prepare current task directory
-    task_dir = installation.sacas_root / "tasks" / "current"
-    task_dir.mkdir(parents=True, exist_ok=True)
-
     boundaries_file = installation.sacas_root / "rules" / "boundaries.md"
     parsed_boundaries = parse_protected_boundaries(boundaries_file)
-
     commit = get_git_commit(installation.repository_root)
     active_files = []
     events = []
@@ -394,7 +360,6 @@ def generate_task(
             ))
     else:
         graphify_success = False
-        initial_scope_paths = []
         if old_manifest.graphify_mode != "off":
             provider = get_graphify_provider(installation, required={"query"})
             if provider.verify_capabilities(required={"query"}):
@@ -464,10 +429,6 @@ def generate_task(
                     trigger="initial_route"
                 ))
 
-    if not active_files:
-        import sys
-        print(f"WARNING: Task contains zero source files/symbols and no routing evidence was discovered.", file=sys.stderr)
-
     rules_list, refs_list = route_rules_and_references(installation.sacas_root, goal, rules, references)
 
     # Hash rules
@@ -505,24 +466,83 @@ def generate_task(
         references=tuple(hashed_refs),
         events=tuple(events),
         budget=None,
-        policy=None,  # Will set negotiated policy below
+        policy=None,
         tests=tests
     )
-    
-    from sacas.enforce import negotiate_policy, get_enforcement_provider
+
     negotiated = negotiate_policy(installation, context_policy)
-    
-    # Update manifest with negotiated policy
     manifest = ActiveContextManifest(
         task_id=manifest.task_id, goal=manifest.goal, category=manifest.category,
         git_revision=manifest.git_revision, files=manifest.files, rules=manifest.rules,
         references=manifest.references, events=manifest.events, budget=manifest.budget,
         policy=negotiated, tests=manifest.tests, schema_version=manifest.schema_version
     )
+    return manifest
+
+
+def generate_task(
+    installation: Installation,
+    goal: str,
+    *,
+    criteria: tuple[str, ...] = (),
+    constraints: tuple[str, ...] = (),
+    verification: tuple[str, ...] = (),
+    files: tuple[str, ...] = (),
+    symbols: tuple[str, ...] = (),
+    tests: tuple[str, ...] = (),
+    rules: tuple[str, ...] = (),
+    references: tuple[str, ...] = (),
+    category: str | None = None,
+    context_policy: str = "advisory"
+) -> TaskResult:
+    """Create or update a SACAS task, generating its contract, context, and state."""
+    criteria = tuple(criteria)
+    constraints = tuple(constraints)
+    verification = tuple(verification)
+    files = tuple(files)
+    symbols = tuple(symbols)
+    tests = tuple(tests)
+    rules = tuple(rules)
+    references = tuple(references)
+
+    # 1. Stable task ID
+    task_id = hashlib.sha256(goal.strip().encode("utf-8")).hexdigest()[:8]
+
+    # 2. Update manifest's current task
+    manifest_path = installation.manifest_path
+    old_manifest = installation.manifest
+    new_manifest = Manifest(
+        repository_root=old_manifest.repository_root,
+        sacas_root=old_manifest.sacas_root,
+        graphify_mode=old_manifest.graphify_mode,
+        graphify_output=old_manifest.graphify_output,
+        adapters=old_manifest.adapters,
+        context_budget=old_manifest.context_budget,
+        current_task_id=task_id,
+        schema_version=old_manifest.schema_version,
+    )
+    write_text_atomic(manifest_path, stable_json(new_manifest.to_dict()))
+
+    # Prepare current task directory
+    task_dir = installation.sacas_root / "tasks" / "current"
+    task_dir.mkdir(parents=True, exist_ok=True)
+
+    manifest = route_goal(
+        installation=installation,
+        goal=goal,
+        category=category,
+        files=files,
+        symbols=symbols,
+        tests=tests,
+        rules=rules,
+        references=references,
+        context_policy=context_policy
+    )
 
     # Save active_context.json
     save_active_context(task_dir, manifest)
     
+    from sacas.enforce import get_enforcement_provider
     provider = get_enforcement_provider(installation, manifest)
     provider.enforce(installation, manifest)
 
