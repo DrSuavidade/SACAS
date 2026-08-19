@@ -17,7 +17,7 @@ def test_json_graphify_provider(tmp_path: Path) -> None:
     provider = JsonGraphifyProvider(graph_file)
     assert provider.verify_capabilities([]) is True
 
-    result = provider.query("anything", graph_file)
+    result = provider.query("src", graph_file)
     assert result is not None
     assert result.status == "success"
     assert "src/a.py" in result.paths

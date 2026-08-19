@@ -100,15 +100,23 @@ def refresh_context(
         boundaries_file = installation.sacas_root / "rules" / "boundaries.md"
         parsed_boundaries = parse_protected_boundaries(boundaries_file)
 
+        RELATION_DIRECTION_WEIGHTS = {
+            "bugfix": {
+                "calls": {"incoming": 100, "outgoing": 85},
+                "tests": {"incoming": 100, "outgoing": 90},
+                "imports": {"incoming": 95, "outgoing": 80},
+                "depends_on": {"incoming": 85, "outgoing": 85},
+            },
+            "feature": {
+                "calls": {"incoming": 70, "outgoing": 100},
+                "tests": {"incoming": 80, "outgoing": 95},
+                "imports": {"incoming": 65, "outgoing": 95},
+                "depends_on": {"incoming": 80, "outgoing": 85},
+            },
+        }
+
         if evidence is not None:
             node_paths = dict(evidence.nodes)
-            edge_kind_scores = {
-                "calls": 100,
-                "imports": 100,
-                "tests": 90,
-                "depends_on": 85,
-            }
-
             candidate_details = {}
             for source_id, destination_id, edge_kind in evidence.edges:
                 source_path = node_paths.get(source_id)
@@ -122,26 +130,38 @@ def refresh_context(
                 if is_dest_active and source_path not in active_paths:
                     cand_path = source_path
                     trigger_path = dest_path
-                    score = edge_kind_scores.get(edge_kind, 25)
-                    confidence = 1.0
-                    relation = edge_kind
+                    direction = "incoming"
                 elif is_source_active and dest_path not in active_paths:
                     cand_path = dest_path
                     trigger_path = source_path
-                    score = edge_kind_scores.get(edge_kind, 25)
-                    confidence = 1.0
-                    relation = edge_kind
+                    direction = "outgoing"
                 else:
                     continue
 
                 if is_file_protected(cand_path, parsed_boundaries):
                     continue
 
+                cat = manifest.category or "bugfix"
+                cat_weights = RELATION_DIRECTION_WEIGHTS.get(cat, RELATION_DIRECTION_WEIGHTS["bugfix"])
+                rel_weights = cat_weights.get(edge_kind, {"incoming": 85, "outgoing": 85})
+                score = rel_weights.get(direction, 85)
+
+                semantic_direction = "related"
+                if edge_kind == "calls":
+                    semantic_direction = "caller" if direction == "incoming" else "callee"
+                elif edge_kind == "imports":
+                    semantic_direction = "importer" if direction == "incoming" else "imported"
+                elif edge_kind == "tests":
+                    semantic_direction = "test" if direction == "incoming" else "test_target"
+
+                confidence = 1.0
                 final_score = score * confidence
                 if cand_path not in candidate_details or final_score > candidate_details[cand_path]["score"]:
                     candidate_details[cand_path] = {
                         "score": final_score,
-                        "relation": relation,
+                        "relation": edge_kind,
+                        "direction": direction,
+                        "semantic_direction": semantic_direction,
                         "triggered_by": trigger_path,
                         "confidence": confidence,
                     }
@@ -162,6 +182,8 @@ def refresh_context(
                                 candidate_details[p] = {
                                     "score": final_score,
                                     "relation": "community",
+                                    "direction": "outgoing",
+                                    "semantic_direction": "community_member",
                                     "triggered_by": trigger_path,
                                     "confidence": confidence,
                                 }
@@ -169,13 +191,16 @@ def refresh_context(
             sorted_cands = sorted(candidate_details.items(), key=lambda x: (-x[1]["score"], x[0]))
             for cand_path, details in sorted_cands:
                 cand_cost = calculate_context_size(installation.repository_root, (cand_path,))
+                reason_str = f"Active context {details['triggered_by']} calls this implementation" if details['relation'] == 'calls' and details['direction'] == 'outgoing' else f"Graph relation '{details['relation']}' ({details['semantic_direction']}) triggered by {details['triggered_by']}"
                 candidates_list.append({
                     "path": cand_path,
                     "score": details["score"],
-                    "reason": f"Graph relation '{details['relation']}' triggered by {details['triggered_by']}",
+                    "reason": reason_str,
                     "source": "graphify",
                     "confidence": "high" if details["confidence"] >= 0.9 else "medium",
                     "relation": details["relation"],
+                    "direction": details["direction"],
+                    "semantic_direction": details["semantic_direction"],
                     "triggered_by": details["triggered_by"],
                     "estimated_tokens": cand_cost
                 })

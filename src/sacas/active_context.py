@@ -482,6 +482,22 @@ def migrate_legacy_active_context(task_dir: Path) -> ActiveContextManifest | Non
         return None
 
 
+def build_parent_negations(path: str) -> list[str]:
+    parts = path.replace("\\", "/").split("/")
+    negations = []
+    if not path or path == ".":
+        return []
+    current = ""
+    for part in parts[:-1]:
+        if current:
+            current = f"{current}/{part}"
+        else:
+            current = part
+        negations.append(f"!{current}/")
+    negations.append(f"!{path}")
+    return negations
+
+
 def enforce_cursor_negation_patterns(installation: Installation, manifest: ActiveContextManifest) -> None:
     """Write gitignore-style negation patterns in a SACAS-owned region of .cursorignore."""
     if "cursor" not in installation.manifest.adapters:
@@ -496,23 +512,36 @@ def enforce_cursor_negation_patterns(installation: Installation, manifest: Activ
         "*",
         "",
         "# Negate SACAS control documents and folders",
+        "!Structure/",
+        "!Structure/tasks/",
+        "!Structure/tasks/current/",
         "!Structure/tasks/current/**",
-        "!Structure/rules/**",
-        "!Structure/references/**",
         "!Structure/ROUTER.md",
+        "!Structure/map/",
         "!Structure/map/SYSTEM.md",
         "",
-        "# Negate active context files",
+        "# Negate active context files, rules, and references",
     ]
 
+    all_negations = []
     for f in manifest.files:
-        lines.append(f"!{f.path}")
+        all_negations.extend(build_parent_negations(f.path))
 
     for r in manifest.rules:
-        lines.append(f"!{r.path}")
+        all_negations.extend(build_parent_negations(r.path))
 
     for ref in manifest.references:
-        lines.append(f"!{ref.path}")
+        all_negations.extend(build_parent_negations(ref.path))
+
+    # Deduplicate while preserving order
+    seen = set()
+    deduped_negations = []
+    for neg in all_negations:
+        if neg not in seen:
+            seen.add(neg)
+            deduped_negations.append(neg)
+
+    lines.extend(deduped_negations)
 
     negation_content = "\n".join(lines) + "\n"
 

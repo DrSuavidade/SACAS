@@ -40,6 +40,6 @@ def test_published_version_is_available_from_cli_and_package() -> None:
 
     result = run_sacas("--version")
 
-    assert __version__ == "0.2.0"
+    assert __version__ == "0.3.0"
     assert result.returncode == 0
     assert result.stdout.strip() == __version__

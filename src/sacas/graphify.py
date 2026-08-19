@@ -402,11 +402,33 @@ class GraphifyAdapter:
         return True
 
 
+class GraphCapabilities:
+    def __init__(self, query: bool, neighbors: bool, communities: bool, symbol_locations: bool):
+        self.query = query
+        self.neighbors = neighbors
+        self.communities = communities
+        self.symbol_locations = symbol_locations
+
+
 class GraphifyProvider:
-    def verify_capabilities(self, required: list[str]) -> bool:
+    capabilities: GraphCapabilities
+
+    def verify_capabilities(self, required: set[str]) -> bool:
         raise NotImplementedError
 
     def query(self, goal: str, graph_path: Path) -> GraphifyQueryResult | None:
+        raise NotImplementedError
+
+    def validate_query_contract(self, result: GraphifyQueryResult) -> bool:
+        raise NotImplementedError
+
+    def neighbors(self, path: str) -> list[tuple[str, str, str]]:
+        raise NotImplementedError
+
+    def communities(self) -> tuple[tuple[str, tuple[str, ...]], ...]:
+        raise NotImplementedError
+
+    def locate_symbol(self, file_path: str, symbol_name: str) -> tuple[int, int] | None:
         raise NotImplementedError
 
 
@@ -415,20 +437,68 @@ class CliGraphifyProvider(GraphifyProvider):
         self.repository_root = repository_root
         self.sacas_root = sacas_root
         self.adapter = GraphifyAdapter(repository_root, sacas_root)
+        self.capabilities = GraphCapabilities(
+            query=True,
+            neighbors=True,
+            communities=True,
+            symbol_locations=True
+        )
 
-    def verify_capabilities(self, required: list[str]) -> bool:
-        return self.adapter.verify_capabilities(required)
+    def verify_capabilities(self, required: set[str]) -> bool:
+        if not self.adapter.verify_capabilities(list(required)):
+            return False
+        for req in required:
+            if not getattr(self.capabilities, req, False):
+                return False
+        return True
 
     def query(self, goal: str, graph_path: Path) -> GraphifyQueryResult | None:
         return self.adapter.query(goal, graph_path)
+
+    def validate_query_contract(self, result: GraphifyQueryResult) -> bool:
+        return self.adapter.validate_query_contract(result)
+
+    def neighbors(self, path: str) -> list[tuple[str, str, str]]:
+        manifest_path = self.sacas_root / ".sacas" / "graphify.json"
+        if manifest_path.is_file():
+            try:
+                evidence = read_graphify_manifest(manifest_path)
+                return [edge for edge in evidence.edges if edge[0] == path or edge[1] == path]
+            except Exception:
+                pass
+        return []
+
+    def communities(self) -> tuple[tuple[str, tuple[str, ...]], ...]:
+        manifest_path = self.sacas_root / ".sacas" / "graphify.json"
+        if manifest_path.is_file():
+            try:
+                evidence = read_graphify_manifest(manifest_path)
+                return evidence.communities
+            except Exception:
+                pass
+        return ()
+
+    def locate_symbol(self, file_path: str, symbol_name: str) -> tuple[int, int] | None:
+        return None
 
 
 class JsonGraphifyProvider(GraphifyProvider):
     def __init__(self, graph_path: Path):
         self.graph_path = graph_path
+        self.capabilities = GraphCapabilities(
+            query=False,
+            neighbors=True,
+            communities=True,
+            symbol_locations=False
+        )
 
-    def verify_capabilities(self, required: list[str]) -> bool:
-        return self.graph_path.is_file()
+    def verify_capabilities(self, required: set[str]) -> bool:
+        if not self.graph_path.is_file():
+            return False
+        for req in required:
+            if not getattr(self.capabilities, req, False):
+                return False
+        return True
 
     def query(self, goal: str, graph_path: Path) -> GraphifyQueryResult | None:
         if not self.graph_path.is_file():
@@ -437,12 +507,76 @@ class JsonGraphifyProvider(GraphifyProvider):
             data = json.loads(self.graph_path.read_text(encoding="utf-8"))
             paths = []
             for node in data.get("nodes", []):
-                if isinstance(node, dict) and "path" in node:
-                    paths.append(node["path"])
-                elif isinstance(node, list) and len(node) > 1:
-                    paths.append(node[1])
+                p = node.get("path") or node.get("id")
+                if p and any(part.lower() in goal.lower() for part in p.split("/")):
+                    paths.append(p)
             return GraphifyQueryResult(raw_output=json.dumps(data), paths=tuple(dict.fromkeys(paths)), status="success")
         except Exception:
             return None
+
+    def validate_query_contract(self, result: GraphifyQueryResult) -> bool:
+        return result.status != "parse_failure"
+
+    def neighbors(self, path: str) -> list[tuple[str, str, str]]:
+        if not self.graph_path.is_file():
+            return []
+        try:
+            data = json.loads(self.graph_path.read_text(encoding="utf-8"))
+            result = []
+            for edge in data.get("edges", []):
+                source = edge.get("source")
+                target = edge.get("target")
+                kind = edge.get("type") or edge.get("relationship") or "related"
+                if source == path or target == path:
+                    result.append((source, target, kind))
+            return result
+        except Exception:
+            return []
+
+    def communities(self) -> tuple[tuple[str, tuple[str, ...]], ...]:
+        if not self.graph_path.is_file():
+            return ()
+        try:
+            data = json.loads(self.graph_path.read_text(encoding="utf-8"))
+            grouped = {}
+            for node in data.get("nodes", []):
+                comm = node.get("community")
+                path = node.get("path") or node.get("id")
+                if comm and path:
+                    grouped.setdefault(comm, set()).add(path)
+            return tuple((name, tuple(sorted(paths))) for name, paths in sorted(grouped.items()))
+        except Exception:
+            return ()
+
+    def locate_symbol(self, file_path: str, symbol_name: str) -> tuple[int, int] | None:
+        return None
+
+
+def get_graphify_provider(installation: Installation, required: set[str] | None = None, preferred: str = "auto") -> GraphifyProvider:
+    if required is None:
+        required = set()
+    cli_provider = CliGraphifyProvider(installation.repository_root, installation.sacas_root)
+    json_path = installation.repository_root / "graphify-out" / "graph.json"
+    json_provider = JsonGraphifyProvider(json_path)
+
+    if preferred == "cli":
+        if cli_provider.verify_capabilities(required):
+            return cli_provider
+        if json_provider.verify_capabilities(required):
+            return json_provider
+    elif preferred == "json":
+        if json_provider.verify_capabilities(required):
+            return json_provider
+        if cli_provider.verify_capabilities(required):
+            return cli_provider
+    else:  # auto
+        if not required or required.issubset({"neighbors", "communities"}):
+            if json_provider.verify_capabilities(required):
+                return json_provider
+        if cli_provider.verify_capabilities(required):
+            return cli_provider
+        if json_provider.verify_capabilities(required):
+            return json_provider
+    return json_provider if json_path.is_file() else cli_provider
 
 

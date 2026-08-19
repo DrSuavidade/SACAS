@@ -31,7 +31,6 @@ from sacas.active_context import (
     ContextPolicyState,
     save_active_context,
     load_active_context,
-    enforce_cursor_negation_patterns,
 )
 
 
@@ -285,10 +284,11 @@ def generate_task(
     tests: tuple[str, ...] = (),
     rules: tuple[str, ...] = (),
     references: tuple[str, ...] = (),
-    category: str | None = None
+    category: str | None = None,
+    context_policy: str = "advisory"
 ) -> TaskResult:
     """Create or update a SACAS task, generating its contract, context, and state."""
-    from sacas.graphify import GraphifyAdapter
+    from sacas.graphify import get_graphify_provider
 
     criteria = tuple(criteria)
     constraints = tuple(constraints)
@@ -364,9 +364,13 @@ def generate_task(
                 if "::" in sym:
                     sym_file, sym_name = sym.split("::", 1)
                     if sym_file == f or sym_file == f_rel:
-                        file_symbols.append(ActiveSymbolContext(name=sym_name, range=None, reason="Explicitly specified by user"))
+                        from sacas.regions import SymbolRangeResolver
+                        rng = SymbolRangeResolver.resolve(installation, f_rel, sym_name)
+                        file_symbols.append(ActiveSymbolContext(name=sym_name, range=rng, reason="Explicitly specified by user"))
                 else:
-                    file_symbols.append(ActiveSymbolContext(name=sym, range=None, reason="Explicitly specified by user"))
+                    from sacas.regions import SymbolRangeResolver
+                    rng = SymbolRangeResolver.resolve(installation, f_rel, sym)
+                    file_symbols.append(ActiveSymbolContext(name=sym, range=rng, reason="Explicitly specified by user"))
 
             sel = {"mode": "symbols", "symbols": file_symbols} if file_symbols else {"mode": "full"}
             active_files.append(ActiveFileContext(
@@ -392,11 +396,11 @@ def generate_task(
         graphify_success = False
         initial_scope_paths = []
         if old_manifest.graphify_mode != "off":
-            adapter = GraphifyAdapter(installation.repository_root, installation.sacas_root)
-            if adapter.verify_capabilities(required=["extract", "query"]):
+            provider = get_graphify_provider(installation, required={"query"})
+            if provider.verify_capabilities(required={"query"}):
                 graph_path = installation.repository_root / old_manifest.graphify_output / "graph.json"
-                query_res = adapter.query(goal, graph_path)
-                if query_res and adapter.validate_query_contract(query_res):
+                query_res = provider.query(goal, graph_path)
+                if query_res and provider.validate_query_contract(query_res):
                     for path in query_res.paths:
                         from sacas.paths import resolve_repo_path
                         try:
@@ -501,20 +505,26 @@ def generate_task(
         references=tuple(hashed_refs),
         events=tuple(events),
         budget=None,
-        policy=ContextPolicyState(
-            requested="advisory",
-            effective="advisory",
-            provider="advisory",
-            file_reads="enforced" if len(active_files) > 0 else "advisory",
-            terminal_reads="advisory",
-            mcp_reads="advisory"
-        ),
+        policy=None,  # Will set negotiated policy below
         tests=tests
+    )
+    
+    from sacas.enforce import negotiate_policy, get_enforcement_provider
+    negotiated = negotiate_policy(installation, context_policy)
+    
+    # Update manifest with negotiated policy
+    manifest = ActiveContextManifest(
+        task_id=manifest.task_id, goal=manifest.goal, category=manifest.category,
+        git_revision=manifest.git_revision, files=manifest.files, rules=manifest.rules,
+        references=manifest.references, events=manifest.events, budget=manifest.budget,
+        policy=negotiated, tests=manifest.tests, schema_version=manifest.schema_version
     )
 
     # Save active_context.json
     save_active_context(task_dir, manifest)
-    enforce_cursor_negation_patterns(installation, manifest)
+    
+    provider = get_enforcement_provider(installation, manifest)
+    provider.enforce(installation, manifest)
 
     # Regenerate task markdown which will calculate budget and update manifest
     regenerate_task_markdown(

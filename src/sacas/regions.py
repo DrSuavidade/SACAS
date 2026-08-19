@@ -159,3 +159,71 @@ def extract_markdown_section(content: str, heading_path: list[str]) -> str:
         return "\n".join(lines[start_line_idx:])
         
     return content
+
+
+import ast
+from sacas.active_context import SourceRange
+
+def find_python_ast_symbol_range(content: str, symbol_name: str) -> tuple[int, int] | None:
+    try:
+        tree = ast.parse(content)
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                if node.name == symbol_name:
+                    start = node.lineno
+                    end = getattr(node, "end_lineno", start)
+                    return (start, end)
+    except Exception:
+        pass
+    return None
+
+
+def find_heuristic_symbol_line(content: str, symbol_name: str, file_path: str) -> int | None:
+    lines = content.splitlines()
+    patterns = [
+        re.compile(rf"\b(def|class|function|func|interface|struct)\s+{re.escape(symbol_name)}\b"),
+        re.compile(rf"\bconst\s+{re.escape(symbol_name)}\b\s*="),
+        re.compile(rf"\b{re.escape(symbol_name)}\s*:=\s*func"),
+        re.compile(rf"\b{re.escape(symbol_name)}\b")
+    ]
+    for pattern in patterns:
+        for idx, line in enumerate(lines):
+            if pattern.search(line):
+                return idx + 1
+    return None
+
+
+class SymbolRangeResolver:
+    @staticmethod
+    def resolve(installation, file_path: str, symbol_name: str) -> SourceRange | None:
+        from sacas.graphify import get_graphify_provider
+        
+        full_path = installation.repository_root / file_path
+        if not full_path.is_file():
+            return None
+            
+        try:
+            content = full_path.read_text(encoding="utf-8")
+        except Exception:
+            return None
+
+        # Tier 1: Graphify provider locate_symbol
+        provider = get_graphify_provider(installation, required={"symbol_locations"})
+        if provider.verify_capabilities({"symbol_locations"}):
+            loc = provider.locate_symbol(file_path, symbol_name)
+            if loc:
+                return SourceRange(start_line=loc[0], end_line=loc[1], source="graphify", confidence=1.0)
+
+        # Tier 2: Python AST parser
+        if file_path.endswith((".py", ".pyw")):
+            ast_range = find_python_ast_symbol_range(content, symbol_name)
+            if ast_range:
+                return SourceRange(start_line=ast_range[0], end_line=ast_range[1], source="parser", confidence=1.0)
+
+        # Tier 3: Language heuristic
+        line_num = find_heuristic_symbol_line(content, symbol_name, file_path)
+        if line_num:
+            r = extract_symbol_range(content, line_num, file_path)
+            return SourceRange(start_line=r[0], end_line=r[1], source="heuristic", confidence=0.72)
+
+        return None

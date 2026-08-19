@@ -56,20 +56,23 @@ Generate a new task contract, setting initial focus files via goal-driven routin
 - `--criteria [item ...]`: Acceptance criteria for the task.
 - `--constraints [item ...]`: Execution constraints.
 - `--verification [item ...]`: Verification steps/commands.
-- `--files [path ...]`: Optional. Explicit focus files (if omitted, automatic Graphify or heuristic fallback routing is performed!).
-- `--symbols [sym ...]`: Optional. Target code symbols.
+- `--files [path ...]`: Optional. Explicit focus files.
+- `--symbol [sym ...]`: Optional. Repeatable target code symbols (format: `file::SymbolName`).
 - `--tests [test ...]`: Optional. Target tests.
 - `--rules [rule ...]`: Optional. Rules to copy/link.
+- `--references [ref ...]`: Optional. Reference files/documentation.
+- `--category <bugfix|feature|test|refactor|docs|security>`: Optional task category.
+- `--context-policy <advisory|warn|enforce>`: Context isolation policy (default: `advisory`).
 
-**Example (Goal-Only Context Routing):**
+**Example:**
 ```bash
-sacas task "fix Session restoration and auth persistence"
+sacas task "fix Session restoration" --symbol src/auth.py::login --context-policy enforce
 ```
 
 ---
 
 ### 4. `sacas refresh`
-Recalculate file hashes, verify active context integrity, and dynamically expand task context by matching relations.
+Recalculate file hashes and verify active context integrity. **Note: refresh never automatically admits new context into the task.** Instead, it generates a list of suggested adjacent routing candidates in `Structure/tasks/current/candidates.json`.
 
 **Arguments:**
 - `--root <path>`: Repository root directory.
@@ -82,98 +85,92 @@ sacas refresh
 
 ---
 
-### 5. `sacas status`
+### 5. `sacas expand`
+Explicitly expand the active context with new files, symbols, rules, or references.
+
+**Arguments:**
+- `--root <path>`: Repository root directory.
+- `--file [path ...]`: Repeatable. Explicit file path to admit.
+- `--symbol [sym ...]`: Repeatable. Symbol path (format: `file::SymbolName`) to admit.
+- `--rule [rule ...]`: Repeatable. Rule path to admit.
+- `--reference [ref ...]`: Repeatable. Reference path (or section `file.md#heading`) to admit.
+- `--reason <text>`: Audit rationale for this expansion.
+- `--all-candidates`: Expand all candidates in `candidates.json` that fit the remaining context budget.
+
+**Example:**
+```bash
+sacas expand --file src/helper.py --reason "Utility import"
+```
+
+---
+
+### 6. `sacas why`
+Explain the routing path and metadata for a given file or symbol.
+
+**Arguments:**
+- `path`: (Positional, Required) File path or symbol name to query.
+- `--root <path>`: Repository root directory.
+
+**Example:**
+```bash
+sacas why src/auth.py
+```
+
+---
+
+### 7. `sacas doctor`
+Run diagnostic health checks on workspace context and platform ignore boundaries.
+
+**Arguments:**
+- `--root <path>`: Repository root directory.
+
+**Example:**
+```bash
+sacas doctor
+```
+
+---
+
+### 8. `sacas status`
 Show details of the current task, including task ID, context budget utilization, a breakdown of context components, and modified/stale files.
 
 **Arguments:**
 - `--root <path>`: Repository root directory.
 - `--format <text|json>`: Output presentation (default: `text`).
 
-**Example:**
-```bash
-sacas status --format json
-```
-
 ---
 
-### 6. `sacas validate`
+### 9. `sacas validate`
 Run cold-agent validation checks (generated regions, legacy tracker files, stale file states, budget overruns, protected boundaries, etc.).
 
-**Arguments:**
-- `--root <path>`: Repository root directory.
-- `--format <text|json>`: Output presentation (default: `text`).
+---
 
-**Example:**
-```bash
-sacas validate
-```
+### 10. `sacas migrate`
+Migrate legacy structures (e.g., PowerShell `PROGRESS.md` or v2 `expansions.json`) to the unified Python CLI structures (`active_context.json` and `STATE.md`).
 
 ---
 
-### 7. `sacas migrate`
-Migrate legacy structures (e.g., PowerShell `PROGRESS.md`) to the unified Python CLI structures (`STATE.md`).
-
-**Arguments:**
-- `--root <path>`: Repository root directory.
-- `--apply`: Actually execute migration updates.
-- `--format <text|json>`: Output presentation.
-
-**Example:**
-```bash
-sacas migrate --apply
-```
-
----
-
-### 8. `sacas context-simulation`
+### 11. `sacas context-simulation`
 Simulate context sizes across all repository files using Baseline, Graphify-only, SACAS-only, and combined modes.
 
-**Arguments:**
-- `--root <path>`: Repository root directory.
-- `--format <text|json>`: Output presentation.
-
-**Example:**
-```bash
-sacas context-simulation --format json
-```
-
 ---
 
-### 9. `sacas benchmark`
-Report actual task routing quality metrics (initial files count, expansion count, budget exclusions, ratio, and total context tokens) for the active task.
-
-**Arguments:**
-- `--root <path>`: Repository root directory.
-- `--format <text|json>`: Output presentation.
-
-**Example:**
-```bash
-sacas benchmark
-```
+### 12. `sacas benchmark`
+Evaluate routing quality metrics (Precision@K, Recall@K, MRR, Context Efficiency, and Token Reduction) for the active task or gold-standard benchmarks.
 
 ---
 
 ## Architecture & Principles
 
 ### Context Budgeting
-SACAS tracks the **whole working context size** (inclusive of `ROUTER.md`, `TASK.md`, `CONTEXT.md`, `STATE.md`, rules, references, and matched source files) against a configured `context_budget`. During context expansion:
-- Candidates are scored by relationship type (imports/calls: 100, tests: 90, depends_on: 85).
-- They are checked against the budget with a metadata buffer cushion.
-- Exceeded candidates are written to `expansions.json` under `adjacent` with `excluded_reason: "budget"`.
+SACAS tracks the **whole working context size** against a configured `context_budget` inside `active_context.json` (canonical `ActiveContextManifest`).
+- **Payload tokens:** Source files, rules, and references.
+- **Control tokens:** Router/task metadata files (`ROUTER.md`, `TASK.md`, `CONTEXT.md`, `STATE.md`).
 
-### Path Sandboxing
-All file paths are sandboxed inside the repository using `resolve_repo_path`, which throws errors on absolute paths, Windows UNC prefixes, drive colons, and `../` repository escapes.
-
-### Protected Boundaries
-Boundaries configured in `Structure/rules/boundaries.md` are evaluated using component-based path containment matching (e.g., preventing prefix match bugs such as matching `src/auth/` against `src/authentication/`).
-
-## Portability
-
-SACAS automatically generates configuration rules for:
-- **Antigravity**: natively uses the skill.
-- **Claude Code**: copies rules into `CLAUDE.md`.
-- **Cursor**: copies rules into `.cursorrules` / `.cursor/rules/`.
-- **GitHub Copilot**: copies instructions into `.github/copilot-instructions.md`.
+### Enforcement Policies
+1. **Advisory:** Renders `CONTEXT.md` token report only; does not mutate ignore files.
+2. **Warn:** Logs out-of-context access warnings where supported.
+3. **Enforce:** Uses platform enforcement providers (e.g., writing precise nested negation patterns into `.cursorignore`) to block out-of-context access.
 
 ## License
 

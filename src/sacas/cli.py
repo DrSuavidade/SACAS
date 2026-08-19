@@ -46,6 +46,7 @@ def build_parser() -> argparse.ArgumentParser:
     task_parser.add_argument("--rules", nargs="*", default=(), help="Rules to follow.")
     task_parser.add_argument("--references", nargs="*", default=(), help="References to follow.")
     task_parser.add_argument("--category", choices=("bugfix", "feature", "test", "refactor", "docs", "security"), default=None, help="Task type/category.")
+    task_parser.add_argument("--context-policy", choices=("advisory", "warn", "enforce"), default="advisory", help="Context boundaries policy.")
 
     refresh_parser = subcommands.add_parser("refresh", help="Refresh task context and detect stale files.")
     refresh_parser.add_argument("--root", default=".", help="Repository root (default: current directory).")
@@ -130,7 +131,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             tests=tuple(arguments.tests),
             rules=tuple(arguments.rules),
             references=tuple(getattr(arguments, "references", ())),
-            category=getattr(arguments, "category", None)
+            category=getattr(arguments, "category", None),
+            context_policy=getattr(arguments, "context_policy", "advisory")
         )
     elif arguments.command == "refresh":
         from sacas.paths import discover_manifest
@@ -193,13 +195,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         root = Path(arguments.root).resolve()
         return perform_migration(root, apply=arguments.apply, format_type=arguments.format)
     elif arguments.command == "benchmark":
-        from sacas.benchmark import print_benchmark
         from sacas.paths import discover_manifest
         root = Path(arguments.root).resolve()
         installation = discover_manifest(root)
         if installation is None:
             raise ValueError("SACAS is not initialized. Run 'sacas init' first.")
-        return print_benchmark(installation, format_type=arguments.format)
+        return benchmark_command_dispatch(installation, format_type=arguments.format)
     elif arguments.command == "context-simulation":
         from sacas.benchmark import print_context_simulation
         from sacas.paths import discover_manifest
@@ -229,7 +230,6 @@ def expand_context_command(
         ActiveReferenceContext,
         AdmissionEvent,
         ActiveContextManifest,
-        enforce_cursor_negation_patterns,
     )
     from sacas.tasks import regenerate_task_markdown
     import hashlib
@@ -334,6 +334,8 @@ def expand_context_command(
             continue
             
         found = False
+        from sacas.regions import SymbolRangeResolver
+        rng = SymbolRangeResolver.resolve(installation, sym_file, sym_name)
         for idx, file_ctx in enumerate(new_files):
             if file_ctx.path == sym_file:
                 found = True
@@ -341,10 +343,10 @@ def expand_context_command(
                 if sel.get("mode") == "symbols":
                     syms = list(sel["symbols"])
                     if not any(s.name == sym_name for s in syms):
-                        syms.append(ActiveSymbolContext(name=sym_name, range=None, reason=reason or "Explicit CLI expand"))
+                        syms.append(ActiveSymbolContext(name=sym_name, range=rng, reason=reason or "Explicit CLI expand"))
                     sel["symbols"] = syms
                 else:
-                    sel = {"mode": "symbols", "symbols": [ActiveSymbolContext(name=sym_name, range=None, reason=reason or "Explicit CLI expand")]}
+                    sel = {"mode": "symbols", "symbols": [ActiveSymbolContext(name=sym_name, range=rng, reason=reason or "Explicit CLI expand")]}
                 
                 new_files[idx] = ActiveFileContext(
                     path=file_ctx.path, selection=sel, source=file_ctx.source, confidence=file_ctx.confidence,
@@ -359,7 +361,7 @@ def expand_context_command(
                 f_hash = hashlib.sha256(f_path.read_bytes()).hexdigest()
             new_files.append(ActiveFileContext(
                 path=sym_file,
-                selection={"mode": "symbols", "symbols": [ActiveSymbolContext(name=sym_name, range=None, reason=reason or "Explicit CLI expand")]},
+                selection={"mode": "symbols", "symbols": [ActiveSymbolContext(name=sym_name, range=rng, reason=reason or "Explicit CLI expand")]},
                 source="explicit", confidence="high", relation=None, trigger="expansion", git_revision=manifest.git_revision,
                 reason=reason or "Explicit CLI expand", hash=f_hash
             ))
@@ -420,7 +422,9 @@ def expand_context_command(
     )
     save_active_context(task_dir, updated_manifest)
     
-    enforce_cursor_negation_patterns(installation, updated_manifest)
+    from sacas.enforce import get_enforcement_provider
+    provider = get_enforcement_provider(installation, updated_manifest)
+    provider.enforce(installation, updated_manifest)
     
     regenerate_task_markdown(installation, task_dir, updated_manifest)
     print("Expansion completed successfully.")
@@ -524,3 +528,32 @@ def doctor_command(installation: Installation) -> int:
         
     print(f"\nSummary: {fail_count} failures, {warning_count} warnings.")
     return 1 if fail_count > 0 else 0
+
+
+def benchmark_command_dispatch(installation: Installation, format_type: str = "text") -> int:
+    from sacas.benchmark_runner import load_and_run_all_benchmarks
+    results = load_and_run_all_benchmarks(installation)
+    
+    if results:
+        if format_type == "json":
+            print(json.dumps([r.to_dict() for r in results], indent=2))
+        else:
+            print("SACAS Gold-Standard Benchmark Suite Results")
+            print("==========================================")
+            for r in results:
+                print(f"Task ID:              {r.task_id}")
+                print(f"  Precision:          {r.precision * 100:.1f}%")
+                print(f"  Recall:             {r.recall * 100:.1f}%")
+                print(f"  F1-Score:           {r.f1 * 100:.1f}%")
+                print(f"  Precision@5:        {r.precision_at_5 * 100:.1f}%")
+                print(f"  Precision@10:       {r.precision_at_10 * 100:.1f}%")
+                print(f"  Recall@5:           {r.recall_at_5 * 100:.1f}%")
+                print(f"  Recall@10:          {r.recall_at_10 * 100:.1f}%")
+                print(f"  MRR:                {r.mrr:.3f}")
+                print(f"  Context Efficiency: {r.context_efficiency * 100:.1f}%")
+                print(f"  Token Reduction:    {r.token_reduction * 100:.1f}%")
+                print("-" * 40)
+        return 0
+    else:
+        from sacas.benchmark import print_benchmark
+        return print_benchmark(installation, format_type=format_type)
