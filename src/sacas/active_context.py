@@ -264,7 +264,9 @@ class ActiveContextManifest:
     task_id: str
     task_contract_hash: str = ""
     git_revision: str = "unknown"
-    files: tuple[ActiveFileContext, ...] = ()
+    files: tuple[ActiveFileContext, ...] = ()  # Legacy: all files (backward compat)
+    reference_files: tuple[ActiveFileContext, ...] = ()  # Layer 3: Stable refs (internalize as constraints)
+    working_files: tuple[ActiveFileContext, ...] = ()  # Layer 4: Per-run artifacts (process as input)
     rules: tuple[ActiveRuleContext, ...] = ()
     references: tuple[ActiveReferenceContext, ...] = ()
     events: tuple[AdmissionEvent, ...] = ()
@@ -282,6 +284,8 @@ class ActiveContextManifest:
             "task_contract_hash": self.task_contract_hash,
             "git_revision": self.git_revision,
             "files": [f.to_dict() for f in self.files],
+            "reference_files": [f.to_dict() for f in self.reference_files],
+            "working_files": [f.to_dict() for f in self.working_files],
             "rules": [r.to_dict() for r in self.rules],
             "references": [ref.to_dict() for ref in self.references],
             "events": [e.to_dict() for e in self.events],
@@ -295,6 +299,8 @@ class ActiveContextManifest:
         if data.get("schema_version") != ACTIVE_CONTEXT_SCHEMA_VERSION:
             raise ValueError(f"Unsupported active context version {data.get('schema_version')}")
         files = tuple(ActiveFileContext.from_dict(f) for f in data.get("files", []))
+        reference_files = tuple(ActiveFileContext.from_dict(f) for f in data.get("reference_files", []))
+        working_files = tuple(ActiveFileContext.from_dict(f) for f in data.get("working_files", []))
         rules = tuple(ActiveRuleContext.from_dict(r) for r in data.get("rules", []))
         references = tuple(ActiveReferenceContext.from_dict(ref) for ref in data.get("references", []))
         events = tuple(AdmissionEvent.from_dict(e) for e in data.get("events", []))
@@ -307,6 +313,8 @@ class ActiveContextManifest:
             task_contract_hash=data.get("task_contract_hash", ""),
             git_revision=data.get("git_revision", "unknown"),
             files=files,
+            reference_files=reference_files,
+            working_files=working_files,
             rules=rules,
             references=references,
             events=events,
@@ -317,6 +325,11 @@ class ActiveContextManifest:
             goal=data.get("goal", ""),
             category=data.get("category", "investigate")
         )
+
+    @property
+    def all_files(self) -> tuple[ActiveFileContext, ...]:
+        """All files combined (legacy + reference + working) for backward compatibility."""
+        return self.files + self.reference_files + self.working_files
 
 def load_active_context(task_dir: Path) -> ActiveContextManifest | None:
     path = task_dir / "active_context.json"
@@ -569,12 +582,17 @@ def enforce_cursor_negation_patterns(installation: Installation, manifest: Activ
         "!Structure/ROUTER.md",
         "!Structure/map/",
         "!Structure/map/SYSTEM.md",
+        "!Structure/stages/",
+        "!Structure/stages/**",
+        "!Structure/_config/",
+        "!Structure/_config/**",
         "",
         "# Negate active context files, rules, and references",
     ]
 
     all_negations = []
-    for f in manifest.files:
+    # Include all file types for backward compatibility
+    for f in manifest.all_files:
         all_negations.extend(build_parent_negations(f.path))
 
     for r in manifest.rules:

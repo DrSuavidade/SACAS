@@ -148,10 +148,11 @@ def compile_budget_report(
 
     limit = installation.manifest.context_budget
 
-    # 1. Payload: Source files
+    # 1. Payload: Source files (legacy + reference_files + working_files)
     source_tokens = 0
     explicit_source_tokens = 0
-    for f in manifest.files:
+    # Use all_files property which combines legacy files + reference_files + working_files
+    for f in manifest.all_files:
         f_path = installation.repository_root / f.path
         f_tokens = 0
         if f_path.is_file():
@@ -255,9 +256,9 @@ def compile_budget_report(
         remaining=remaining
     )
 
-def calculate_manifest_tokens(installation: Installation, manifest: ActiveContextManifest) -> ContextTokenBreakdown:
+def calculate_manifest_tokens(installation: Installation, manifest: ActiveContextManifest, rendered_views: dict[str, str] | None = None) -> ContextTokenBreakdown:
     """Calculate the unified context breakdown from the ActiveContextManifest using compile_budget_report."""
-    plan = compile_budget_report(installation, manifest)
+    plan = compile_budget_report(installation, manifest, rendered_views=rendered_views)
     
     # Calculate rule, reference, source components for ContextTokenBreakdown compat
     # We do a quick count of rules & refs as before
@@ -289,6 +290,8 @@ def calculate_manifest_tokens(installation: Installation, manifest: ActiveContex
             except OSError:
                 pass
                 
+    # Source tokens include legacy files + reference_files + working_files
+    # Use all_files property which combines all three
     source_tokens = max(0, plan.payload_used - rule_tokens - reference_tokens)
     
     return ContextTokenBreakdown(

@@ -17,7 +17,17 @@ from sacas.paths import (
     discover_manifest,
     resolve_sacas_root,
 )
-from sacas.templates import boundaries_document, router_document
+from sacas.templates import (
+    boundaries_document,
+    router_document,
+    claude_md_document,
+    workspace_context_document,
+    stage_context_template,
+    config_conventions_document,
+    config_voice_document,
+    config_design_system_document,
+    stage_output_readme,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,7 +43,7 @@ class InitResult:
 
 
 def initialize(repository_root: Path | str, *, sacas_root: str = "Structure", graphify_mode: str = "off") -> InitResult:
-    """Create the canonical SACAS layout, preserving human-authored documents."""
+    """Create the canonical SACAS layout (ICM 5-layer architecture), preserving human-authored documents."""
     repository_root = Path(repository_root).resolve()
     resolved_root = resolve_sacas_root(repository_root, sacas_root)
     configured_root = sacas_root.replace("\\", "/")
@@ -55,22 +65,78 @@ def initialize(repository_root: Path | str, *, sacas_root: str = "Structure", gr
         )
     changed = False
 
+    # ICM 5-layer directory structure
     for directory in (
         resolved_root / ".sacas",
         resolved_root / "rules",
         resolved_root / "map",
-        resolved_root / "tasks" / "current",
         resolved_root / "references",
+        resolved_root / "_config",
+        resolved_root / "stages" / "01_analyze" / "references",
+        resolved_root / "stages" / "01_analyze" / "output",
+        resolved_root / "stages" / "02_implement" / "references",
+        resolved_root / "stages" / "02_implement" / "output",
+        resolved_root / "stages" / "03_verify" / "references",
+        resolved_root / "stages" / "03_verify" / "output",
+        # Legacy task tracking (optional)
+        resolved_root / "tasks" / "backlog",
+        resolved_root / "tasks" / "current",
+        resolved_root / "tasks" / "completed",
     ):
         if not directory.exists():
             directory.mkdir(parents=True, exist_ok=True)
             changed = True
 
+    # Manifest
     if not manifest_path.exists():
         changed |= _write_if_changed(manifest_path, stable_json(manifest.to_dict()))
     if configured_root not in (".", DEFAULT_SACAS_ROOT):
         locator = {"manifest": manifest_path.relative_to(repository_root).as_posix()}
         changed |= _write_if_changed(repository_root / LOCATOR_RELATIVE_PATH, stable_json(locator))
+
+    # Layer 0: CLAUDE.md (workspace identity)
+    claude_path = resolved_root / "CLAUDE.md"
+    if not claude_path.exists():
+        write_text_atomic(claude_path, claude_md_document())
+        changed = True
+
+    # Layer 1: CONTEXT.md (workspace routing)
+    context_path = resolved_root / "CONTEXT.md"
+    if not context_path.exists():
+        write_text_atomic(context_path, workspace_context_document())
+        changed = True
+
+    # Layer 2: Stage CONTEXT.md contracts
+    stage_configs = [
+        (1, "analyze", "Analyze codebase, understand requirements, produce structured analysis"),
+        (2, "implement", "Implement changes based on analysis output, follow conventions"),
+        (3, "verify", "Test, validate, and verify implementation against requirements"),
+    ]
+    for stage_num, stage_name, purpose in stage_configs:
+        stage_context_path = resolved_root / "stages" / f"{stage_num:02d}_{stage_name}" / "CONTEXT.md"
+        if not stage_context_path.exists():
+            write_text_atomic(stage_context_path, stage_context_template(stage_num, stage_name, purpose))
+            changed = True
+        
+        # Stage output README
+        output_readme_path = resolved_root / "stages" / f"{stage_num:02d}_{stage_name}" / "output" / "README.md"
+        if not output_readme_path.exists():
+            write_text_atomic(output_readme_path, stage_output_readme(stage_num, stage_name))
+            changed = True
+
+    # Layer 3: Global stable references (_config/)
+    config_files = [
+        ("conventions.md", config_conventions_document()),
+        ("voice.md", config_voice_document()),
+        ("design-system.md", config_design_system_document()),
+    ]
+    for filename, content in config_files:
+        config_path = resolved_root / "_config" / filename
+        if not config_path.exists():
+            write_text_atomic(config_path, content)
+            changed = True
+
+    # Router and boundaries (existing)
     router_path = resolved_root / "ROUTER.md"
     existing_router = router_path.read_text(encoding="utf-8") if router_path.exists() else None
     changed |= _write_if_changed(router_path, router_document(existing_router))
@@ -78,6 +144,8 @@ def initialize(repository_root: Path | str, *, sacas_root: str = "Structure", gr
     if not boundaries_path.exists():
         write_text_atomic(boundaries_path, boundaries_document())
         changed = True
+
+    # Adapters
     adapters = manifest.adapters or DEFAULT_ADAPTERS
     changed |= generate_adapters(
         repository_root,

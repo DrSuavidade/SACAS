@@ -282,11 +282,11 @@ def route_goal(
     rules: tuple[str, ...] = (),
     references: tuple[str, ...] = (),
     context_policy: str = "advisory",
-    task_contract_hash: str = ""
+    task_contract_hash: str | None = None
 ) -> ActiveContextManifest:
+    """Collect initial context files, resolving Graphify structural seed hits or fallback lexical matches."""
     from sacas.graphify import get_graphify_provider
     from sacas.enforce import negotiate_policy
-
     task_id = hashlib.sha256(goal.strip().encode("utf-8")).hexdigest()[:8]
     old_manifest = installation.manifest
     boundaries_file = installation.sacas_root / "rules" / "boundaries.md"
@@ -309,6 +309,34 @@ def route_goal(
         else:
             category = "investigate"
 
+    # 1. Process rules and references first
+    rules_list, refs_list = route_rules_and_references(installation.sacas_root, goal, rules, references)
+
+    # Hash rules
+    hashed_rules = []
+    for r in rules_list:
+        r_path = installation.repository_root / r.path
+        r_hash = ""
+        if r_path.is_file():
+            try:
+                r_hash = hashlib.sha256(r_path.read_bytes()).hexdigest()
+            except OSError:
+                pass
+        hashed_rules.append(ActiveRuleContext(path=r.path, hash=r_hash, reason=r.reason))
+
+    # Hash references
+    hashed_refs = []
+    for ref in refs_list:
+        ref_path = installation.repository_root / ref.path
+        ref_hash = ""
+        if ref_path.is_file():
+            try:
+                ref_hash = hashlib.sha256(ref_path.read_bytes()).hexdigest()
+            except OSError:
+                pass
+        hashed_refs.append(ActiveReferenceContext(path=ref.path, selection=ref.selection, hash=ref_hash, reason=ref.reason))
+
+    # 2. Process explicit files (if provided)
     if files:
         for f in files:
             from sacas.paths import resolve_repo_path
@@ -359,13 +387,62 @@ def route_goal(
                 reason="Explicitly specified by user",
                 trigger="initial_route"
             ))
-    else:
+
+    # 3. Process tests as ordinary context with role="test"
+    for t in tests:
+        from sacas.paths import resolve_repo_path
+        try:
+            t_rel = resolve_repo_path(installation.repository_root, t)
+        except ValueError:
+            continue
+        t_path = installation.repository_root / t_rel
+        t_hash = ""
+        if t_path.is_file():
+            try:
+                t_hash = hashlib.sha256(t_path.read_bytes()).hexdigest()
+            except OSError:
+                pass
+        active_files.append(ActiveFileContext(
+            path=t_rel,
+            selection={"mode": "full"},
+            source="explicit",
+            confidence="high",
+            relation=None,
+            trigger="initial_route",
+            git_revision=commit,
+            reason="Explicitly specified test context",
+            hash=t_hash,
+            role="test"
+        ))
+
+    # 4. If files were NOT explicitly provided, run Graphify/lexical routing with preventive budget
+    if not files:
+        skeleton_manifest = ActiveContextManifest(
+            task_id=task_id,
+            task_contract_hash=task_contract_hash,
+            git_revision=commit,
+            files=tuple(active_files),
+            rules=tuple(hashed_rules),
+            references=tuple(hashed_refs),
+            events=tuple(events),
+            budget=None,
+            policy=None,
+            tests=tests,
+            goal=goal,
+            category=category
+        )
+        from sacas.budget import compile_budget_report, estimate_tokens
+        budget_plan = compile_budget_report(installation, skeleton_manifest)
+        retrieval_budget = budget_plan.retrieval_budget
+        remaining_space = budget_plan.remaining
+
         graphify_success = False
         if old_manifest.graphify_mode != "off":
             provider = get_graphify_provider(installation, required={"query"})
             if provider.verify_capabilities(required={"query"}):
                 graph_path = installation.repository_root / old_manifest.graphify_output / "graph.json"
-                query_res = provider.query(goal, graph_path)
+                # Wire retrieval budget into provider.query!
+                query_res = provider.query(goal, graph_path, token_budget=retrieval_budget)
                 if query_res and provider.validate_query_contract(query_res):
                     path_to_node = {n.path: n for n in query_res.nodes if n.path}
                     for path in query_res.paths:
@@ -407,6 +484,30 @@ def route_goal(
                             if edge_conf:
                                 confidence = edge_conf.lower()
                         
+                        # Preventively compile/budget admissions:
+                        cand_cost = 0
+                        if f_path.is_file():
+                            try:
+                                content = f_path.read_text(encoding="utf-8", errors="ignore")
+                                if selection.get("mode") == "symbols":
+                                    symbols_content = []
+                                    for sym in selection.get("symbols", []):
+                                        rng = sym.range
+                                        if rng:
+                                            lines = content.splitlines()
+                                            if 1 <= rng.start_line <= len(lines) and 1 <= rng.end_line <= len(lines):
+                                                symbols_content.append("\n".join(lines[rng.start_line-1:rng.end_line]))
+                                    cand_cost = estimate_tokens("\n".join(symbols_content))
+                                else:
+                                    cand_cost = estimate_tokens(content)
+                            except OSError:
+                                pass
+
+                        if cand_cost > remaining_space:
+                            continue
+
+                        remaining_space -= cand_cost
+
                         active_files.append(ActiveFileContext(
                             path=f_rel,
                             selection=selection,
@@ -432,6 +533,19 @@ def route_goal(
             # Fallback Lexical Search
             fallback_results = run_fallback_routing(installation.repository_root, installation.sacas_root, goal, parsed_boundaries, commit)
             for item in fallback_results:
+                cand_cost = 0
+                f_path = installation.repository_root / item["path"]
+                if f_path.is_file():
+                    try:
+                        cand_cost = estimate_tokens(f_path.read_text(encoding="utf-8", errors="ignore"))
+                    except OSError:
+                        pass
+
+                if cand_cost > remaining_space:
+                    continue
+
+                remaining_space -= cand_cost
+
                 active_files.append(ActiveFileContext(
                     path=item["path"],
                     selection={"mode": "full"},
@@ -452,60 +566,7 @@ def route_goal(
                     trigger="initial_route"
                 ))
 
-    # Process tests as ordinary context with role="test"
-    for t in tests:
-        from sacas.paths import resolve_repo_path
-        try:
-            t_rel = resolve_repo_path(installation.repository_root, t)
-        except ValueError:
-            continue
-        t_path = installation.repository_root / t_rel
-        t_hash = ""
-        if t_path.is_file():
-            try:
-                t_hash = hashlib.sha256(t_path.read_bytes()).hexdigest()
-            except OSError:
-                pass
-        active_files.append(ActiveFileContext(
-            path=t_rel,
-            selection={"mode": "full"},
-            source="explicit",
-            confidence="high",
-            relation=None,
-            trigger="initial_route",
-            git_revision=commit,
-            reason="Explicitly specified test context",
-            hash=t_hash,
-            role="test"
-        ))
-
-    rules_list, refs_list = route_rules_and_references(installation.sacas_root, goal, rules, references)
-
-    # Hash rules
-    hashed_rules = []
-    for r in rules_list:
-        r_path = installation.repository_root / r.path
-        r_hash = ""
-        if r_path.is_file():
-            try:
-                r_hash = hashlib.sha256(r_path.read_bytes()).hexdigest()
-            except OSError:
-                pass
-        hashed_rules.append(ActiveRuleContext(path=r.path, hash=r_hash, reason=r.reason))
-
-    # Hash references
-    hashed_refs = []
-    for ref in refs_list:
-        ref_path = installation.repository_root / ref.path
-        ref_hash = ""
-        if ref_path.is_file():
-            try:
-                ref_hash = hashlib.sha256(ref_path.read_bytes()).hexdigest()
-            except OSError:
-                pass
-        hashed_refs.append(ActiveReferenceContext(path=ref.path, selection=ref.selection, hash=ref_hash, reason=ref.reason))
-
-    # Construct manifest without budget yet
+    # Construct final manifest without policy yet
     manifest = ActiveContextManifest(
         task_id=task_id,
         task_contract_hash=task_contract_hash,
@@ -529,6 +590,10 @@ def route_goal(
         policy=negotiated, tests=manifest.tests, schema_version=manifest.schema_version,
         goal=manifest.goal, category=manifest.category
     )
+    return negotiated_policy_or_manifest(negotiated, manifest)
+
+
+def negotiated_policy_or_manifest(negotiated, manifest):
     return manifest
 
 
@@ -632,9 +697,7 @@ def generate_task(
         installation=installation,
         task_dir=task_dir,
         manifest=manifest,
-        criteria=criteria,
-        constraints=constraints,
-        verification=verification
+        contract=contract
     )
 
     return TaskResult(task_id=task_id)
@@ -644,12 +707,18 @@ def regenerate_task_markdown(
     installation: Installation,
     task_dir: Path,
     manifest: ActiveContextManifest,
-    criteria: tuple[str, ...] = (),
-    constraints: tuple[str, ...] = (),
-    verification: tuple[str, ...] = (),
+    contract: TaskContract | None = None,
 ) -> None:
     """Regenerate TASK.md, STATE.md, PICKUP.md, and CONTEXT.md deterministically."""
-    # 4. Generate TASK.md
+    if contract is None:
+        from sacas.task_contract import load_task_contract
+        contract = load_task_contract(task_dir)
+
+    criteria = contract.criteria if contract else ()
+    constraints = contract.constraints if contract else ()
+    verification = contract.verification if contract else ()
+
+    # 1. In-memory TASK.md
     task_md_path = task_dir / "TASK.md"
     crit_lines = [f"- {item} (EXPLICIT)" for item in criteria] if criteria else ["UNKNOWN"]
     const_lines = [f"- {item} (EXPLICIT)" for item in constraints] if constraints else ["UNKNOWN"]
@@ -674,9 +743,8 @@ def regenerate_task_markdown(
         task_md_content = replace_generated_region(old_text, "task-contract", contract_text)
     else:
         task_md_content = f"# Task {manifest.task_id}\n\n" + render_generated_region("task-contract", contract_text)
-    write_text_atomic(task_md_path, task_md_content)
 
-    # 5. Generate STATE.md and PICKUP.md
+    # 2. In-memory STATE.md
     state_md_path = task_dir / "STATE.md"
     old_state_content = state_md_path.read_text(encoding="utf-8") if state_md_path.exists() else None
     state_text = render_state_markdown(manifest.task_id, manifest.goal, criteria, verification, old_content=old_state_content)
@@ -685,34 +753,12 @@ def regenerate_task_markdown(
         state_md_content = replace_generated_region(old_state_content, "task-state", state_text)
     else:
         state_md_content = f"# Task State\n\n" + render_generated_region("task-state", state_text)
-    write_text_atomic(state_md_path, state_md_content)
 
-    # PICKUP.md
-    pickup_md_path = task_dir / "PICKUP.md"
+    # 3. In-memory PICKUP.md
     completed, pending = parse_state_checkboxes(state_text)
     pickup_content = generate_pickup_markdown(completed, pending)
-    write_text_atomic(pickup_md_path, pickup_content)
 
-    # Calculate unified budget
-    breakdown = calculate_manifest_tokens(installation, manifest)
-    budget_state = ContextBudgetState(
-        limit=breakdown.limit,
-        used=breakdown.used,
-        tokenizer=breakdown.tokenizer,
-        source_tokens=breakdown.source_tokens,
-        rule_tokens=breakdown.rule_tokens,
-        reference_tokens=breakdown.reference_tokens,
-        control_tokens=breakdown.control_tokens
-    )
-
-    # Save active_context.json with updated budget
-    from dataclasses import replace
-    manifest = replace(manifest, budget=budget_state)
-    save_active_context(task_dir, manifest)
-
-    # 6. Generate CONTEXT.md
-    context_md_path = task_dir / "CONTEXT.md"
-    
+    # 4. Gather Graphify evidence & boundaries for CONTEXT.md
     graphify_manifest_path = installation.sacas_root / ".sacas" / "graphify.json"
     evidence = None
     if graphify_manifest_path.is_file():
@@ -721,11 +767,9 @@ def regenerate_task_markdown(
         except Exception:
             pass
 
-    # Read boundaries
     boundaries_file = installation.sacas_root / "rules" / "boundaries.md"
     parsed_boundaries = parse_protected_boundaries(boundaries_file)
 
-    # Bounded Effects
     effects_lines = []
     all_files = tuple(f.path for f in manifest.files)
     if evidence is not None:
@@ -739,7 +783,6 @@ def regenerate_task_markdown(
     else:
         effects_lines.append("### Bounded Effects\nGraphify evidence unavailable.")
 
-    # Boundaries
     protected_files = []
     for f in manifest.files:
         reason = is_file_protected(f.path, parsed_boundaries)
@@ -750,93 +793,136 @@ def regenerate_task_markdown(
     if protected_files:
         protected_section = "### Protected Boundaries\n" + "\n".join(protected_files) + "\n\n"
 
-    # Context.md lines
-    context_lines = ["## Files"]
-    initial_files = [f for f in manifest.files if f.trigger == "initial_route"]
-    expanded_files = [f for f in manifest.files if f.trigger != "initial_route"]
-    from sacas.task_contract import load_task_contract
-    contract = load_task_contract(task_dir)
-    goal_str = contract.goal if contract else (manifest.goal or "Fix")
+    def build_context_content(limit=0, used=0, src=0, rule=0, ref=0, ctrl=0) -> str:
+        context_lines = ["## Files"]
+        initial_files = [f for f in manifest.files if f.trigger == "initial_route"]
+        expanded_files = [f for f in manifest.files if f.trigger != "initial_route"]
+        goal_str = contract.goal if contract else (manifest.goal or "Fix")
 
-    if initial_files:
-        for f in initial_files:
-            rsn = f.reason
-            if not rsn or "Discovered" in rsn or "Explicit" in rsn:
-                rsn = f"{goal_str} (seed)"
-            if not rsn.startswith("admitted because"):
-                rsn = f"admitted because {rsn}"
-            context_lines.append(f"- `{f.path}`: {rsn}")
-    if expanded_files:
+        if initial_files:
+            for f in initial_files:
+                rsn = f.reason
+                if not rsn or "Discovered" in rsn or "Explicit" in rsn:
+                    rsn = f"{goal_str} (seed)"
+                if not rsn.startswith("admitted because"):
+                    rsn = f"admitted because {rsn}"
+                context_lines.append(f"- `{f.path}`: {rsn}")
+        if expanded_files:
+            context_lines.append("")
+            context_lines.append("### Expanded Files")
+            for f in expanded_files:
+                rsn = f.reason or "expanded context"
+                if not rsn.startswith("admitted because"):
+                    rsn = f"admitted because {rsn}"
+                context_lines.append(f"- `{f.path}`: {rsn}")
+        if not initial_files and not expanded_files:
+            context_lines.append("- None")
         context_lines.append("")
-        context_lines.append("### Expanded Files")
-        for f in expanded_files:
-            rsn = f.reason or "expanded context"
-            if not rsn.startswith("admitted because"):
-                rsn = f"admitted because {rsn}"
-            context_lines.append(f"- `{f.path}`: {rsn}")
-    if not initial_files and not expanded_files:
-        context_lines.append("- None")
-    context_lines.append("")
-    
-    context_lines.append("## Symbols")
-    symbols_present = False
-    for f in manifest.files:
-        if f.selection.get("mode") == "symbols":
-            for sym in f.selection.get("symbols", []):
-                symbols_present = True
-                rng_str = f" L{sym.range.start_line}-L{sym.range.end_line}" if sym.range else ""
-                context_lines.append(f"- `{f.path}::{sym.name}`{rng_str}")
-    if not symbols_present:
-        context_lines.append("- None")
-    context_lines.append("")
-    
-    context_lines.append("## Tests")
-    if manifest.tests:
-        context_lines.extend(f"- `{t}`" for t in manifest.tests)
-    else:
-        context_lines.append("- None")
-    context_lines.append("")
-    
-    context_lines.append("## Rules")
-    if manifest.rules:
-        context_lines.extend(f"- `{r.path}`" for r in manifest.rules)
-    else:
-        context_lines.append("- None")
-    context_lines.append("")
-
-    context_lines.append("## References")
-    if manifest.references:
-        for ref in manifest.references:
-            if ref.selection.get("mode") == "sections":
-                sec_names = ", ".join(" > ".join(sec.get("heading_path", [])) for sec in ref.selection.get("sections", []))
-                context_lines.append(f"- `{ref.path}` (Sections: {sec_names})")
-            else:
-                context_lines.append(f"- `{ref.path}`")
-    else:
-        context_lines.append("- None")
-    context_lines.append("")
-    
-    if protected_section:
-        context_lines.append(protected_section)
         
-    context_lines.extend([
-        "## Budget",
-        f"- Limit: {breakdown.limit} tokens",
-        f"- Estimated context size: {breakdown.used} tokens",
-        f"  - Payload: {breakdown.source_tokens} source, {breakdown.rule_tokens} rules, {breakdown.reference_tokens} references",
-        f"  - Control: {breakdown.control_tokens} task documents",
-        "",
-        "## Evidence & Freshness",
-        f"- Graphify Status: {evidence.status if evidence else 'unavailable'}",
-        f"- Graphify Hash: {evidence.content_hash if (evidence and evidence.content_hash) else 'N/A'}",
-        "",
-    ])
-    context_lines.extend(effects_lines)
-    context_text = "\n".join(context_lines) + "\n"
+        context_lines.append("## Symbols")
+        symbols_present = False
+        for f in manifest.files:
+            if f.selection.get("mode") == "symbols":
+                for sym in f.selection.get("symbols", []):
+                    symbols_present = True
+                    rng_str = f" L{sym.range.start_line}-L{sym.range.end_line}" if sym.range else ""
+                    context_lines.append(f"- `{f.path}::{sym.name}`{rng_str}")
+        if not symbols_present:
+            context_lines.append("- None")
+        context_lines.append("")
+        
+        context_lines.append("## Tests")
+        if manifest.tests:
+            context_lines.extend(f"- `{t}`" for t in manifest.tests)
+        else:
+            context_lines.append("- None")
+        context_lines.append("")
+        
+        context_lines.append("## Rules")
+        if manifest.rules:
+            context_lines.extend(f"- `{r.path}`" for r in manifest.rules)
+        else:
+            context_lines.append("- None")
+        context_lines.append("")
 
-    if context_md_path.exists():
-        old_text = context_md_path.read_text(encoding="utf-8")
-        context_md_content = replace_generated_region(old_text, "task-context", context_text)
-    else:
-        context_md_content = f"# Task Context\n\n" + render_generated_region("task-context", context_text)
-    write_text_atomic(context_md_path, context_md_content)
+        context_lines.append("## References")
+        if manifest.references:
+            for ref in manifest.references:
+                if ref.selection.get("mode") == "sections":
+                    sec_names = ", ".join(" > ".join(sec.get("heading_path", [])) for sec in ref.selection.get("sections", []))
+                    context_lines.append(f"- `{ref.path}` (Sections: {sec_names})")
+                else:
+                    context_lines.append(f"- `{ref.path}`")
+        else:
+            context_lines.append("- None")
+        context_lines.append("")
+        
+        if protected_section:
+            context_lines.append(protected_section)
+            
+        context_lines.extend([
+            "## Budget",
+            f"- Limit: {limit} tokens",
+            f"- Estimated context size: {used} tokens",
+            f"  - Payload: {src} source, {rule} rules, {ref} references",
+            f"  - Control: {ctrl} task documents",
+            "",
+            "## Evidence & Freshness",
+            f"- Graphify Status: {evidence.status if evidence else 'unavailable'}",
+            f"- Graphify Hash: {evidence.content_hash if (evidence and evidence.content_hash) else 'N/A'}",
+            "",
+        ])
+        context_lines.extend(effects_lines)
+        context_text = "\n".join(context_lines) + "\n"
+
+        context_md_path = task_dir / "CONTEXT.md"
+        if context_md_path.exists():
+            old_text = context_md_path.read_text(encoding="utf-8")
+            return replace_generated_region(old_text, "task-context", context_text)
+        else:
+            return f"# Task Context\n\n" + render_generated_region("task-context", context_text)
+
+    # First pass: render skeleton CONTEXT.md with placeholder values
+    context_md_skeleton = build_context_content()
+
+    router_path = installation.sacas_root / "ROUTER.md"
+    router_content = router_path.read_text(encoding="utf-8") if router_path.is_file() else ""
+
+    rendered_views = {
+        "TASK.md": task_md_content,
+        "STATE.md": state_md_content,
+        "PICKUP.md": pickup_content,
+        "CONTEXT.md": context_md_skeleton,
+        "ROUTER.md": router_content,
+    }
+    
+    breakdown = calculate_manifest_tokens(installation, manifest, rendered_views=rendered_views)
+    budget_state = ContextBudgetState(
+        limit=breakdown.limit,
+        used=breakdown.used,
+        tokenizer=breakdown.tokenizer,
+        source_tokens=breakdown.source_tokens,
+        rule_tokens=breakdown.rule_tokens,
+        reference_tokens=breakdown.reference_tokens,
+        control_tokens=breakdown.control_tokens
+    )
+
+    # Re-render final CONTEXT.md with actual values
+    context_md_final = build_context_content(
+        limit=breakdown.limit,
+        used=breakdown.used,
+        src=breakdown.source_tokens,
+        rule=breakdown.rule_tokens,
+        ref=breakdown.reference_tokens,
+        ctrl=breakdown.control_tokens
+    )
+
+    from dataclasses import replace
+    updated_manifest = replace(manifest, budget=budget_state)
+    save_active_context(task_dir, updated_manifest)
+
+    # Write views atomically to disk
+    write_text_atomic(task_md_path, task_md_content)
+    write_text_atomic(state_md_path, state_md_content)
+    write_text_atomic(task_dir / "PICKUP.md", pickup_content)
+    write_text_atomic(task_dir / "CONTEXT.md", context_md_final)

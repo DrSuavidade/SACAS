@@ -80,23 +80,11 @@ def refresh_context(
     # 3. Always regenerate markdown documents
     # First reload manifest to ensure we get any budget/hash changes
     manifest = load_active_context(task_dir)
-    from sacas.task_contract import load_task_contract
-    contract = load_task_contract(task_dir)
-    if contract:
-        regenerate_task_markdown(
-            installation=installation,
-            task_dir=task_dir,
-            manifest=manifest,
-            criteria=contract.criteria,
-            constraints=contract.constraints,
-            verification=contract.verification,
-        )
-    else:
-        regenerate_task_markdown(
-            installation=installation,
-            task_dir=task_dir,
-            manifest=manifest,
-        )
+    regenerate_task_markdown(
+        installation=installation,
+        task_dir=task_dir,
+        manifest=manifest,
+    )
 
     return changed
 

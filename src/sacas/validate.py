@@ -196,9 +196,10 @@ def run_diagnostics(root: Path) -> dict[str, Any]:
                 stale_files = []
                 missing_files = []
                 
-                # Overlap and duplicate selection check
+                # Overlap and duplicate selection check across all file types
                 seen_paths = set()
-                for f in active_manifest.files:
+                # Check legacy files + reference_files + working_files
+                for f in active_manifest.all_files:
                     if f.path in seen_paths:
                         diagnostics.append({
                             "severity": "FAIL",

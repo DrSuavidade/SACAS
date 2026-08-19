@@ -18,3 +18,8 @@ Structure/.sacas/
 Structure/tasks/completed/
 Structure/graphify-out/
 
+<!-- SACAS:START ignore-cursor -->
+# SACAS generated data
+/Structure/.sacas/
+/graphify-out/
+<!-- SACAS:END ignore-cursor -->

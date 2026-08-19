@@ -11,6 +11,7 @@ from sacas import __version__
 from sacas.graphify import collect_graphify, repository_relative_path, write_graphify_manifest
 from sacas.init import initialize
 from sacas.map import build_system_map, write_system_map
+from sacas.paths import Installation
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -88,6 +89,26 @@ def build_parser() -> argparse.ArgumentParser:
     sim_parser = subcommands.add_parser("context-simulation", help="Run SACAS context comparison size simulations.")
     sim_parser.add_argument("--root", default=".", help="Repository root (default: current directory).")
     sim_parser.add_argument("--format", choices=("text", "json"), default="text", help="Output format.")
+
+    # Pipeline commands (ICM multi-stage workflows)
+    pipeline_parser = subcommands.add_parser("pipeline", help="Manage ICM multi-stage pipelines.")
+    pipeline_subcommands = pipeline_parser.add_subparsers(dest="pipeline_command", metavar="SUBCOMMAND")
+
+    pipeline_run_parser = pipeline_subcommands.add_parser("run", help="Run full pipeline sequentially with review gates.")
+    pipeline_run_parser.add_argument("--root", default=".", help="Repository root (default: current directory).")
+    pipeline_run_parser.add_argument("--start", default="01_analyze", help="Stage to start from (default: 01_analyze).")
+    pipeline_run_parser.add_argument("--skip-review", action="store_true", help="Skip human review gates (non-interactive).")
+
+    pipeline_stage_parser = pipeline_subcommands.add_parser("stage", help="Run a specific pipeline stage.")
+    pipeline_stage_parser.add_argument("stage_id", help="Stage ID (e.g., 01_analyze, 02_implement, 03_verify).")
+    pipeline_stage_parser.add_argument("--root", default=".", help="Repository root (default: current directory).")
+
+    pipeline_review_parser = pipeline_subcommands.add_parser("review", help="Open stage output for human review.")
+    pipeline_review_parser.add_argument("stage_id", help="Stage ID to review.")
+    pipeline_review_parser.add_argument("--root", default=".", help="Repository root (default: current directory).")
+
+    pipeline_list_parser = pipeline_subcommands.add_parser("list", help="List available pipeline stages.")
+    pipeline_list_parser.add_argument("--root", default=".", help="Repository root (default: current directory).")
 
     return parser
 
@@ -209,6 +230,24 @@ def main(argv: Sequence[str] | None = None) -> int:
         if installation is None:
             raise ValueError("SACAS is not initialized. Run 'sacas init' first.")
         return print_context_simulation(installation, format_type=arguments.format)
+    elif arguments.command == "pipeline":
+        from sacas.paths import discover_manifest
+        root = Path(arguments.root).resolve()
+        installation = discover_manifest(root)
+        if installation is None:
+            raise ValueError("SACAS is not initialized. Run 'sacas init' first.")
+        
+        if arguments.pipeline_command == "run":
+            return pipeline_run_command(installation, arguments.start, arguments.skip_review)
+        elif arguments.pipeline_command == "stage":
+            return pipeline_stage_command(installation, arguments.stage_id)
+        elif arguments.pipeline_command == "review":
+            return pipeline_review_command(installation, arguments.stage_id)
+        elif arguments.pipeline_command == "list":
+            return pipeline_list_command(installation)
+        else:
+            print("Usage: sacas pipeline {run|stage|review|list}")
+            return 1
     return 0
 
 
@@ -562,3 +601,170 @@ def benchmark_command_dispatch(installation: Installation, format_type: str = "t
     else:
         from sacas.benchmark import print_benchmark
         return print_benchmark(installation, format_type=format_type)
+
+
+def pipeline_list_command(installation: Installation) -> int:
+    """List available pipeline stages."""
+    stages_dir = installation.sacas_root / "stages"
+    if not stages_dir.exists():
+        print("No pipeline stages found. Run 'sacas init' to create default stages.")
+        return 1
+    
+    stages = sorted([d.name for d in stages_dir.iterdir() if d.is_dir()])
+    if not stages:
+        print("No pipeline stages configured.")
+        return 0
+    
+    print("Available Pipeline Stages:")
+    print("==========================")
+    for stage in stages:
+        stage_path = stages_dir / stage
+        context_path = stage_path / "CONTEXT.md"
+        purpose = "No description"
+        if context_path.exists():
+            content = context_path.read_text(encoding="utf-8")
+            for line in content.split("\n"):
+                if line.startswith("**Purpose**:"):
+                    purpose = line.replace("**Purpose**:", "").strip()
+                    break
+        print(f"  {stage}: {purpose}")
+    return 0
+
+
+def pipeline_stage_command(installation: Installation, stage_id: str) -> int:
+    """Run a specific pipeline stage."""
+    stage_dir = installation.sacas_root / "stages" / stage_id
+    if not stage_dir.exists():
+        print(f"Stage not found: {stage_id}")
+        print("Run 'sacas pipeline list' to see available stages.")
+        return 1
+    
+    context_path = stage_dir / "CONTEXT.md"
+    if not context_path.exists():
+        print(f"Stage contract not found: {context_path}")
+        return 1
+    
+    output_dir = stage_dir / "output"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    print(f"Running stage: {stage_id}")
+    print(f"Contract: {context_path}")
+    print(f"Output: {output_dir}")
+    print()
+    print("Stage contract (CONTEXT.md):")
+    print("=" * 50)
+    print(context_path.read_text(encoding="utf-8"))
+    print("=" * 50)
+    print()
+    print("NEXT STEPS:")
+    print(f"  1. Review the contract above")
+    print(f"  2. Execute the stage manually (AI agent reads CONTEXT.md and writes to {output_dir})")
+    print(f"  3. Run 'sacas pipeline review {stage_id}' to review output before next stage")
+    return 0
+
+
+def pipeline_review_command(installation: Installation, stage_id: str) -> int:
+    """Open stage output for human review."""
+    stage_dir = installation.sacas_root / "stages" / stage_id
+    if not stage_dir.exists():
+        print(f"Stage not found: {stage_id}")
+        return 1
+    
+    output_dir = stage_dir / "output"
+    if not output_dir.exists():
+        print(f"No output directory for stage: {stage_id}")
+        return 1
+    
+    output_files = list(output_dir.glob("*"))
+    if not output_files:
+        print(f"No output files in {output_dir}")
+        print("Run the stage first, then review.")
+        return 0
+    
+    print(f"Reviewing output for stage: {stage_id}")
+    print("=" * 50)
+    for f in output_files:
+        if f.is_file():
+            print(f"\n--- {f.name} ---")
+            content = f.read_text(encoding="utf-8")
+            # Show first 100 lines
+            lines = content.split("\n")
+            for line in lines[:100]:
+                print(line)
+            if len(lines) > 100:
+                print(f"... ({len(lines) - 100} more lines)")
+    print("=" * 50)
+    print()
+    print("EDIT FILES IN THIS FOLDER BEFORE RUNNING NEXT STAGE:")
+    print(f"  {output_dir}")
+    print()
+    print("When done editing, run next stage:")
+    # Find next stage
+    stages = sorted([d.name for d in (installation.sacas_root / "stages").iterdir() if d.is_dir()])
+    try:
+        idx = stages.index(stage_id)
+        if idx + 1 < len(stages):
+            print(f"  sacas pipeline stage {stages[idx + 1]}")
+        else:
+            print("  (This is the last stage)")
+    except ValueError:
+        pass
+    return 0
+
+
+def pipeline_run_command(installation: Installation, start_stage: str, skip_review: bool) -> int:
+    """Run full pipeline sequentially with review gates."""
+    stages_dir = installation.sacas_root / "stages"
+    if not stages_dir.exists():
+        print("No pipeline stages found. Run 'sacas init' to create default stages.")
+        return 1
+    
+    stages = sorted([d.name for d in stages_dir.iterdir() if d.is_dir()])
+    if not stages:
+        print("No pipeline stages configured.")
+        return 1
+    
+    # Find start index
+    try:
+        start_idx = stages.index(start_stage)
+    except ValueError:
+        print(f"Start stage not found: {start_stage}")
+        print(f"Available stages: {', '.join(stages)}")
+        return 1
+    
+    print("SACAS Pipeline Execution")
+    print("========================")
+    print(f"Stages: {' -> '.join(stages[start_idx:])}")
+    print(f"Review gates: {'DISABLED' if skip_review else 'ENABLED'}")
+    print()
+    
+    for i, stage_id in enumerate(stages[start_idx:], start=start_idx):
+        print(f"\n{'='*60}")
+        print(f"STAGE {i+1}/{len(stages)}: {stage_id}")
+        print(f"{'='*60}")
+        
+        # Run stage
+        ret = pipeline_stage_command(installation, stage_id)
+        if ret != 0:
+            return ret
+        
+        # Review gate (unless last stage or skipped)
+        if not skip_review and i < len(stages) - 1:
+            print(f"\n--- REVIEW GATE ---")
+            print(f"Stage {stage_id} complete. Review output before continuing.")
+            pipeline_review_command(installation, stage_id)
+            
+            # Wait for user confirmation
+            try:
+                response = input("\nContinue to next stage? [y/N]: ").strip().lower()
+                if response not in ("y", "yes"):
+                    print("Pipeline paused. Run 'sacas pipeline stage <next>' to continue.")
+                    return 0
+            except (EOFError, KeyboardInterrupt):
+                print("\nPipeline paused.")
+                return 0
+    
+    print("\n" + "="*60)
+    print("PIPELINE COMPLETE")
+    print("="*60)
+    return 0

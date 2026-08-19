@@ -109,7 +109,7 @@ def print_status_report(installation: Installation, format_type: str = "text") -
     print(f"Status:  {report['status'].upper()}")
     bd = report["breakdown"]
     print(f"Router ~{bd['router']} Task ~{bd['task']} Context ~{bd['context']} Rules ~{bd['rules']} References ~{bd['references']} Source ~{bd['source']}")
-    print("────────────────────────")
+    print("------------------------")
     print(f"Estimated total ~{bd['total']}")
     print(f"Budget {report['context_budget']}")
     

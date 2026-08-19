@@ -1,0 +1,10 @@
+---
+description: SACAS repository routing
+alwaysApply: true
+---
+
+<!-- SACAS:START adapter-cursor -->
+## SACAS
+
+Read `Structure/ROUTER.md` before acting. It is the canonical entry point for SACAS rules, task context, and generated navigation.
+<!-- SACAS:END adapter-cursor -->

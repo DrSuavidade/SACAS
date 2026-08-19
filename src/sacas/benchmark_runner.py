@@ -97,7 +97,7 @@ def run_routing_benchmark_suite(
     symbol_recall = len(routed_symbols.intersection(gold_symbols)) / len(gold_symbols) if gold_symbols else 0.0
     
     # Routed tests
-    routed_tests = set(manifest.tests or [])
+    routed_tests = {f.path for f in manifest.files if f.role == "test"} | set(manifest.tests or ())
     test_recall = len(routed_tests.intersection(gold_tests)) / len(gold_tests) if gold_tests else 0.0
 
     # 2. Build Ranked Retrieve List
@@ -135,7 +135,7 @@ def run_routing_benchmark_suite(
         task_id=manifest.task_id, task_contract_hash=manifest.task_contract_hash,
         git_revision=manifest.git_revision, files=tuple(gold_relevant_files),
         rules=tuple(gold_relevant_rules), references=tuple(gold_relevant_refs),
-        events=(), budget=None, policy=manifest.policy, tests=manifest.tests,
+        events=(), budget=None, policy=manifest.policy,
         goal=manifest.goal, category=manifest.category
     )
     gold_breakdown = calculate_manifest_tokens(installation, gold_manifest)
