@@ -1,0 +1,30 @@
+{
+  "budget": null,
+  "events": [],
+  "files": [
+    {
+      "confidence": "high",
+      "git_revision": "unknown",
+      "hash": "",
+      "path": "src/api.py",
+      "reason": "focus",
+      "relation": null,
+      "role": "source",
+      "selection": {
+        "mode": "full"
+      },
+      "source": "explicit",
+      "trigger": "initial_route"
+    }
+  ],
+  "git_revision": "unknown",
+  "policy": null,
+  "reference_files": [],
+  "references": [],
+  "rules": [],
+  "schema_version": 1,
+  "task_contract_hash": "",
+  "task_id": "test",
+  "tests": [],
+  "working_files": []
+}

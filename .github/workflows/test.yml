@@ -7,12 +7,36 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+        graphify-version: ["0.9.44", "latest"]
+        exclude:
+          # Skip oldest Graphify with newest Python if incompatible
+          - python-version: "3.12"
+            graphify-version: "0.9.44"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: ${{ matrix.python-version }}
       - run: python -m pip install --upgrade pip
       - run: python -m pip install -e ".[test]"
-      - run: python -m pip install graphifyy
+      - name: Install Graphify ${{ matrix.graphify-version }}
+        run: |
+          if [ "${{ matrix.graphify-version }}" = "latest" ]; then
+            python -m pip install graphifyy
+          else
+            python -m pip install graphifyy==${{ matrix.graphify-version }}
+          fi
+      - name: Verify Graphify capabilities
+        run: |
+          python -c "
+from sacas.graphify import GraphifyAdapter
+adapter = GraphifyAdapter('.', '.')
+version = adapter.get_installed_version()
+print(f'Graphify version: {version}')
+assert adapter.verify_capabilities(required=['extract', 'query']), 'Graphify capabilities check failed'
+print('Graphify capabilities OK')
+"
       - run: python -m pytest -q

@@ -32,6 +32,7 @@ from sacas.active_context import (
     save_active_context,
     load_active_context,
 )
+from sacas.compiler import compile_and_write_context_pack
 
 
 @dataclass(frozen=True, slots=True)
@@ -306,6 +307,10 @@ def route_goal(
             category = "bugfix"
         elif any(kw in goal_lower for kw in ("add", "implement", "new", "feature")):
             category = "feature"
+        elif any(kw in goal_lower for kw in ("document", "doc", "readme", "comment")):
+            category = "documentation"
+        elif any(kw in goal_lower for kw in ("architect", "design", "structure", "overview")):
+            category = "architecture"
         else:
             category = "investigate"
 
@@ -372,7 +377,9 @@ def route_goal(
                 path=f_rel,
                 selection=sel,
                 source="explicit",
-                confidence="high",
+                ranking_score=1.0,
+                confidence=1.0,
+                evidence=("explicit_user_input",),
                 relation=None,
                 trigger="initial_route",
                 git_revision=commit,
@@ -385,7 +392,10 @@ def route_goal(
                 action="admit",
                 source="explicit",
                 reason="Explicitly specified by user",
-                trigger="initial_route"
+                trigger="initial_route",
+                ranking_score=1.0,
+                confidence=1.0,
+                evidence=("explicit_user_input",)
             ))
 
     # 3. Process tests as ordinary context with role="test"
@@ -406,7 +416,9 @@ def route_goal(
             path=t_rel,
             selection={"mode": "full"},
             source="explicit",
-            confidence="high",
+            ranking_score=1.0,
+            confidence=1.0,
+            evidence=("explicit_user_input", "test_file"),
             relation=None,
             trigger="initial_route",
             git_revision=commit,
@@ -435,6 +447,9 @@ def route_goal(
         budget_plan = compile_budget_report(installation, skeleton_manifest)
         retrieval_budget = budget_plan.retrieval_budget
         remaining_space = budget_plan.remaining
+
+        # Confidence string to float mapping
+        conf_map = {"high": 1.0, "medium": 0.7, "low": 0.4}
 
         graphify_success = False
         if old_manifest.graphify_mode != "off":
@@ -508,11 +523,23 @@ def route_goal(
 
                         remaining_space -= cand_cost
 
+                        # Convert string confidence to float
+                        conf_float = conf_map.get(confidence, 0.7)
+                        
+                        # Build evidence list
+                        ev = ["graphify_query"]
+                        if relation and relation != "seed":
+                            ev.append(f"{relation}_relation")
+                        if node and node.label:
+                            ev.append("goal_symbol_match")
+                        
                         active_files.append(ActiveFileContext(
                             path=f_rel,
                             selection=selection,
                             source="graphify",
-                            confidence=confidence,
+                            ranking_score=conf_float,
+                            confidence=conf_float,
+                            evidence=tuple(ev),
                             relation=relation,
                             trigger="task_goal",
                             git_revision=commit,
@@ -525,7 +552,12 @@ def route_goal(
                             action="admit",
                             source="graphify",
                             reason=reason,
-                            trigger="initial_route"
+                            trigger="initial_route",
+                            ranking_score=conf_float,
+                            confidence=conf_float,
+                            evidence=tuple(ev),
+                            relation=relation,
+                            direction="forward"
                         ))
                     graphify_success = len(active_files) > 0
 
@@ -550,7 +582,9 @@ def route_goal(
                     path=item["path"],
                     selection={"mode": "full"},
                     source="heuristic",
-                    confidence=item["confidence"],
+                    ranking_score=conf_map.get(item["confidence"], 0.5),
+                    confidence=conf_map.get(item["confidence"], 0.5),
+                    evidence=("heuristic_keyword_match",),
                     relation=item["relation"],
                     trigger="task_goal",
                     git_revision=commit,
@@ -563,7 +597,12 @@ def route_goal(
                     action="admit",
                     source="heuristic",
                     reason=item["reason"],
-                    trigger="initial_route"
+                    trigger="initial_route",
+                    ranking_score=conf_map.get(item["confidence"], 0.5),
+                    confidence=conf_map.get(item["confidence"], 0.5),
+                    evidence=("heuristic_keyword_match",),
+                    relation=item["relation"],
+                    direction="forward"
                 ))
 
     # Construct final manifest without policy yet
@@ -655,6 +694,10 @@ def generate_task(
             category = "bugfix"
         elif any(kw in goal_lower for kw in ("add", "implement", "new", "feature")):
             category = "feature"
+        elif any(kw in goal_lower for kw in ("document", "doc", "readme", "comment")):
+            category = "documentation"
+        elif any(kw in goal_lower for kw in ("architect", "design", "structure", "overview")):
+            category = "architecture"
         else:
             category = "investigate"
 
@@ -920,6 +963,9 @@ def regenerate_task_markdown(
     from dataclasses import replace
     updated_manifest = replace(manifest, budget=budget_state)
     save_active_context(task_dir, updated_manifest)
+
+    # Compile context pack for agent consumption
+    compile_and_write_context_pack(installation, updated_manifest)
 
     # Write views atomically to disk
     write_text_atomic(task_md_path, task_md_content)

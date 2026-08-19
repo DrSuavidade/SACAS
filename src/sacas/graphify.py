@@ -412,17 +412,28 @@ class GraphifyAdapter:
                     path = attrs.get("path") or attrs.get("src")
                     if path and path != "None":
                         paths.append(path)
-                        
+                    
+                    # Parse line from 'loc' attribute (e.g., 'L1' -> 1)
                     line_val = None
-                    if attrs.get("line"):
+                    loc_attr = attrs.get("loc")
+                    if loc_attr and loc_attr.startswith("L"):
+                        try:
+                            line_val = int(loc_attr[1:])
+                        except ValueError:
+                            pass
+                    # Fallback to 'line' attribute
+                    if line_val is None and attrs.get("line"):
                         try:
                             line_val = int(attrs["line"])
                         except ValueError:
                             pass
-                            
+                    
+                    # Use node_id as label if no explicit label attribute
+                    label = attrs.get("label") or node_id
+                    
                     nodes.append(GraphQueryNode(
                         id=node_id,
-                        label=attrs.get("label"),
+                        label=label,
                         path=path,
                         line=line_val,
                         node_type=attrs.get("node_type") or attrs.get("type"),

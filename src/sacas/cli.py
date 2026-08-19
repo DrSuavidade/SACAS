@@ -90,6 +90,13 @@ def build_parser() -> argparse.ArgumentParser:
     sim_parser.add_argument("--root", default=".", help="Repository root (default: current directory).")
     sim_parser.add_argument("--format", choices=("text", "json"), default="text", help="Output format.")
 
+    histbench_parser = subcommands.add_parser("histbench", help="Generate and run historical Git benchmarks.")
+    histbench_parser.add_argument("--root", default=".", help="Repository root (default: current directory).")
+    histbench_parser.add_argument("--max-commits", type=int, default=200, help="Maximum commits to analyze (default: 200).")
+    histbench_parser.add_argument("--generate-only", action="store_true", help="Only generate benchmark files, don't run.")
+    histbench_parser.add_argument("--output-dir", help="Output directory for generated benchmarks (default: Structure/benchmarks/historical).")
+    histbench_parser.add_argument("--format", choices=("text", "json"), default="text", help="Output format.")
+
     # Pipeline commands (ICM multi-stage workflows)
     pipeline_parser = subcommands.add_parser("pipeline", help="Manage ICM multi-stage pipelines.")
     pipeline_subcommands = pipeline_parser.add_subparsers(dest="pipeline_command", metavar="SUBCOMMAND")
@@ -230,6 +237,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         if installation is None:
             raise ValueError("SACAS is not initialized. Run 'sacas init' first.")
         return print_context_simulation(installation, format_type=arguments.format)
+    elif arguments.command == "histbench":
+        from sacas.paths import discover_manifest
+        root = Path(arguments.root).resolve()
+        installation = discover_manifest(root)
+        if installation is None:
+            raise ValueError("SACAS is not initialized. Run 'sacas init' first.")
+        return histbench_command(
+            installation,
+            max_commits=arguments.max_commits,
+            generate_only=arguments.generate_only,
+            output_dir=arguments.output_dir,
+            format_type=arguments.format
+        )
     elif arguments.command == "pipeline":
         from sacas.paths import discover_manifest
         root = Path(arguments.root).resolve()
@@ -262,6 +282,7 @@ def expand_context_command(
 ) -> int:
     from sacas.active_context import (
         load_active_context,
+        load_task_state,
         save_active_context,
         ActiveFileContext,
         ActiveSymbolContext,
@@ -271,10 +292,11 @@ def expand_context_command(
         ActiveContextManifest,
     )
     from sacas.tasks import regenerate_task_markdown
+    from sacas.compiler import compile_and_write_context_pack
     import hashlib
     
     task_dir = installation.sacas_root / "tasks" / "current"
-    manifest = load_active_context(task_dir)
+    manifest, contract = load_task_state(task_dir)
     if not manifest:
         print("No active SACAS task found.")
         return 1
@@ -300,11 +322,20 @@ def expand_context_command(
                     if f_path.is_file():
                         f_hash = hashlib.sha256(f_path.read_bytes()).hexdigest()
                         
+                    conf_map = {"high": 1.0, "medium": 0.7, "low": 0.4}
+                    cand_conf = cand.get("confidence", "high")
+                    conf_float = conf_map.get(cand_conf, 0.7)
+                    ev = [f"candidate_{cand.get('source', 'graphify')}"]
+                    if cand.get("relation"):
+                        ev.append(f"{cand['relation']}_relation")
+                    
                     new_file_ctx = ActiveFileContext(
                         path=path,
                         selection={"mode": "full"},
                         source=cand.get("source", "graphify"),
-                        confidence=cand.get("confidence", "high"),
+                        ranking_score=conf_float,
+                        confidence=conf_float,
+                        evidence=tuple(ev),
                         relation=cand.get("relation"),
                         trigger="expansion",
                         git_revision=manifest.git_revision,
@@ -330,7 +361,12 @@ def expand_context_command(
                             action="admit",
                             source=cand.get("source", "graphify"),
                             reason=cand.get("reason", "Expanded candidate"),
-                            trigger="expansion"
+                            trigger="expansion",
+                            ranking_score=conf_float,
+                            confidence=conf_float,
+                            evidence=tuple(ev),
+                            relation=cand.get("relation"),
+                            direction="forward"
                         ))
                     else:
                         print(f"Skipping candidate {path} due to token budget constraint ({breakdown.used} > {manifest.budget.limit})")
@@ -350,7 +386,9 @@ def expand_context_command(
             path=f,
             selection={"mode": "full"},
             source="explicit",
-            confidence="high",
+            ranking_score=1.0,
+            confidence=1.0,
+            evidence=("explicit_user_input",),
             relation=None,
             trigger="expansion",
             git_revision=manifest.git_revision,
@@ -363,7 +401,11 @@ def expand_context_command(
             action="admit",
             source="explicit",
             reason=reason or "Explicit CLI expand",
-            trigger="expansion"
+            trigger="expansion",
+            ranking_score=1.0,
+            confidence=1.0,
+            evidence=("explicit_user_input",),
+            direction="forward"
         ))
         
     for sym in symbols:
@@ -389,7 +431,9 @@ def expand_context_command(
                     sel = {"mode": "symbols", "symbols": [ActiveSymbolContext(name=sym_name, range=rng, reason=reason or "Explicit CLI expand")]}
                 
                 new_files[idx] = ActiveFileContext(
-                    path=file_ctx.path, selection=sel, source=file_ctx.source, confidence=file_ctx.confidence,
+                    path=file_ctx.path, selection=sel, source=file_ctx.source, 
+                    ranking_score=file_ctx.ranking_score, confidence=file_ctx.confidence,
+                    evidence=file_ctx.evidence,
                     relation=file_ctx.relation, trigger=file_ctx.trigger, git_revision=file_ctx.git_revision,
                     reason=file_ctx.reason, hash=file_ctx.hash
                 )
@@ -402,17 +446,22 @@ def expand_context_command(
             new_files.append(ActiveFileContext(
                 path=sym_file,
                 selection={"mode": "symbols", "symbols": [ActiveSymbolContext(name=sym_name, range=rng, reason=reason or "Explicit CLI expand")]},
-                source="explicit", confidence="high", relation=None, trigger="expansion", git_revision=manifest.git_revision,
+                source="explicit", ranking_score=1.0, confidence=1.0, evidence=("explicit_user_input", "symbol"),
+                relation=None, trigger="expansion", git_revision=manifest.git_revision,
                 reason=reason or "Explicit CLI expand", hash=f_hash
             ))
-            
+        
         new_events.append(AdmissionEvent(
             id=f"evt-exp-{len(new_events):03d}",
             target=sym,
             action="admit",
             source="explicit",
             reason=reason or "Explicit CLI expand",
-            trigger="expansion"
+            trigger="expansion",
+            ranking_score=1.0,
+            confidence=1.0,
+            evidence=("explicit_user_input", "symbol"),
+            direction="forward"
         ))
 
     # Apply Rules/Refs
@@ -467,73 +516,16 @@ def expand_context_command(
     provider = get_enforcement_provider(installation, updated_manifest)
     provider.enforce(installation, updated_manifest)
     
-    regenerate_task_markdown(installation, task_dir, updated_manifest)
+    regenerate_task_markdown(installation, task_dir, updated_manifest, contract)
     print("Expansion completed successfully.")
     return 0
 
 
 def query_why_command(installation: Installation, path: str) -> int:
-    from sacas.active_context import load_active_context
-    task_dir = installation.sacas_root / "tasks" / "current"
-    manifest = load_active_context(task_dir)
-    if not manifest:
-        print("No active SACAS task found.")
-        return 1
-        
-    found = False
-    for f in manifest.files:
-        if f.path == path or path in f.path:
-            print(f"File: {f.path}")
-            print(f"  Admitted: yes")
-            print(f"  Source: {f.source}")
-            print(f"  Trigger: {f.trigger}")
-            print(f"  Relation: {f.relation}")
-            print(f"  Git Revision: {f.git_revision}")
-            print(f"  Rationale: {f.reason}")
-            # Show events
-            events = [e for e in manifest.events if e.target == f.path]
-            if events:
-                print("  Admission History:")
-                for e in events:
-                    print(f"    - [{e.action.upper()}] source={e.source} reason={e.reason}")
-            found = True
-            
-    for r in manifest.rules:
-        if r.path == path or path in r.path:
-            print(f"Rule: {r.path}")
-            print(f"  Admitted: yes")
-            print(f"  Rationale: {r.reason}")
-            found = True
-            
-    for ref in manifest.references:
-        if ref.path == path or path in ref.path:
-            print(f"Reference: {ref.path}")
-            print(f"  Admitted: yes")
-            print(f"  Selection: {json.dumps(ref.selection)}")
-            print(f"  Rationale: {ref.reason}")
-            found = True
-            
-    if not found:
-        candidates_path = task_dir / "candidates.json"
-        if candidates_path.is_file():
-            try:
-                candidates_data = json.loads(candidates_path.read_text(encoding="utf-8"))
-                for cand in candidates_data.get("candidates", []):
-                    if cand["path"] == path or path in cand["path"]:
-                        print(f"File (Candidate): {cand['path']}")
-                        print(f"  Admitted: no (Recommended candidate)")
-                        print(f"  Recommendation Score: {cand['score']}")
-                        print(f"  Source: {cand['source']}")
-                        print(f"  Relation: {cand.get('relation')}")
-                        print(f"  Triggered By: {cand.get('triggered_by')}")
-                        print(f"  Estimated Cost: {cand.get('estimated_tokens')} tokens")
-                        print(f"  Rationale: {cand['reason']}")
-                        found = True
-            except Exception:
-                pass
-                
-    if not found:
-        print(f"No active context or candidate information found for path: {path}")
+    from sacas.provenance import query_why_file
+    lines = query_why_file(installation, path)
+    for line in lines:
+        print(line)
     return 0
 
 
@@ -601,6 +593,65 @@ def benchmark_command_dispatch(installation: Installation, format_type: str = "t
     else:
         from sacas.benchmark import print_benchmark
         return print_benchmark(installation, format_type=format_type)
+
+
+def histbench_command(
+    installation: Installation,
+    max_commits: int = 200,
+    generate_only: bool = False,
+    output_dir: str | None = None,
+    format_type: str = "text"
+) -> int:
+    """Generate and optionally run historical Git benchmarks."""
+    from sacas.git_benchmark import generate_historical_tasks, save_historical_benchmarks
+    import json
+    
+    repo_root = installation.repository_root
+    
+    # Determine output directory
+    if output_dir:
+        bench_dir = Path(output_dir)
+    else:
+        bench_dir = installation.sacas_root / "benchmarks" / "historical"
+    
+    print(f"Generating historical benchmarks from {repo_root}...")
+    tasks = generate_historical_tasks(repo_root, max_commits=max_commits)
+    
+    if not tasks:
+        print("No suitable historical tasks found.")
+        return 0
+    
+    print(f"Generated {len(tasks)} historical benchmark tasks.")
+    save_historical_benchmarks(tasks, bench_dir)
+    print(f"Saved to {bench_dir}")
+    
+    if generate_only:
+        return 0
+    
+    # Run benchmarks
+    print("\nRunning benchmarks...")
+    from sacas.benchmark_runner import load_and_run_all_benchmarks
+    results = load_and_run_all_benchmarks(installation)
+    
+    if not results:
+        print("No benchmarks to run.")
+        return 0
+    
+    if format_type == "json":
+        print(json.dumps([r.to_dict() for r in results], indent=2))
+    else:
+        print("\nHistorical Benchmark Results")
+        print("============================")
+        for r in results:
+            print(f"Task ID:     {r.task_id}")
+            print(f"  Precision: {r.precision * 100:.1f}%")
+            print(f"  Recall:    {r.recall * 100:.1f}%")
+            print(f"  F1:        {r.f1 * 100:.1f}%")
+            print(f"  Tokens:    {r.baselines.get('B4_sacas_graphify', {}).get('tokens', 0) if r.baselines else 'N/A'}")
+            print(f"  vs B0:     {r.token_reduction * 100:.1f}% reduction")
+            print("-" * 40)
+    
+    return 0
 
 
 def pipeline_list_command(installation: Installation) -> int:

@@ -1,13 +1,125 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 from typing import Any
 from sacas.active_context import ActiveContextManifest
 from sacas.paths import Installation
 from sacas.budget import calculate_context_size, calculate_manifest_tokens
-from sacas.tasks import route_goal
+from sacas.tasks import route_goal, run_fallback_routing, extract_keywords
 from sacas.refresh import generate_candidates_for_manifest
+from sacas.graphify import get_graphify_provider
+
+
+def _get_repo_files(installation: Installation) -> list[str]:
+    """Get all repository files excluding SACAS/Graphify directories."""
+    ignored_parts = {".git", ".sacas", "__pycache__", "Structure", "graphify-out", ".worktrees"}
+    repo_files = []
+    for path in installation.repository_root.rglob("*"):
+        if path.is_file():
+            relative = path.relative_to(installation.repository_root)
+            if not any(part in ignored_parts for part in relative.parts):
+                repo_files.append(relative.as_posix())
+    return sorted(repo_files)
+
+
+def _baseline_b0_whole_repo(installation: Installation) -> tuple[int, list[str]]:
+    """B0: Whole repository baseline."""
+    repo_files = _get_repo_files(installation)
+    tokens = calculate_context_size(installation.repository_root, tuple(repo_files))
+    return tokens, repo_files
+
+
+def _baseline_b1_ripgrep(installation: Installation, goal: str) -> tuple[int, list[str]]:
+    """B1: Filename + ripgrep retrieval (simulated)."""
+    keywords = extract_keywords(goal)
+    if not keywords:
+        return 0, []
+    
+    repo_files = _get_repo_files(installation)
+    scored_files = []
+    for f in repo_files:
+        score = 0
+        fname = Path(f).name.lower()
+        for kw in keywords:
+            if kw in fname:
+                score += 10
+                if fname.startswith(kw):
+                    score += 5
+        if score > 0:
+            scored_files.append((score, f))
+    
+    scored_files.sort(key=lambda x: -x[0])
+    top_files = [f for _, f in scored_files[:10]]
+    tokens = calculate_context_size(installation.repository_root, tuple(top_files))
+    return tokens, top_files
+
+
+def _baseline_b2_lexical_fallback(installation: Installation, goal: str) -> tuple[int, list[str]]:
+    """B2: Lexical SACAS fallback routing."""
+    from sacas.tasks import get_git_commit, parse_protected_boundaries
+    commit = get_git_commit(installation.repository_root)
+    boundaries_file = installation.sacas_root / "rules" / "boundaries.md"
+    parsed_boundaries = parse_protected_boundaries(boundaries_file)
+    
+    fallback_results = run_fallback_routing(installation.repository_root, installation.sacas_root, goal, parsed_boundaries, commit)
+    files = [item["path"] for item in fallback_results]
+    tokens = calculate_context_size(installation.repository_root, tuple(files))
+    return tokens, files
+
+
+def _baseline_b3_graphify_whole_files(installation: Installation, goal: str) -> tuple[int, list[str]]:
+    """B3: Graphify only (whole files)."""
+    try:
+        provider = get_graphify_provider(installation, required={"query"})
+        if not provider.verify_capabilities(required={"query"}):
+            return 0, []
+        
+        graph_path = installation.repository_root / "graphify-out" / "graph.json"
+        if not graph_path.is_file():
+            return 0, []
+        
+        query_res = provider.query(goal, graph_path, token_budget=2000)
+        if not query_res or not query_res.paths:
+            return 0, []
+        
+        files = list(query_res.paths)
+        tokens = calculate_context_size(installation.repository_root, tuple(files))
+        return tokens, files
+    except Exception:
+        return 0, []
+
+
+def _baseline_b5_combined(installation: Installation, goal: str) -> tuple[int, list[str]]:
+    """B5: Combined B1 + B3 (approximate coding agent search)."""
+    b1_tokens, b1_files = _baseline_b1_ripgrep(installation, goal)
+    b3_tokens, b3_files = _baseline_b3_graphify_whole_files(installation, goal)
+    
+    combined_files = list(dict.fromkeys(b1_files + b3_files))
+    tokens = calculate_context_size(installation.repository_root, tuple(combined_files))
+    return tokens, combined_files
+
+
+def _compute_baseline_metrics(installation: Installation, goal: str, gold_files: set[str], 
+                              baseline_files: list[str]) -> dict[str, float]:
+    """Compute recall metrics for a baseline."""
+    if not baseline_files:
+        return {"recall": 0.0, "precision": 0.0, "f1": 0.0, "tokens": 0}
+    
+    baseline_set = set(baseline_files)
+    tp = len(baseline_set.intersection(gold_files))
+    fp = len(baseline_set - gold_files)
+    fn = len(gold_files - baseline_set)
+    
+    precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+    recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+    f1 = (2 * precision * recall) / (precision + recall) if (precision + recall) > 0 else 0.0
+    
+    tokens = calculate_context_size(installation.repository_root, tuple(baseline_files))
+    
+    return {"precision": precision, "recall": recall, "f1": f1, "tokens": tokens}
+
 
 class RoutingBenchmarkResult:
     def __init__(
@@ -25,7 +137,8 @@ class RoutingBenchmarkResult:
         test_recall: float,
         payload_context_efficiency: float,
         total_context_efficiency: float,
-        token_reduction: float
+        token_reduction: float,
+        baselines: dict[str, dict[str, float]] | None = None
     ):
         self.task_id = task_id
         self.precision = precision
@@ -41,9 +154,10 @@ class RoutingBenchmarkResult:
         self.payload_context_efficiency = payload_context_efficiency
         self.total_context_efficiency = total_context_efficiency
         self.token_reduction = token_reduction
+        self.baselines = baselines or {}
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        result = {
             "task_id": self.task_id,
             "precision": self.precision,
             "recall": self.recall,
@@ -59,6 +173,9 @@ class RoutingBenchmarkResult:
             "total_context_efficiency": self.total_context_efficiency,
             "token_reduction": self.token_reduction
         }
+        if self.baselines:
+            result["baselines"] = self.baselines
+        return result
 
 
 def run_routing_benchmark_suite(
@@ -144,17 +261,41 @@ def run_routing_benchmark_suite(
     payload_context_efficiency = gold_relevant_payload / payload_tokens if payload_tokens > 0 else 0.0
     total_context_efficiency = gold_relevant_payload / breakdown.used if breakdown.used > 0 else 0.0
 
-    # Total Repository Baseline
-    ignored_parts = {".git", ".sacas", "__pycache__", "Structure", "graphify-out", ".worktrees"}
-    repo_files = []
-    for path in installation.repository_root.rglob("*"):
-        if path.is_file():
-            relative = path.relative_to(installation.repository_root)
-            if not any(part in ignored_parts for part in relative.parts):
-                repo_files.append(relative.as_posix())
-                
-    baseline_tokens = calculate_context_size(installation.repository_root, tuple(repo_files))
-    token_reduction = 1.0 - (breakdown.used / baseline_tokens) if baseline_tokens > 0 else 0.0
+    goal = gold_task.get("goal", manifest.goal)
+    
+    # Compute all baselines
+    baselines = {}
+    
+    # B0: Whole repository
+    b0_tokens, b0_files = _baseline_b0_whole_repo(installation)
+    baselines["B0_whole_repo"] = _compute_baseline_metrics(installation, goal, gold_files, b0_files)
+    
+    # B1: Ripgrep/filename search
+    b1_tokens, b1_files = _baseline_b1_ripgrep(installation, goal)
+    baselines["B1_ripgrep"] = _compute_baseline_metrics(installation, goal, gold_files, b1_files)
+    
+    # B2: Lexical SACAS fallback
+    b2_tokens, b2_files = _baseline_b2_lexical_fallback(installation, goal)
+    baselines["B2_lexical_fallback"] = _compute_baseline_metrics(installation, goal, gold_files, b2_files)
+    
+    # B3: Graphify whole files
+    b3_tokens, b3_files = _baseline_b3_graphify_whole_files(installation, goal)
+    baselines["B3_graphify_whole"] = _compute_baseline_metrics(installation, goal, gold_files, b3_files)
+    
+    # B4: SACAS Graphify routing (current) - this is the main result
+    baselines["B4_sacas_graphify"] = {
+        "precision": precision,
+        "recall": recall,
+        "f1": f1,
+        "tokens": breakdown.used
+    }
+    
+    # B5: Combined B1 + B3 (approximate coding agent)
+    b5_tokens, b5_files = _baseline_b5_combined(installation, goal)
+    baselines["B5_combined"] = _compute_baseline_metrics(installation, goal, gold_files, b5_files)
+    
+    # Token reduction vs B0 (whole repo)
+    token_reduction = 1.0 - (breakdown.used / b0_tokens) if b0_tokens > 0 else 0.0
 
     return RoutingBenchmarkResult(
         task_id=gold_task.get("id", manifest.task_id),
@@ -170,7 +311,8 @@ def run_routing_benchmark_suite(
         test_recall=test_recall,
         payload_context_efficiency=payload_context_efficiency,
         total_context_efficiency=total_context_efficiency,
-        token_reduction=token_reduction
+        token_reduction=token_reduction,
+        baselines=baselines
     )
 
 

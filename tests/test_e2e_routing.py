@@ -63,7 +63,7 @@ def test_e2e_routing_loop(tmp_path: Path) -> None:
     assert auth_item.source == "graphify"
     assert auth_item.relation == "seed"
     assert auth_item.trigger == "task_goal"
-    assert auth_item.confidence == "high"
+    assert auth_item.confidence_label() == "high"
     
     # Run validate
     exit_code = main(["validate", "--root", str(repo)])

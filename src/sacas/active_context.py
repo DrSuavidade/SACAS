@@ -57,13 +57,23 @@ class ActiveFileContext:
     path: str
     selection: dict[str, Any]  # {"mode": "full"} or {"mode": "symbols", "symbols": [ActiveSymbolContext]}
     source: str
-    confidence: str
-    relation: str | None
-    trigger: str | None
-    git_revision: str
-    reason: str
-    hash: str
+    ranking_score: float = 0.0
+    confidence: float = 0.0
+    evidence: tuple[str, ...] = ()
+    relation: str | None = None
+    trigger: str | None = None
+    git_revision: str = "unknown"
+    reason: str = ""
+    hash: str = ""
     role: str = "source"
+
+    def confidence_label(self) -> str:
+        """Render confidence as high/medium/low for human-readable output."""
+        if self.confidence >= 0.7:
+            return "high"
+        elif self.confidence >= 0.4:
+            return "medium"
+        return "low"
 
     def to_dict(self) -> dict[str, Any]:
         sel = self.selection.copy()
@@ -82,7 +92,9 @@ class ActiveFileContext:
             "path": self.path,
             "selection": sel,
             "source": self.source,
+            "ranking_score": self.ranking_score,
             "confidence": self.confidence,
+            "evidence": list(self.evidence),
             "relation": self.relation,
             "trigger": self.trigger,
             "git_revision": self.git_revision,
@@ -100,7 +112,9 @@ class ActiveFileContext:
             path=data["path"],
             selection=sel,
             source=data["source"],
-            confidence=data["confidence"],
+            ranking_score=data.get("ranking_score", 0.0),
+            confidence=data.get("confidence", 0.0),
+            evidence=tuple(data.get("evidence", ())),
             relation=data.get("relation"),
             trigger=data.get("trigger"),
             git_revision=data.get("git_revision", "unknown"),
@@ -165,7 +179,9 @@ class AdmissionEvent:
     triggered_by: str | None = None
     relation: str | None = None
     direction: Literal["forward", "reverse"] | None = None
-    confidence: float | None = None
+    ranking_score: float = 0.0
+    confidence: float = 0.0
+    evidence: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -178,7 +194,9 @@ class AdmissionEvent:
             "triggered_by": self.triggered_by,
             "relation": self.relation,
             "direction": self.direction,
+            "ranking_score": self.ranking_score,
             "confidence": self.confidence,
+            "evidence": list(self.evidence),
         }
 
     @classmethod
@@ -193,7 +211,9 @@ class AdmissionEvent:
             triggered_by=data.get("triggered_by"),
             relation=data.get("relation"),
             direction=data.get("direction"),
-            confidence=data.get("confidence"),
+            ranking_score=data.get("ranking_score", 0.0),
+            confidence=data.get("confidence", 0.0),
+            evidence=tuple(data.get("evidence", ())),
         )
 
 @dataclass(frozen=True)
@@ -292,6 +312,8 @@ class ActiveContextManifest:
             "budget": self.budget.to_dict() if self.budget else None,
             "policy": self.policy.to_dict() if self.policy else None,
             "tests": list(self.tests),
+            "goal": self.goal,
+            "category": self.category,
         }
 
     @classmethod
@@ -350,25 +372,21 @@ def load_active_context(task_dir: Path) -> ActiveContextManifest | None:
             manifest = replace(manifest, goal=contract.goal, category=contract.category)
     return manifest
 
+
+def load_task_state(task_dir: Path) -> tuple[ActiveContextManifest | None, TaskContract | None]:
+    """Load both active context manifest and task contract as canonical pair."""
+    from sacas.task_contract import load_task_contract
+    manifest = load_active_context(task_dir)
+    contract = load_task_contract(task_dir)
+    if manifest and contract and manifest.task_id != contract.task_id:
+        return manifest, None
+    return manifest, contract
+
+
 def save_active_context(task_dir: Path, manifest: ActiveContextManifest) -> None:
     from sacas.io import stable_json, write_text_atomic
     path = task_dir / "active_context.json"
     write_text_atomic(path, stable_json(manifest.to_dict()))
-    
-    from sacas.task_contract import load_task_contract, TaskContract, save_task_contract
-    if manifest.goal or manifest.category:
-        contract = load_task_contract(task_dir)
-        if not contract or contract.task_id != manifest.task_id:
-            contract = TaskContract(
-                schema_version=1,
-                task_id=manifest.task_id,
-                goal=manifest.goal,
-                category=manifest.category,
-                criteria=(),
-                constraints=(),
-                verification=()
-            )
-            save_task_contract(task_dir, contract)
 
 def migrate_legacy_active_context(task_dir: Path) -> ActiveContextManifest | None:
     legacy_path = task_dir / "expansions.json"
@@ -392,8 +410,12 @@ def migrate_legacy_active_context(task_dir: Path) -> ActiveContextManifest | Non
             category = "bugfix"
         elif any(kw in goal_lower for kw in ("add", "implement", "new", "feature")):
             category = "feature"
+        elif any(kw in goal_lower for kw in ("document", "doc", "readme", "comment")):
+            category = "documentation"
+        elif any(kw in goal_lower for kw in ("architect", "design", "structure", "overview")):
+            category = "architecture"
         else:
-            category = "bugfix"
+            category = "investigate"
             
         files_list = []
         events_list = []
@@ -415,11 +437,18 @@ def migrate_legacy_active_context(task_dir: Path) -> ActiveContextManifest | Non
                 path = item["path"]
                 symbols = [ActiveSymbolContext(name=s) for s in item.get("symbols", [])]
                 sel = {"mode": "symbols", "symbols": symbols} if symbols else {"mode": "full"}
+                conf_map = {"high": 1.0, "medium": 0.7, "low": 0.4}
+                conf = conf_map.get(item.get("confidence", "high"), 0.7)
+                ev = [f"legacy_{item.get('source', 'explicit')}"]
+                if item.get("relation"):
+                    ev.append(f"{item['relation']}_relation")
                 files_list.append(ActiveFileContext(
                     path=path,
                     selection=sel,
                     source=item.get("source", "explicit"),
-                    confidence=item.get("confidence", "high"),
+                    ranking_score=conf,
+                    confidence=conf,
+                    evidence=tuple(ev),
                     relation=item.get("relation"),
                     trigger=item.get("trigger", "initial_route"),
                     git_revision=item.get("git_revision", "unknown"),
@@ -434,16 +463,28 @@ def migrate_legacy_active_context(task_dir: Path) -> ActiveContextManifest | Non
                     source=item.get("source", "explicit"),
                     reason=item.get("reason", "Discovered in initial route"),
                     trigger="initial_route",
+                    ranking_score=conf,
+                    confidence=conf,
+                    evidence=tuple(ev),
+                    relation=item.get("relation"),
+                    direction="forward"
                 ))
                 
             exps = legacy_data.get("expansions", [])
             for item in exps:
                 path = item["path"]
+                conf_map = {"high": 1.0, "medium": 0.7, "low": 0.4}
+                conf = conf_map.get(item.get("confidence", "high"), 0.7)
+                ev = [f"legacy_{item.get('source', 'graphify')}"]
+                if item.get("relation"):
+                    ev.append(f"{item['relation']}_relation")
                 files_list.append(ActiveFileContext(
                     path=path,
                     selection={"mode": "full"},
                     source=item.get("source", "graphify"),
-                    confidence=item.get("confidence", "high"),
+                    ranking_score=conf,
+                    confidence=conf,
+                    evidence=tuple(ev),
                     relation=item.get("relation"),
                     trigger="expansion",
                     git_revision=item.get("git_revision", "unknown"),
@@ -459,7 +500,10 @@ def migrate_legacy_active_context(task_dir: Path) -> ActiveContextManifest | Non
                     trigger="expansion",
                     triggered_by=item.get("triggered_by"),
                     relation=item.get("relation"),
-                    confidence=1.0 if item.get("confidence") == "high" else 0.5
+                    ranking_score=conf,
+                    confidence=conf,
+                    evidence=tuple(ev),
+                    direction="forward"
                 ))
         else:
             # V1 legacy structure
@@ -468,7 +512,9 @@ def migrate_legacy_active_context(task_dir: Path) -> ActiveContextManifest | Non
                     path=f_path,
                     selection={"mode": "full"},
                     source="explicit",
-                    confidence="high",
+                    ranking_score=1.0,
+                    confidence=1.0,
+                    evidence=("legacy_explicit",),
                     relation=None,
                     trigger="initial_route",
                     git_revision="unknown",
@@ -482,13 +528,19 @@ def migrate_legacy_active_context(task_dir: Path) -> ActiveContextManifest | Non
                     source="explicit",
                     reason="Legacy initial file",
                     trigger="initial_route",
+                    ranking_score=1.0,
+                    confidence=1.0,
+                    evidence=("legacy_explicit",),
+                    direction="forward"
                 ))
             for f_path, f_hash in expanded_files.items():
                 files_list.append(ActiveFileContext(
                     path=f_path,
                     selection={"mode": "full"},
                     source="graphify",
-                    confidence="high",
+                    ranking_score=0.7,
+                    confidence=0.7,
+                    evidence=("legacy_graphify",),
                     relation=None,
                     trigger="expansion",
                     git_revision="unknown",
@@ -501,7 +553,11 @@ def migrate_legacy_active_context(task_dir: Path) -> ActiveContextManifest | Non
                     action="admit",
                     source="graphify",
                     reason="Legacy expanded file",
-                    trigger="expansion"
+                    trigger="expansion",
+                    ranking_score=0.7,
+                    confidence=0.7,
+                    evidence=("legacy_graphify",),
+                    direction="forward"
                 ))
                 
         from sacas.task_contract import TaskContract, save_task_contract, task_contract_hash

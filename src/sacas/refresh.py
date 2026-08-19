@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from dataclasses import replace
 from pathlib import Path
 from sacas.graphify import read_graphify_manifest
 from sacas.io import stable_json, write_text_atomic
@@ -13,7 +14,7 @@ from sacas.tasks import (
     parse_protected_boundaries,
     regenerate_task_markdown,
 )
-from sacas.active_context import load_active_context, save_active_context, ActiveFileContext
+from sacas.active_context import load_active_context, load_task_state, save_active_context, ActiveFileContext
 
 def refresh_context(
     installation: Installation,
@@ -25,14 +26,15 @@ def refresh_context(
         raise ValueError("No active SACAS task to refresh.")
 
     task_dir = installation.sacas_root / "tasks" / "current"
-    manifest = load_active_context(task_dir)
+    manifest, contract = load_task_state(task_dir)
     if manifest is None:
         raise ValueError("Active task metadata (active_context.json) is missing or unreadable.")
 
     changed = False
     updated_files = []
+    changed_file_paths = set()
 
-    # 1. Update hashes of existing files
+    # 1. Update hashes of existing files and detect changes
     for f in manifest.files:
         filepath = f.path
         if selective_files and filepath not in selective_files:
@@ -52,14 +54,18 @@ def refresh_context(
                 path=f.path,
                 selection=f.selection,
                 source=f.source,
+                ranking_score=f.ranking_score,
                 confidence=f.confidence,
+                evidence=f.evidence,
                 relation=f.relation,
                 trigger=f.trigger,
                 git_revision=f.git_revision,
                 reason=f.reason,
-                hash=curr_hash
+                hash=curr_hash,
+                role=f.role
             ))
             changed = True
+            changed_file_paths.add(f.path)
         else:
             updated_files.append(f)
 
@@ -68,7 +74,12 @@ def refresh_context(
     manifest = replace(manifest, files=tuple(updated_files))
     save_active_context(task_dir, manifest)
 
-    # 2. Scope expansion analysis to output candidates.json (only if NOT selective refresh)
+    # 2. If files changed, perform incremental invalidation and re-routing
+    if changed_file_paths:
+        manifest = _incremental_re_route(installation, manifest, changed_file_paths, task_dir)
+        changed = True
+
+    # 3. Scope expansion analysis to output candidates.json (only if NOT selective refresh)
     if not selective_files:
         candidates_list = generate_candidates_for_manifest(installation, manifest)
         candidates_data = {
@@ -77,16 +88,117 @@ def refresh_context(
         }
         write_text_atomic(task_dir / "candidates.json", stable_json(candidates_data))
 
-    # 3. Always regenerate markdown documents
-    # First reload manifest to ensure we get any budget/hash changes
-    manifest = load_active_context(task_dir)
+    # 4. Always regenerate markdown documents
+    manifest, contract = load_task_state(task_dir)
+    if manifest is None:
+        raise ValueError("Active task metadata (active_context.json) is missing or unreadable.")
     regenerate_task_markdown(
         installation=installation,
         task_dir=task_dir,
         manifest=manifest,
+        contract=contract,
     )
 
     return changed
+
+
+def _incremental_re_route(
+    installation: Installation,
+    manifest: ActiveContextManifest,
+    changed_file_paths: set[str],
+    task_dir: Path
+) -> ActiveContextManifest:
+    """Re-route only selectors affected by changed files.
+    
+    Uses admission event triggered_by chains to find downstream dependencies.
+    """
+    from sacas.tasks import route_goal
+    
+    # Find admission events for changed files
+    affected_event_ids = set()
+    for event in manifest.events:
+        if event.target in changed_file_paths:
+            affected_event_ids.add(event.id)
+    
+    # Traverse triggered_by chain to find all downstream events
+    all_affected = set(affected_event_ids)
+    to_process = list(affected_event_ids)
+    
+    while to_process:
+        current_id = to_process.pop()
+        # Find events that were triggered by this event
+        for event in manifest.events:
+            if event.triggered_by == current_id and event.id not in all_affected:
+                all_affected.add(event.id)
+                to_process.append(event.id)
+    
+    # Find all files affected by these events
+    affected_file_paths = set()
+    for event in manifest.events:
+        if event.id in all_affected:
+            affected_file_paths.add(event.target)
+    
+    # Keep unaffected files as-is
+    unaffected_files = [f for f in manifest.files if f.path not in affected_file_paths]
+    
+    # For affected files, we need to re-route them
+    # Use the original task goal to re-route all affected files
+    affected_files = [f for f in manifest.files if f.path in affected_file_paths]
+    
+    if not affected_files:
+        return manifest
+    
+    # Extract ALL affected file paths and symbols for re-routing
+    re_route_files = []
+    re_route_symbols = []
+    for f in affected_files:
+        re_route_files.append(f.path)
+        if f.selection.get("mode") == "symbols":
+            for sym in f.selection.get("symbols", []):
+                name = getattr(sym, "name", None) or (sym.get("name") if isinstance(sym, dict) else None)
+                if name:
+                    re_route_symbols.append(f"{f.path}::{name}")
+    
+    # Re-route with the same goal and affected files
+    # This will re-run Graphify/heuristic routing for them
+    new_manifest = route_goal(
+        installation=installation,
+        goal=manifest.goal,
+        category=manifest.category,
+        files=tuple(re_route_files),
+        symbols=tuple(re_route_symbols),
+        tests=tuple(manifest.tests),
+        rules=tuple(r.path for r in manifest.rules),
+        references=tuple(ref.path for ref in manifest.references),
+        context_policy="advisory",
+        task_contract_hash=manifest.task_contract_hash
+    )
+    
+    # Merge: keep unaffected files, replace affected with newly routed
+    final_files = list(unaffected_files) + list(new_manifest.files)
+    
+    # Deduplicate by path (keep highest ranking_score)
+    file_map = {}
+    for f in final_files:
+        if f.path not in file_map or f.ranking_score > file_map[f.path].ranking_score:
+            file_map[f.path] = f
+    
+    merged_files = list(file_map.values())
+    
+    # Merge events: keep unaffected events, add new ones
+    unaffected_events = [e for e in manifest.events if e.target not in affected_file_paths]
+    merged_events = unaffected_events + list(new_manifest.events)
+    
+    merged_manifest = replace(
+        manifest,
+        files=tuple(merged_files),
+        events=tuple(merged_events),
+        budget=None,  # will be recalculated
+        policy=None   # will be recalculated
+    )
+    
+    save_active_context(task_dir, merged_manifest)
+    return merged_manifest
 
 
 def generate_candidates_for_manifest(
@@ -149,11 +261,23 @@ def generate_candidates_for_manifest(
             "imports": {"incoming": 30, "outgoing": 30},
             "depends_on": {"incoming": 40, "outgoing": 40},
         },
+        "documentation": {
+            "calls": {"incoming": 30, "outgoing": 30},
+            "tests": {"incoming": 30, "outgoing": 30},
+            "imports": {"incoming": 30, "outgoing": 30},
+            "depends_on": {"incoming": 40, "outgoing": 40},
+        },
         "security": {
             "calls": {"incoming": 100, "outgoing": 90},
             "tests": {"incoming": 95, "outgoing": 95},
             "imports": {"incoming": 95, "outgoing": 95},
             "depends_on": {"incoming": 90, "outgoing": 90},
+        },
+        "architecture": {
+            "calls": {"incoming": 85, "outgoing": 85},
+            "tests": {"incoming": 70, "outgoing": 70},
+            "imports": {"incoming": 90, "outgoing": 90},
+            "depends_on": {"incoming": 85, "outgoing": 85},
         },
         "investigate": {
             "calls": {"incoming": 80, "outgoing": 80},

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -9,34 +10,92 @@ if TYPE_CHECKING:
     from sacas.active_context import ActiveContextManifest
     from sacas.paths import Installation
 
-def estimate_tokens(text: str) -> int:
-    """Estimate token count for a given text content."""
-    # Standard heuristic: 1 token ~ 4 characters
-    return len(text) // 4
 
-def calculate_context_size(repository_root: Path, files: tuple[str, ...]) -> int:
+class Tokenizer(ABC):
+    """Abstract base class for tokenizers."""
+    
+    name: str
+    
+    @abstractmethod
+    def count(self, text: str) -> int:
+        """Count tokens in text."""
+        pass
+
+
+class CharHeuristicTokenizer(Tokenizer):
+    """Character-based heuristic: 1 token ≈ 4 characters."""
+    
+    name = "char_heuristic"
+    
+    def count(self, text: str) -> int:
+        return len(text) // 4
+
+
+class TiktokenTokenizer(Tokenizer):
+    """tiktoken-based tokenizer for OpenAI-compatible models."""
+    
+    name = "tiktoken"
+    
+    def __init__(self, encoding: str = "cl100k_base"):
+        try:
+            import tiktoken
+            self.enc = tiktoken.get_encoding(encoding)
+        except ImportError:
+            raise RuntimeError("tiktoken not installed. Install with: pip install tiktoken")
+    
+    def count(self, text: str) -> int:
+        return len(self.enc.encode(text))
+
+
+# Tokenizer registry
+_TOKENIZERS: dict[str, Tokenizer] = {
+    "char_heuristic": CharHeuristicTokenizer(),
+}
+
+
+def register_tokenizer(tokenizer: Tokenizer) -> None:
+    """Register a tokenizer in the global registry."""
+    _TOKENIZERS[tokenizer.name] = tokenizer
+
+
+def get_tokenizer(name: str) -> Tokenizer:
+    """Get a tokenizer by name."""
+    if name not in _TOKENIZERS:
+        if name == "tiktoken":
+            _TOKENIZERS[name] = TiktokenTokenizer()
+        else:
+            raise ValueError(f"Unknown tokenizer: {name}. Available: {list(_TOKENIZERS.keys())}")
+    return _TOKENIZERS[name]
+
+
+def estimate_tokens(text: str, tokenizer: str = "char_heuristic") -> int:
+    """Estimate token count for a given text content using specified tokenizer."""
+    return get_tokenizer(tokenizer).count(text)
+
+def calculate_context_size(repository_root: Path, files: tuple[str, ...], tokenizer: str = "char_heuristic") -> int:
     """Calculate the total estimated tokens for a list of files."""
     total_tokens = 0
+    tok = get_tokenizer(tokenizer)
     for file_rel in files:
         file_path = repository_root / file_rel
         if file_path.is_file():
             try:
                 content = file_path.read_text(encoding="utf-8", errors="ignore")
-                total_tokens += estimate_tokens(content)
+                total_tokens += tok.count(content)
             except OSError:
                 pass
     return total_tokens
 
-def calculate_total_context_size(installation, files: tuple[str, ...]) -> int:
+def calculate_total_context_size(installation, files: tuple[str, ...], tokenizer: str = "char_heuristic") -> int:
     """Legacy helper for backward compatibility."""
     total_tokens = 0
-    total_tokens += calculate_context_size(installation.repository_root, files)
+    total_tokens += calculate_context_size(installation.repository_root, files, tokenizer)
 
     def add_file_tokens(path: Path) -> int:
         if path.is_file():
             try:
                 content = path.read_text(encoding="utf-8", errors="ignore")
-                return estimate_tokens(content)
+                return estimate_tokens(content, tokenizer)
             except OSError:
                 pass
         return 0
@@ -61,18 +120,18 @@ def calculate_total_context_size(installation, files: tuple[str, ...]) -> int:
 
     return total_tokens
 
-def get_detailed_context_breakdown(installation, files: tuple[str, ...]) -> dict[str, int]:
+def get_detailed_context_breakdown(installation, files: tuple[str, ...], tokenizer: str = "char_heuristic") -> dict[str, int]:
     """Legacy helper for backward compatibility."""
     def add_file_tokens(path: Path) -> int:
         if path.is_file():
             try:
                 content = path.read_text(encoding="utf-8", errors="ignore")
-                return len(content) // 4
+                return estimate_tokens(content, tokenizer)
             except OSError:
                 pass
         return 0
 
-    source_tokens = calculate_context_size(installation.repository_root, files)
+    source_tokens = calculate_context_size(installation.repository_root, files, tokenizer)
     router_tokens = add_file_tokens(installation.sacas_root / "ROUTER.md")
 
     task_dir = installation.sacas_root / "tasks" / "current"
@@ -141,7 +200,8 @@ class ContextTokenBreakdown:
 def compile_budget_report(
     installation: Installation,
     manifest: ActiveContextManifest,
-    rendered_views: dict[str, str] | None = None
+    rendered_views: dict[str, str] | None = None,
+    tokenizer: str = "char_heuristic"
 ) -> BudgetPlan:
     """Calculate the unified context budget plan."""
     from sacas.regions import extract_markdown_section
@@ -183,9 +243,9 @@ def compile_budget_report(
                                 symbols_content.append(content)
                         else:
                             symbols_content.append(content)
-                    f_tokens = estimate_tokens("\n".join(symbols_content))
+                    f_tokens = estimate_tokens("\n".join(symbols_content), tokenizer)
                 else:
-                    f_tokens = estimate_tokens(content)
+                    f_tokens = estimate_tokens(content, tokenizer)
             except OSError:
                 pass
         source_tokens += f_tokens
@@ -198,7 +258,7 @@ def compile_budget_report(
         r_path = installation.repository_root / r.path
         if r_path.is_file():
             try:
-                rule_tokens += estimate_tokens(r_path.read_text(encoding="utf-8", errors="ignore"))
+                rule_tokens += estimate_tokens(r_path.read_text(encoding="utf-8", errors="ignore"), tokenizer)
             except OSError:
                 pass
 
@@ -215,9 +275,9 @@ def compile_budget_report(
                         heading_path = sec.get("heading_path", []) if isinstance(sec, dict) else getattr(sec, "heading_path", [])
                         if heading_path:
                             sections_content.append(extract_markdown_section(content, heading_path))
-                    reference_tokens += estimate_tokens("\n".join(sections_content))
+                    reference_tokens += estimate_tokens("\n".join(sections_content), tokenizer)
                 else:
-                    reference_tokens += estimate_tokens(content)
+                    reference_tokens += estimate_tokens(content, tokenizer)
             except OSError:
                 pass
 
@@ -226,7 +286,7 @@ def compile_budget_report(
     views_to_check = ["ROUTER.md", "TASK.md", "CONTEXT.md", "STATE.md", "PICKUP.md"]
     for view_name in views_to_check:
         if rendered_views and view_name in rendered_views:
-            control_tokens += estimate_tokens(rendered_views[view_name])
+            control_tokens += estimate_tokens(rendered_views[view_name], tokenizer)
         else:
             if view_name == "ROUTER.md":
                 p = installation.sacas_root / "ROUTER.md"
@@ -234,7 +294,7 @@ def compile_budget_report(
                 p = installation.sacas_root / "tasks" / "current" / view_name
             if p.is_file():
                 try:
-                    control_tokens += estimate_tokens(p.read_text(encoding="utf-8", errors="ignore"))
+                    control_tokens += estimate_tokens(p.read_text(encoding="utf-8", errors="ignore"), tokenizer)
                 except OSError:
                     pass
 
@@ -256,9 +316,9 @@ def compile_budget_report(
         remaining=remaining
     )
 
-def calculate_manifest_tokens(installation: Installation, manifest: ActiveContextManifest, rendered_views: dict[str, str] | None = None) -> ContextTokenBreakdown:
+def calculate_manifest_tokens(installation: Installation, manifest: ActiveContextManifest, rendered_views: dict[str, str] | None = None, tokenizer: str = "char_heuristic") -> ContextTokenBreakdown:
     """Calculate the unified context breakdown from the ActiveContextManifest using compile_budget_report."""
-    plan = compile_budget_report(installation, manifest, rendered_views=rendered_views)
+    plan = compile_budget_report(installation, manifest, rendered_views=rendered_views, tokenizer=tokenizer)
     
     # Calculate rule, reference, source components for ContextTokenBreakdown compat
     # We do a quick count of rules & refs as before
@@ -267,7 +327,7 @@ def calculate_manifest_tokens(installation: Installation, manifest: ActiveContex
         r_path = installation.repository_root / r.path
         if r_path.is_file():
             try:
-                rule_tokens += estimate_tokens(r_path.read_text(encoding="utf-8", errors="ignore"))
+                rule_tokens += estimate_tokens(r_path.read_text(encoding="utf-8", errors="ignore"), tokenizer)
             except OSError:
                 pass
                 
@@ -284,9 +344,9 @@ def calculate_manifest_tokens(installation: Installation, manifest: ActiveContex
                         heading_path = sec.get("heading_path", []) if isinstance(sec, dict) else getattr(sec, "heading_path", [])
                         if heading_path:
                             sections_content.append(extract_markdown_section(content, heading_path))
-                    reference_tokens += estimate_tokens("\n".join(sections_content))
+                    reference_tokens += estimate_tokens("\n".join(sections_content), tokenizer)
                 else:
-                    reference_tokens += estimate_tokens(content)
+                    reference_tokens += estimate_tokens(content, tokenizer)
             except OSError:
                 pass
                 
@@ -296,7 +356,7 @@ def calculate_manifest_tokens(installation: Installation, manifest: ActiveContex
     
     return ContextTokenBreakdown(
         limit=plan.limit,
-        tokenizer="char_heuristic",
+        tokenizer=tokenizer,
         source_tokens=source_tokens,
         rule_tokens=rule_tokens,
         reference_tokens=reference_tokens,
