@@ -201,6 +201,6 @@ def load_and_run_all_benchmarks(installation: Installation) -> list[RoutingBench
             
             res = run_routing_benchmark_suite(installation, gold_task, manifest, candidates_list)
             results.append(res)
-        except Exception:
-            pass
+        except Exception as exc:
+            raise RuntimeError(f"Benchmark {path.name} failed: {exc}") from exc
     return results

@@ -107,6 +107,12 @@ def generate_candidates_for_manifest(
     installation: Installation,
     manifest: ActiveContextManifest
 ) -> list[dict[str, Any]]:
+    """Generate candidates from the active manifest.
+    
+    DESIGN BOUNDARY: External Graphify access goes through GraphifyProvider,
+    while persisted SACAS-normalized graph evidence is read from the internal
+    SACAS graphify.json manifest snapshot directly.
+    """
     from sacas.budget import calculate_context_size
     from sacas.refresh import read_graphify_manifest, parse_protected_boundaries, is_file_protected
     

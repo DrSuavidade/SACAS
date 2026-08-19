@@ -293,7 +293,6 @@ class GraphifyAdapter:
     """A verified interface to the external Graphify package."""
 
     API_VERSION_FLOOR = "0.9.44"
-    API_VERSION_CEILING = "1.0.0"
 
     def __init__(self, repository_root: Path, sacas_root: Path):
         self.repository_root = repository_root
