@@ -23,8 +23,11 @@ Generate a task-aware folder structure that gives AI agents precisely scoped con
 Use the Python package `sacas`:
 
 ```bash
-# Initialize a repository
+# Initialize a repository (lean context router)
 sacas init
+
+# Initialize with ICM workflow (stages + _config)
+sacas init --workflow
 
 # Build a system map from Graphify
 sacas map
@@ -46,10 +49,17 @@ sacas context-simulation
 
 # Run actual task routing quality benchmarks
 sacas benchmark
+
+# Generate historical Git benchmarks
+sacas histbench --generate-only
+
+# Explain why a file/symbol is in context
+sacas why src/auth.py
 ```
 
 ## Structure
 
+**Lean (default `sacas init`):**
 ```
 your-project/
 ├── .aiignore                  # Root ignore config
@@ -60,17 +70,54 @@ your-project/
     │   └── boundaries.md      # Protected scope boundaries (MANUAL entries only)
     ├── map/
     │   └── SYSTEM.md          # Generated codebase map
+    ├── references/
     ├── tasks/
     │   └── current/
-    │       ├── TASK.md        # Current task goal and contract
-    │       ├── CONTEXT.md     # Scoped files, symbols, budget
-    │       ├── STATE.md       # Checklist of task items
-    │       └── PICKUP.md      # Cross-session handoff
+    │       ├── task.json      # Canonical TaskContract (goal, criteria, constraints, verification)
+    │       ├── active_context.json  # Canonical ActiveContextManifest (admitted files, symbols, budget)
+    │       ├── TASK.md        # Current task goal and contract (rendered view)
+    │       ├── CONTEXT.md     # Scoped files, symbols, budget (rendered view)
+    │       ├── STATE.md       # Checklist of task items (rendered view)
+    │       └── PICKUP.md      # Cross-session handoff (rendered view)
     └── .sacas/
         ├── manifest.json      # Canonical configuration marker
         └── graphify.json      # Cached Graphify evidence
 ```
 
+**With `--workflow` (`sacas init --workflow`):**
+```
+your-project/
+└── Structure/
+    ├── CLAUDE.md              # Workspace identity
+    ├── CONTEXT.md             # Workspace routing
+    ├── _config/
+    │   ├── conventions.md
+    │   ├── voice.md
+    │   └── design-system.md
+    ├── stages/
+    │   ├── 01_analyze/
+    │   │   ├── CONTEXT.md     # Stage contract
+    │   │   ├── references/
+    │   │   └── output/
+    │   ├── 02_implement/
+    │   │   ├── CONTEXT.md
+    │   │   ├── references/
+    │   │   └── output/
+    │   └── 03_verify/
+    │       ├── CONTEXT.md
+    │       ├── references/
+    │       └── output/
+    └── ... (lean structure)
+```
+
 ## Key Principle
 
-`CONTEXT.md` is the token-saving secret. Each task gets a `CONTEXT.md` that lists exactly which files and symbols are relevant. The agent reads only those files — not the full codebase.
+`active_context.json` is the canonical state. Each task gets a compiled context that lists exactly which files and symbols are relevant, with line ranges and token budgets. The agent receives the minimal auditable context — not the full codebase.
+
+## New Capabilities
+
+- **Symbol-range routing**: Graphify results are automatically reduced to exact symbol ranges (Python AST, heuristic for other languages)
+- **Provenance tracking**: `sacas why <file>` shows Task → Graphify → edge → admission → context pack → file
+- **Historical benchmarks**: `sacas histbench` generates gold tasks from git commit history
+- **Context compiler**: `.sacas/runtime/context.pack.jsonl` ephemeral payload for agent consumption
+- **Incremental invalidation**: File hash changes trigger selective re-routing of affected selectors only

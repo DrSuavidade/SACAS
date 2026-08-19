@@ -295,7 +295,8 @@ class GraphQueryEdge:
     source: str
     target: str
     relation: str
-    confidence: str | None
+    confidence: str | None = None
+    provenance: str | None = None
 
 @dataclass(frozen=True)
 class GraphifyQueryResult:
@@ -458,7 +459,8 @@ class GraphifyAdapter:
                         source=source,
                         target=target,
                         relation=attrs.get("relation") or attrs.get("type") or "calls",
-                        confidence=attrs.get("confidence") or attrs.get("provenance")
+                        confidence=attrs.get("confidence"),
+                        provenance=attrs.get("provenance")
                     ))
 
         if not has_nodes:

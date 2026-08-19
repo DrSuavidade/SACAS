@@ -23,10 +23,14 @@ Initialize a SACAS structure inside a repository directory.
 - `--root <path>`: Repository root directory (default: current directory).
 - `--sacas-root <name>`: Directory name for storing SACAS structures (default: `Structure`).
 - `--graphify <off|existing|code-only|semantic>`: Graphify integration mode (default: `existing`).
+- `--workflow`: Also create ICM workflow stages (`stages/`) and `_config/` directories (optional).
 
 **Example:**
 ```bash
 sacas init --sacas-root Structure --graphify code-only
+
+# With ICM workflow
+sacas init --sacas-root Structure --graphify code-only --workflow
 ```
 
 ---
@@ -61,7 +65,7 @@ Generate a new task contract, setting initial focus files via goal-driven routin
 - `--tests [test ...]`: Optional. Target tests.
 - `--rules [rule ...]`: Optional. Rules to copy/link.
 - `--references [ref ...]`: Optional. Reference files/documentation.
-- `--category <bugfix|feature|test|refactor|docs|security>`: Optional task category.
+- `--category <bugfix|feature|test|refactor|docs|security|investigate>`: Optional task category (default: inferred from goal).
 - `--context-policy <advisory|warn|enforce>`: Context isolation policy (default: `advisory`).
 
 **Example:**
@@ -160,6 +164,39 @@ Evaluate routing quality metrics (Precision@K, Recall@K, MRR, Context Efficiency
 
 ---
 
+### 13. `sacas histbench`
+Generate and run historical Git benchmarks from commit history.
+
+**Arguments:**
+- `--root <path>`: Repository root directory.
+- `--max-commits <n>`: Maximum commits to analyze (default: 200).
+- `--generate-only`: Only generate benchmark files, don't run.
+- `--output-dir <dir>`: Output directory for generated benchmarks.
+- `--format <text|json>`: Output presentation (default: `text`).
+
+**Example:**
+```bash
+sacas histbench --generate-only --max-commits 100
+```
+
+---
+
+### 14. `sacas pipeline`
+Manage ICM multi-stage pipelines.
+
+**Subcommands:**
+- `sacas pipeline orchestrate` — Walk through pipeline sequentially with review gates.
+- `sacas pipeline stage <stage_id>` — Run a specific pipeline stage.
+- `sacas pipeline review <stage_id>` — Open stage output for human review.
+- `sacas pipeline list` — List available pipeline stages.
+
+**Arguments:**
+- `--root <path>`: Repository root directory.
+- `--start <stage>`: Stage to start from (default: `01_analyze`).
+- `--skip-review`: Skip human review gates (non-interactive).
+
+---
+
 ## Architecture & Principles
 
 ### Context Budgeting
@@ -171,6 +208,59 @@ SACAS tracks the **whole working context size** against a configured `context_bu
 1. **Advisory:** Renders `CONTEXT.md` token report only; does not mutate ignore files.
 2. **Warn:** Logs out-of-context access warnings where supported.
 3. **Enforce:** Uses platform enforcement providers (e.g., writing precise nested negation patterns into `.cursorignore`) to block out-of-context access.
+
+### Directory Structure
+
+**Lean (default):**
+```
+your-project/
+├── .aiignore
+├── .cursorignore
+└── Structure/
+    ├── ROUTER.md              # SACAS router guide
+    ├── rules/
+    │   └── boundaries.md      # Protected scope boundaries (MANUAL entries only)
+    ├── map/
+    │   └── SYSTEM.md          # Generated codebase map
+    ├── references/
+    ├── tasks/
+    │   └── current/
+    │       ├── task.json      # Canonical TaskContract
+    │       ├── active_context.json  # Canonical ActiveContextManifest
+    │       ├── TASK.md        # Current task goal and contract (view)
+    │       ├── CONTEXT.md     # Scoped files, symbols, budget (view)
+    │       ├── STATE.md       # Checklist of task items (view)
+    │       └── PICKUP.md      # Cross-session handoff (view)
+    └── .sacas/
+        ├── manifest.json      # Canonical configuration marker
+        └── graphify.json      # Cached Graphify evidence
+```
+
+**With `--workflow`:**
+```
+your-project/
+└── Structure/
+    ├── CLAUDE.md              # Workspace identity
+    ├── CONTEXT.md             # Workspace routing
+    ├── _config/
+    │   ├── conventions.md
+    │   ├── voice.md
+    │   └── design-system.md
+    ├── stages/
+    │   ├── 01_analyze/
+    │   │   ├── CONTEXT.md     # Stage contract
+    │   │   ├── references/
+    │   │   └── output/
+    │   ├── 02_implement/
+    │   │   ├── CONTEXT.md
+    │   │   ├── references/
+    │   │   └── output/
+    │   └── 03_verify/
+    │       ├── CONTEXT.md
+    │       ├── references/
+    │       └── output/
+    └── ... (lean structure)
+```
 
 ## License
 

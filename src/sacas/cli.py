@@ -27,6 +27,7 @@ def build_parser() -> argparse.ArgumentParser:
     init_parser.add_argument("--root", default=".", help="Repository root (default: current directory).")
     init_parser.add_argument("--sacas-root", default="Structure", help="SACAS root relative to repository.")
     init_parser.add_argument("--graphify", choices=("off", "existing", "code-only", "semantic"), default="existing", help="Graphify integration mode.")
+    init_parser.add_argument("--workflow", action="store_true", help="Also create ICM workflow stages and _config directories.")
 
     map_parser = subcommands.add_parser("map", help="Build a system map from optional Graphify evidence.")
     map_parser.add_argument("--root", default=".", help="Repository root (default: current directory).")
@@ -46,7 +47,7 @@ def build_parser() -> argparse.ArgumentParser:
     task_parser.add_argument("--tests", nargs="*", default=(), help="Focus tests.")
     task_parser.add_argument("--rules", nargs="*", default=(), help="Rules to follow.")
     task_parser.add_argument("--references", nargs="*", default=(), help="References to follow.")
-    task_parser.add_argument("--category", choices=("bugfix", "feature", "test", "refactor", "docs", "security"), default=None, help="Task type/category.")
+    task_parser.add_argument("--category", choices=("bugfix", "feature", "test", "refactor", "docs", "security", "investigate"), default=None, help="Task type/category.")
     task_parser.add_argument("--context-policy", choices=("advisory", "warn", "enforce"), default="advisory", help="Context boundaries policy.")
 
     refresh_parser = subcommands.add_parser("refresh", help="Refresh task context and detect stale files.")
@@ -101,10 +102,10 @@ def build_parser() -> argparse.ArgumentParser:
     pipeline_parser = subcommands.add_parser("pipeline", help="Manage ICM multi-stage pipelines.")
     pipeline_subcommands = pipeline_parser.add_subparsers(dest="pipeline_command", metavar="SUBCOMMAND")
 
-    pipeline_run_parser = pipeline_subcommands.add_parser("run", help="Run full pipeline sequentially with review gates.")
-    pipeline_run_parser.add_argument("--root", default=".", help="Repository root (default: current directory).")
-    pipeline_run_parser.add_argument("--start", default="01_analyze", help="Stage to start from (default: 01_analyze).")
-    pipeline_run_parser.add_argument("--skip-review", action="store_true", help="Skip human review gates (non-interactive).")
+    pipeline_orchestrate_parser = pipeline_subcommands.add_parser("orchestrate", help="Walk through pipeline sequentially with review gates.")
+    pipeline_orchestrate_parser.add_argument("--root", default=".", help="Repository root (default: current directory).")
+    pipeline_orchestrate_parser.add_argument("--start", default="01_analyze", help="Stage to start from (default: 01_analyze).")
+    pipeline_orchestrate_parser.add_argument("--skip-review", action="store_true", help="Skip human review gates (non-interactive).")
 
     pipeline_stage_parser = pipeline_subcommands.add_parser("stage", help="Run a specific pipeline stage.")
     pipeline_stage_parser.add_argument("stage_id", help="Stage ID (e.g., 01_analyze, 02_implement, 03_verify).")
@@ -125,7 +126,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     arguments = parser.parse_args(argv)
     if arguments.command == "init":
-        initialize(arguments.root, sacas_root=arguments.sacas_root, graphify_mode=arguments.graphify)
+        initialize(arguments.root, sacas_root=arguments.sacas_root, graphify_mode=arguments.graphify, workflow=arguments.workflow)
     elif arguments.command == "map":
         root = Path(arguments.root).resolve()
         sacas_root_relative = repository_relative_path(root, arguments.sacas_root)
@@ -257,8 +258,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         if installation is None:
             raise ValueError("SACAS is not initialized. Run 'sacas init' first.")
         
-        if arguments.pipeline_command == "run":
-            return pipeline_run_command(installation, arguments.start, arguments.skip_review)
+        if arguments.pipeline_command == "orchestrate":
+            return pipeline_orchestrate_command(installation, arguments.start, arguments.skip_review)
         elif arguments.pipeline_command == "stage":
             return pipeline_stage_command(installation, arguments.stage_id)
         elif arguments.pipeline_command == "review":
@@ -266,7 +267,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         elif arguments.pipeline_command == "list":
             return pipeline_list_command(installation)
         else:
-            print("Usage: sacas pipeline {run|stage|review|list}")
+            print("Usage: sacas pipeline {orchestrate|stage|review|list}")
             return 1
     return 0
 
@@ -503,12 +504,13 @@ def expand_context_command(
                 ref_hash = hashlib.sha256(ref_path.read_bytes()).hexdigest()
             new_refs.append(ActiveReferenceContext(path=r_rel, selection=sel, hash=ref_hash, reason=reason or "Explicit CLI expand"))
 
-    updated_manifest = ActiveContextManifest(
-        task_id=manifest.task_id, task_contract_hash=manifest.task_contract_hash,
-        git_revision=manifest.git_revision, files=tuple(new_files),
-        rules=tuple(new_rules), references=tuple(new_refs), events=tuple(new_events),
-        budget=manifest.budget, policy=manifest.policy, tests=manifest.tests, schema_version=manifest.schema_version,
-        goal=manifest.goal, category=manifest.category
+    from dataclasses import replace
+    updated_manifest = replace(
+        manifest,
+        files=tuple(new_files),
+        rules=tuple(new_rules),
+        references=tuple(new_refs),
+        events=tuple(new_events),
     )
     save_active_context(task_dir, updated_manifest)
     
@@ -763,8 +765,8 @@ def pipeline_review_command(installation: Installation, stage_id: str) -> int:
     return 0
 
 
-def pipeline_run_command(installation: Installation, start_stage: str, skip_review: bool) -> int:
-    """Run full pipeline sequentially with review gates."""
+def pipeline_orchestrate_command(installation: Installation, start_stage: str, skip_review: bool) -> int:
+    """Walk through pipeline sequentially with review gates."""
     stages_dir = installation.sacas_root / "stages"
     if not stages_dir.exists():
         print("No pipeline stages found. Run 'sacas init' to create default stages.")

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import hashlib
 import json
 from pathlib import Path
@@ -622,12 +622,9 @@ def route_goal(
     )
 
     negotiated = negotiate_policy(installation, context_policy)
-    manifest = ActiveContextManifest(
-        task_id=manifest.task_id, task_contract_hash=manifest.task_contract_hash,
-        git_revision=manifest.git_revision, files=manifest.files, rules=manifest.rules,
-        references=manifest.references, events=manifest.events, budget=manifest.budget,
-        policy=negotiated, tests=manifest.tests, schema_version=manifest.schema_version,
-        goal=manifest.goal, category=manifest.category
+    manifest = replace(
+        manifest,
+        policy=negotiated,
     )
     return negotiated_policy_or_manifest(negotiated, manifest)
 
