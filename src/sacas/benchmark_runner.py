@@ -132,10 +132,11 @@ def run_routing_benchmark_suite(
     gold_relevant_refs = [ref for ref in manifest.references if ref.path in gold_files]
     
     gold_manifest = ActiveContextManifest(
-        task_id=manifest.task_id, goal=manifest.goal, category=manifest.category,
+        task_id=manifest.task_id, task_contract_hash=manifest.task_contract_hash,
         git_revision=manifest.git_revision, files=tuple(gold_relevant_files),
         rules=tuple(gold_relevant_rules), references=tuple(gold_relevant_refs),
-        events=(), budget=None, policy=manifest.policy, tests=manifest.tests
+        events=(), budget=None, policy=manifest.policy, tests=manifest.tests,
+        goal=manifest.goal, category=manifest.category
     )
     gold_breakdown = calculate_manifest_tokens(installation, gold_manifest)
     gold_relevant_payload = gold_breakdown.source_tokens + gold_breakdown.rule_tokens + gold_breakdown.reference_tokens

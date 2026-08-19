@@ -281,7 +281,8 @@ def route_goal(
     tests: tuple[str, ...] = (),
     rules: tuple[str, ...] = (),
     references: tuple[str, ...] = (),
-    context_policy: str = "advisory"
+    context_policy: str = "advisory",
+    task_contract_hash: str = ""
 ) -> ActiveContextManifest:
     from sacas.graphify import get_graphify_provider
     from sacas.enforce import negotiate_policy
@@ -306,7 +307,7 @@ def route_goal(
         elif any(kw in goal_lower for kw in ("add", "implement", "new", "feature")):
             category = "feature"
         else:
-            category = "bugfix"
+            category = "investigate"
 
     if files:
         for f in files:
@@ -366,6 +367,7 @@ def route_goal(
                 graph_path = installation.repository_root / old_manifest.graphify_output / "graph.json"
                 query_res = provider.query(goal, graph_path)
                 if query_res and provider.validate_query_contract(query_res):
+                    path_to_node = {n.path: n for n in query_res.nodes if n.path}
                     for path in query_res.paths:
                         from sacas.paths import resolve_repo_path
                         try:
@@ -384,15 +386,36 @@ def route_goal(
                             except OSError:
                                 pass
                         
+                        node = path_to_node.get(path)
+                        confidence = "high"
+                        relation = "seed"
+                        reason = f"Discovered via Graphify query matching goal: {goal}"
+                        selection = {"mode": "full"}
+                        if node:
+                            from sacas.regions import SymbolRangeResolver
+                            resolved_res = SymbolRangeResolver.resolve_node_range(installation, f_rel, node.label, node.line)
+                            if resolved_res:
+                                selection, reason = resolved_res
+                            if node.node_type:
+                                reason += f" (node type: {node.node_type})"
+                            edge_conf = None
+                            for edge in query_res.edges:
+                                if edge.target == node.id and edge.confidence:
+                                    edge_conf = edge.confidence
+                                    relation = edge.relation
+                                    break
+                            if edge_conf:
+                                confidence = edge_conf.lower()
+                        
                         active_files.append(ActiveFileContext(
                             path=f_rel,
-                            selection={"mode": "full"},
+                            selection=selection,
                             source="graphify",
-                            confidence="high",
-                            relation="seed",
+                            confidence=confidence,
+                            relation=relation,
                             trigger="task_goal",
                             git_revision=commit,
-                            reason=f"Discovered via Graphify query matching goal: {goal}",
+                            reason=reason,
                             hash=f_hash
                         ))
                         events.append(AdmissionEvent(
@@ -400,7 +423,7 @@ def route_goal(
                             target=f_rel,
                             action="admit",
                             source="graphify",
-                            reason=f"Discovered via Graphify query matching goal: {goal}",
+                            reason=reason,
                             trigger="initial_route"
                         ))
                     graphify_success = len(active_files) > 0
@@ -428,6 +451,33 @@ def route_goal(
                     reason=item["reason"],
                     trigger="initial_route"
                 ))
+
+    # Process tests as ordinary context with role="test"
+    for t in tests:
+        from sacas.paths import resolve_repo_path
+        try:
+            t_rel = resolve_repo_path(installation.repository_root, t)
+        except ValueError:
+            continue
+        t_path = installation.repository_root / t_rel
+        t_hash = ""
+        if t_path.is_file():
+            try:
+                t_hash = hashlib.sha256(t_path.read_bytes()).hexdigest()
+            except OSError:
+                pass
+        active_files.append(ActiveFileContext(
+            path=t_rel,
+            selection={"mode": "full"},
+            source="explicit",
+            confidence="high",
+            relation=None,
+            trigger="initial_route",
+            git_revision=commit,
+            reason="Explicitly specified test context",
+            hash=t_hash,
+            role="test"
+        ))
 
     rules_list, refs_list = route_rules_and_references(installation.sacas_root, goal, rules, references)
 
@@ -458,8 +508,7 @@ def route_goal(
     # Construct manifest without budget yet
     manifest = ActiveContextManifest(
         task_id=task_id,
-        goal=goal,
-        category=category,
+        task_contract_hash=task_contract_hash,
         git_revision=commit,
         files=tuple(active_files),
         rules=tuple(hashed_rules),
@@ -467,15 +516,18 @@ def route_goal(
         events=tuple(events),
         budget=None,
         policy=None,
-        tests=tests
+        tests=tests,
+        goal=goal,
+        category=category
     )
 
     negotiated = negotiate_policy(installation, context_policy)
     manifest = ActiveContextManifest(
-        task_id=manifest.task_id, goal=manifest.goal, category=manifest.category,
+        task_id=manifest.task_id, task_contract_hash=manifest.task_contract_hash,
         git_revision=manifest.git_revision, files=manifest.files, rules=manifest.rules,
         references=manifest.references, events=manifest.events, budget=manifest.budget,
-        policy=negotiated, tests=manifest.tests, schema_version=manifest.schema_version
+        policy=negotiated, tests=manifest.tests, schema_version=manifest.schema_version,
+        goal=manifest.goal, category=manifest.category
     )
     return manifest
 
@@ -527,6 +579,34 @@ def generate_task(
     task_dir = installation.sacas_root / "tasks" / "current"
     task_dir.mkdir(parents=True, exist_ok=True)
 
+    # Infer/set category
+    if not category:
+        goal_lower = goal.lower()
+        if "test" in goal_lower:
+            category = "test"
+        elif "refactor" in goal_lower:
+            category = "refactor"
+        elif any(kw in goal_lower for kw in ("fix", "bug", "crash", "error", "issue")):
+            category = "bugfix"
+        elif any(kw in goal_lower for kw in ("add", "implement", "new", "feature")):
+            category = "feature"
+        else:
+            category = "investigate"
+
+    # Save canonical TaskContract (task.json)
+    from sacas.task_contract import TaskContract, save_task_contract, task_contract_hash
+    contract = TaskContract(
+        schema_version=1,
+        task_id=task_id,
+        goal=goal,
+        category=category,
+        criteria=criteria,
+        constraints=constraints,
+        verification=verification
+    )
+    save_task_contract(task_dir, contract)
+    contract_hash = task_contract_hash(contract)
+
     manifest = route_goal(
         installation=installation,
         goal=goal,
@@ -536,7 +616,8 @@ def generate_task(
         tests=tests,
         rules=rules,
         references=references,
-        context_policy=context_policy
+        context_policy=context_policy,
+        task_contract_hash=contract_hash
     )
 
     # Save active_context.json
@@ -625,20 +706,8 @@ def regenerate_task_markdown(
     )
 
     # Save active_context.json with updated budget
-    manifest = ActiveContextManifest(
-        task_id=manifest.task_id,
-        goal=manifest.goal,
-        category=manifest.category,
-        git_revision=manifest.git_revision,
-        files=manifest.files,
-        rules=manifest.rules,
-        references=manifest.references,
-        events=manifest.events,
-        budget=budget_state,
-        policy=manifest.policy,
-        tests=manifest.tests,
-        schema_version=manifest.schema_version
-    )
+    from dataclasses import replace
+    manifest = replace(manifest, budget=budget_state)
     save_active_context(task_dir, manifest)
 
     # 6. Generate CONTEXT.md
@@ -683,15 +752,28 @@ def regenerate_task_markdown(
 
     # Context.md lines
     context_lines = ["## Files"]
-    initial_files = [f.path for f in manifest.files if f.trigger == "initial_route"]
-    expanded_files = [f.path for f in manifest.files if f.trigger != "initial_route"]
+    initial_files = [f for f in manifest.files if f.trigger == "initial_route"]
+    expanded_files = [f for f in manifest.files if f.trigger != "initial_route"]
+    from sacas.task_contract import load_task_contract
+    contract = load_task_contract(task_dir)
+    goal_str = contract.goal if contract else (manifest.goal or "Fix")
 
     if initial_files:
-        context_lines.extend(f"- `{f}`" for f in initial_files)
+        for f in initial_files:
+            rsn = f.reason
+            if not rsn or "Discovered" in rsn or "Explicit" in rsn:
+                rsn = f"{goal_str} (seed)"
+            if not rsn.startswith("admitted because"):
+                rsn = f"admitted because {rsn}"
+            context_lines.append(f"- `{f.path}`: {rsn}")
     if expanded_files:
         context_lines.append("")
         context_lines.append("### Expanded Files")
-        context_lines.extend(f"- `{f}`" for f in expanded_files)
+        for f in expanded_files:
+            rsn = f.reason or "expanded context"
+            if not rsn.startswith("admitted because"):
+                rsn = f"admitted because {rsn}"
+            context_lines.append(f"- `{f.path}`: {rsn}")
     if not initial_files and not expanded_files:
         context_lines.append("- None")
     context_lines.append("")

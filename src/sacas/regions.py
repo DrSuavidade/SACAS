@@ -227,3 +227,138 @@ class SymbolRangeResolver:
             return SourceRange(start_line=r[0], end_line=r[1], source="heuristic", confidence=0.72)
 
         return None
+
+    @staticmethod
+    def resolve_node_range(installation, file_path: str, node_label: str | None, node_line: int | None) -> tuple[dict[str, Any], str] | None:
+        """Resolve a node to the best symbol range selection.
+        Returns (selection_dict, reason) or None.
+        """
+        full_path = installation.repository_root / file_path
+        if not full_path.is_file():
+            return None
+        try:
+            content = full_path.read_text(encoding="utf-8")
+        except Exception:
+            return None
+
+        # 1. Try resolving enclosing symbol at line (Python AST)
+        if file_path.endswith((".py", ".pyw")) and node_line is not None:
+            res = find_python_ast_symbol_at_line(content, node_line)
+            if res:
+                name, start, end = res
+                from sacas.active_context import ActiveSymbolContext, SourceRange
+                sym_ctx = ActiveSymbolContext(
+                    name=name,
+                    range=SourceRange(start_line=start, end_line=end, source="parser", confidence=1.0),
+                    reason=f"Enclosing symbol for line {node_line}"
+                )
+                return {"mode": "symbols", "symbols": [sym_ctx]}, f"Resolved enclosing symbol '{name}' (lines {start}-{end})"
+
+        # 2. Try resolving exact symbol by label/name
+        if node_label:
+            sym_name = node_label.split(".")[-1]
+            rng = SymbolRangeResolver.resolve(installation, file_path, sym_name)
+            if rng:
+                from sacas.active_context import ActiveSymbolContext
+                sym_ctx = ActiveSymbolContext(
+                    name=node_label,
+                    range=rng,
+                    reason=f"Resolved symbol by name: {node_label}"
+                )
+                return {"mode": "symbols", "symbols": [sym_ctx]}, f"Resolved symbol '{node_label}' (lines {rng.start_line}-{rng.end_line})"
+
+        # 3. Try line-range extraction starting from line
+        if node_line is not None:
+            r = extract_symbol_range(content, node_line, file_path)
+            from sacas.active_context import ActiveSymbolContext, SourceRange
+            name = node_label or f"line_{node_line}"
+            sym_ctx = ActiveSymbolContext(
+                name=name,
+                range=SourceRange(start_line=r[0], end_line=r[1], source="heuristic", confidence=0.72),
+                reason=f"Extracted block around line {node_line}"
+            )
+            return {"mode": "symbols", "symbols": [sym_ctx]}, f"Extracted block around line {node_line} (lines {r[0]}-{r[1]})"
+
+        return None
+
+
+def find_python_ast_symbol_at_line(content: str, line_num: int) -> tuple[str, int, int] | None:
+    import ast
+    try:
+        tree = ast.parse(content)
+        best_match = None
+        for ast_node in ast.walk(tree):
+            if isinstance(ast_node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                if hasattr(ast_node, "lineno") and hasattr(ast_node, "end_lineno"):
+                    if ast_node.lineno <= line_num <= ast_node.end_lineno:
+                        if best_match is None or (ast_node.end_lineno - ast_node.lineno < best_match[2] - best_match[1]):
+                            best_match = (ast_node.name, ast_node.lineno, ast_node.end_lineno)
+        return best_match
+    except Exception:
+        pass
+    return None
+
+
+def normalize_selections(symbols: tuple[ActiveSymbolContext, ...]) -> tuple[ActiveSymbolContext, ...]:
+    """Merge overlapping and adjacent line ranges and deduplicate symbols."""
+    if not symbols:
+        return ()
+
+    from sacas.active_context import ActiveSymbolContext, SourceRange
+
+    with_range = [s for s in symbols if s.range is not None]
+    without_range = [s for s in symbols if s.range is None]
+
+    if not with_range:
+        # Deduplicate without_range by name
+        seen_names = set()
+        dedup_without = []
+        for s in without_range:
+            if s.name not in seen_names:
+                seen_names.add(s.name)
+                dedup_without.append(s)
+        return tuple(dedup_without)
+
+    with_range.sort(key=lambda s: s.range.start_line)
+
+    merged = []
+    current = with_range[0]
+
+    for next_sym in with_range[1:]:
+        if next_sym.range.start_line <= current.range.end_line + 1:
+            new_end = max(current.range.end_line, next_sym.range.end_line)
+            names = []
+            for n in (current.name, next_sym.name):
+                if n not in names:
+                    names.append(n)
+            combined_name = ", ".join(names)
+
+            reasons = []
+            for r in (current.reason, next_sym.reason):
+                if r and r not in reasons:
+                    reasons.append(r)
+            combined_reason = "; ".join(reasons) if reasons else None
+
+            current = ActiveSymbolContext(
+                name=combined_name,
+                range=SourceRange(
+                    start_line=current.range.start_line,
+                    end_line=new_end,
+                    source=current.range.source,
+                    confidence=max(current.range.confidence, next_sym.range.confidence)
+                ),
+                reason=combined_reason
+            )
+        else:
+            merged.append(current)
+            current = next_sym
+    merged.append(current)
+
+    seen_names = set()
+    dedup_without = []
+    for s in without_range:
+        if s.name not in seen_names:
+            seen_names.add(s.name)
+            dedup_without.append(s)
+
+    return tuple(merged + dedup_without)

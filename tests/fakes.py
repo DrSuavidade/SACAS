@@ -12,12 +12,14 @@ class FakeGraphifyProvider(GraphifyProvider):
     def verify_capabilities(self, required: list[str]) -> bool:
         return self.capable
 
-    def query(self, goal: str, graph_path: Path) -> GraphifyQueryResult | None:
+    def query(self, goal: str, graph_path: Path, *, token_budget: int | None = None) -> GraphifyQueryResult | None:
         self.queries_received.append((goal, graph_path))
         if not self.capable:
             return None
         return GraphifyQueryResult(
+            status="success",
+            nodes=(),
+            edges=(),
             raw_output="Fake Graphify output",
-            paths=self.mock_paths,
-            status="success"
+            paths=self.mock_paths
         )

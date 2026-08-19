@@ -105,6 +105,18 @@ def get_detailed_context_breakdown(installation, files: tuple[str, ...]) -> dict
         "total": source_tokens + router_tokens + task_tokens + context_tokens + state_tokens + rules_tokens + refs_tokens
     }
 
+from dataclasses import dataclass
+
+@dataclass(frozen=True)
+class BudgetPlan:
+    limit: int
+    control_reserved: int
+    explicit_payload: int
+    retrieval_budget: int
+    automatic_payload_budget: int
+    payload_used: int
+    remaining: int
+
 class ContextTokenBreakdown:
     def __init__(self, limit: int, tokenizer: str, source_tokens: int, rule_tokens: int, reference_tokens: int, control_tokens: int):
         self.limit = limit
@@ -126,39 +138,58 @@ class ContextTokenBreakdown:
             "control_tokens": self.control_tokens,
         }
 
-def calculate_manifest_tokens(installation: Installation, manifest: ActiveContextManifest) -> ContextTokenBreakdown:
-    """Calculate the unified context breakdown from the ActiveContextManifest."""
-    from sacas.regions import extract_symbol_range, extract_markdown_section
+def compile_budget_report(
+    installation: Installation,
+    manifest: ActiveContextManifest,
+    rendered_views: dict[str, str] | None = None
+) -> BudgetPlan:
+    """Calculate the unified context budget plan."""
+    from sacas.regions import extract_markdown_section
 
-    tokenizer = "char_heuristic"
     limit = installation.manifest.context_budget
 
     # 1. Payload: Source files
     source_tokens = 0
+    explicit_source_tokens = 0
     for f in manifest.files:
         f_path = installation.repository_root / f.path
+        f_tokens = 0
         if f_path.is_file():
             try:
                 content = f_path.read_text(encoding="utf-8", errors="ignore")
                 if f.selection.get("mode") == "symbols":
-                    # Sum tokens of selected symbols/ranges
                     symbols_content = []
-                    for sym in f.selection.get("symbols", []):
-                        if sym.range:
-                            start = sym.range.start_line
-                            end = sym.range.end_line
-                            lines = content.splitlines()
-                            if 1 <= start <= len(lines) and 1 <= end <= len(lines):
-                                symbols_content.append("\n".join(lines[start-1:end]))
+                    from sacas.regions import normalize_selections
+                    from sacas.active_context import ActiveSymbolContext
+                    raw_symbols = f.selection.get("symbols", [])
+                    sym_objects = []
+                    for s in raw_symbols:
+                        if isinstance(s, dict):
+                            sym_objects.append(ActiveSymbolContext.from_dict(s))
                         else:
-                            # Heuristic extraction starting from None end range
-                            # Just load the whole file or try extraction (let's fallback to whole file for safety if no range)
+                            sym_objects.append(s)
+                    normalized = normalize_selections(tuple(sym_objects))
+                    for sym in normalized:
+                        name = getattr(sym, "name", None) or (sym.get("name") if isinstance(sym, dict) else None)
+                        rng = getattr(sym, "range", None) or (sym.get("range") if isinstance(sym, dict) else None)
+                        if rng:
+                            start = getattr(rng, "start_line", None) or (rng.get("start_line") if isinstance(rng, dict) else None)
+                            end = getattr(rng, "end_line", None) or (rng.get("end_line") if isinstance(rng, dict) else None)
+                            lines = content.splitlines()
+                            if start is not None and end is not None and 1 <= start <= len(lines) and 1 <= end <= len(lines):
+                                symbols_content.append("\n".join(lines[start-1:end]))
+                            else:
+                                symbols_content.append(content)
+                        else:
                             symbols_content.append(content)
-                    source_tokens += estimate_tokens("\n".join(symbols_content))
+                    f_tokens = estimate_tokens("\n".join(symbols_content))
                 else:
-                    source_tokens += estimate_tokens(content)
+                    f_tokens = estimate_tokens(content)
             except OSError:
                 pass
+        source_tokens += f_tokens
+        if f.source == "explicit":
+            explicit_source_tokens += f_tokens
 
     # 2. Payload: Rules
     rule_tokens = 0
@@ -180,7 +211,7 @@ def calculate_manifest_tokens(installation: Installation, manifest: ActiveContex
                 if ref.selection.get("mode") == "sections":
                     sections_content = []
                     for sec in ref.selection.get("sections", []):
-                        heading_path = sec.get("heading_path", [])
+                        heading_path = sec.get("heading_path", []) if isinstance(sec, dict) else getattr(sec, "heading_path", [])
                         if heading_path:
                             sections_content.append(extract_markdown_section(content, heading_path))
                     reference_tokens += estimate_tokens("\n".join(sections_content))
@@ -191,25 +222,80 @@ def calculate_manifest_tokens(installation: Installation, manifest: ActiveContex
 
     # 4. Control tokens
     control_tokens = 0
-    def add_file_tokens(path: Path) -> int:
-        if path.is_file():
+    views_to_check = ["ROUTER.md", "TASK.md", "CONTEXT.md", "STATE.md", "PICKUP.md"]
+    for view_name in views_to_check:
+        if rendered_views and view_name in rendered_views:
+            control_tokens += estimate_tokens(rendered_views[view_name])
+        else:
+            if view_name == "ROUTER.md":
+                p = installation.sacas_root / "ROUTER.md"
+            else:
+                p = installation.sacas_root / "tasks" / "current" / view_name
+            if p.is_file():
+                try:
+                    control_tokens += estimate_tokens(p.read_text(encoding="utf-8", errors="ignore"))
+                except OSError:
+                    pass
+
+    explicit_payload = explicit_source_tokens + rule_tokens + reference_tokens
+    payload_used = source_tokens + rule_tokens + reference_tokens
+    remaining = max(0, limit - control_tokens - payload_used)
+    automatic_payload_budget = max(0, limit - control_tokens - explicit_payload)
+
+    # Graphify structural retrieval budget
+    retrieval_budget = 1000
+
+    return BudgetPlan(
+        limit=limit,
+        control_reserved=control_tokens,
+        explicit_payload=explicit_payload,
+        retrieval_budget=retrieval_budget,
+        automatic_payload_budget=automatic_payload_budget,
+        payload_used=payload_used,
+        remaining=remaining
+    )
+
+def calculate_manifest_tokens(installation: Installation, manifest: ActiveContextManifest) -> ContextTokenBreakdown:
+    """Calculate the unified context breakdown from the ActiveContextManifest using compile_budget_report."""
+    plan = compile_budget_report(installation, manifest)
+    
+    # Calculate rule, reference, source components for ContextTokenBreakdown compat
+    # We do a quick count of rules & refs as before
+    rule_tokens = 0
+    for r in manifest.rules:
+        r_path = installation.repository_root / r.path
+        if r_path.is_file():
             try:
-                return estimate_tokens(path.read_text(encoding="utf-8", errors="ignore"))
+                rule_tokens += estimate_tokens(r_path.read_text(encoding="utf-8", errors="ignore"))
             except OSError:
                 pass
-        return 0
-
-    control_tokens += add_file_tokens(installation.sacas_root / "ROUTER.md")
-    task_dir = installation.sacas_root / "tasks" / "current"
-    control_tokens += add_file_tokens(task_dir / "TASK.md")
-    control_tokens += add_file_tokens(task_dir / "CONTEXT.md")
-    control_tokens += add_file_tokens(task_dir / "STATE.md")
-
+                
+    reference_tokens = 0
+    from sacas.regions import extract_markdown_section
+    for ref in manifest.references:
+        ref_path = installation.repository_root / ref.path
+        if ref_path.is_file():
+            try:
+                content = ref_path.read_text(encoding="utf-8", errors="ignore")
+                if ref.selection.get("mode") == "sections":
+                    sections_content = []
+                    for sec in ref.selection.get("sections", []):
+                        heading_path = sec.get("heading_path", []) if isinstance(sec, dict) else getattr(sec, "heading_path", [])
+                        if heading_path:
+                            sections_content.append(extract_markdown_section(content, heading_path))
+                    reference_tokens += estimate_tokens("\n".join(sections_content))
+                else:
+                    reference_tokens += estimate_tokens(content)
+            except OSError:
+                pass
+                
+    source_tokens = max(0, plan.payload_used - rule_tokens - reference_tokens)
+    
     return ContextTokenBreakdown(
-        limit=limit,
-        tokenizer=tokenizer,
+        limit=plan.limit,
+        tokenizer="char_heuristic",
         source_tokens=source_tokens,
         rule_tokens=rule_tokens,
         reference_tokens=reference_tokens,
-        control_tokens=control_tokens
+        control_tokens=plan.control_reserved
     )

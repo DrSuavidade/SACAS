@@ -64,21 +64,8 @@ def refresh_context(
             updated_files.append(f)
 
     # Reconstruct manifest with updated file hashes
-    from sacas.active_context import ActiveContextManifest
-    manifest = ActiveContextManifest(
-        task_id=manifest.task_id,
-        goal=manifest.goal,
-        category=manifest.category,
-        git_revision=manifest.git_revision,
-        files=tuple(updated_files),
-        rules=manifest.rules,
-        references=manifest.references,
-        events=manifest.events,
-        budget=manifest.budget,
-        policy=manifest.policy,
-        tests=manifest.tests,
-        schema_version=manifest.schema_version
-    )
+    from dataclasses import replace
+    manifest = replace(manifest, files=tuple(updated_files))
     save_active_context(task_dir, manifest)
 
     # 2. Scope expansion analysis to output candidates.json (only if NOT selective refresh)
@@ -93,12 +80,23 @@ def refresh_context(
     # 3. Always regenerate markdown documents
     # First reload manifest to ensure we get any budget/hash changes
     manifest = load_active_context(task_dir)
-    regenerate_task_markdown(
-        installation=installation,
-        task_dir=task_dir,
-        manifest=manifest,
-        criteria=tuple(installation.manifest.to_dict().get("criteria", ())), # Wait, we don't have criteria stored in manifest, tasks can read checklist or STATE.md
-    )
+    from sacas.task_contract import load_task_contract
+    contract = load_task_contract(task_dir)
+    if contract:
+        regenerate_task_markdown(
+            installation=installation,
+            task_dir=task_dir,
+            manifest=manifest,
+            criteria=contract.criteria,
+            constraints=contract.constraints,
+            verification=contract.verification,
+        )
+    else:
+        regenerate_task_markdown(
+            installation=installation,
+            task_dir=task_dir,
+            manifest=manifest,
+        )
 
     return changed
 
@@ -113,8 +111,10 @@ def generate_candidates_for_manifest(
     while persisted SACAS-normalized graph evidence is read from the internal
     SACAS graphify.json manifest snapshot directly.
     """
-    from sacas.budget import calculate_context_size
+    from sacas.budget import calculate_context_size, compile_budget_report
     from sacas.refresh import read_graphify_manifest, parse_protected_boundaries, is_file_protected
+    
+    budget_plan = compile_budget_report(installation, manifest)
     
     graphify_manifest_path = installation.sacas_root / ".sacas" / "graphify.json"
     evidence = None
@@ -167,6 +167,12 @@ def generate_candidates_for_manifest(
             "imports": {"incoming": 95, "outgoing": 95},
             "depends_on": {"incoming": 90, "outgoing": 90},
         },
+        "investigate": {
+            "calls": {"incoming": 80, "outgoing": 80},
+            "tests": {"incoming": 70, "outgoing": 70},
+            "imports": {"incoming": 85, "outgoing": 85},
+            "depends_on": {"incoming": 80, "outgoing": 80},
+        },
     }
 
     if evidence is not None:
@@ -195,8 +201,8 @@ def generate_candidates_for_manifest(
             if is_file_protected(cand_path, parsed_boundaries):
                 continue
 
-            cat = manifest.category or "bugfix"
-            cat_weights = RELATION_DIRECTION_WEIGHTS.get(cat, RELATION_DIRECTION_WEIGHTS["bugfix"])
+            cat = manifest.category or "investigate"
+            cat_weights = RELATION_DIRECTION_WEIGHTS.get(cat, RELATION_DIRECTION_WEIGHTS["investigate"])
             rel_weights = cat_weights.get(edge_kind, {"incoming": 85, "outgoing": 85})
             score = rel_weights.get(direction, 85)
 
@@ -242,10 +248,19 @@ def generate_candidates_for_manifest(
                                 "confidence": confidence,
                             }
 
+        remaining_space = budget_plan.remaining
         sorted_cands = sorted(candidate_details.items(), key=lambda x: (-x[1]["score"], x[0]))
         for cand_path, details in sorted_cands:
             cand_cost = calculate_context_size(installation.repository_root, (cand_path,))
-            reason_str = f"Active context {details['triggered_by']} calls this implementation" if details['relation'] == 'calls' and details['direction'] == 'outgoing' else f"Graph relation '{details['relation']}' ({details['semantic_direction']}) triggered by {details['triggered_by']}"
+            if cand_cost > remaining_space:
+                continue
+            remaining_space -= cand_cost
+            trigger_rel = "seed"
+            for f in manifest.files:
+                if f.path == details['triggered_by']:
+                    trigger_rel = f.relation or "seed"
+                    break
+            reason_str = f"{details['triggered_by']} ({trigger_rel}) -> {details['relation']} ({details['semantic_direction']}) -> {cand_path}"
             candidates_list.append({
                 "path": cand_path,
                 "score": details["score"],
@@ -266,12 +281,16 @@ def generate_candidates_for_manifest(
         
         # search using keywords in goal
         raw_cands = index.search(manifest.goal)
+        remaining_space = budget_plan.remaining
         for score, filepath, matched in raw_cands:
             if filepath in active_paths:
                 continue
             if is_file_protected(filepath, parsed_boundaries):
                 continue
             cand_cost = calculate_context_size(installation.repository_root, (filepath,))
+            if cand_cost > remaining_space:
+                continue
+            remaining_space -= cand_cost
             candidates_list.append({
                 "path": filepath,
                 "score": float(score),

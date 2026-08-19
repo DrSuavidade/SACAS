@@ -115,8 +115,26 @@ def run_diagnostics(root: Path) -> dict[str, Any]:
     if task_id:
         task_dir = sacas_root / "tasks" / "current"
         
-        # Check files exist
-        for filename in ("TASK.md", "CONTEXT.md", "STATE.md", "PICKUP.md"):
+        # Check task.json
+        task_json_path = task_dir / "task.json"
+        if not task_json_path.is_file():
+            diagnostics.append({
+                "severity": "FAIL",
+                "check": "missing_references",
+                "message": "Required task contract task.json is missing."
+            })
+            
+        # Check active_context.json
+        active_json_path = task_dir / "active_context.json"
+        if not active_json_path.is_file():
+            diagnostics.append({
+                "severity": "FAIL",
+                "check": "missing_references",
+                "message": "Required active context active_context.json is missing."
+            })
+
+        # Check views exist
+        for filename in ("TASK.md", "CONTEXT.md"):
             path = task_dir / filename
             if not path.is_file():
                 diagnostics.append({
@@ -143,8 +161,30 @@ def run_diagnostics(root: Path) -> dict[str, Any]:
         # Read active_context.json and check task files
         from sacas.active_context import load_active_context
         active_manifest = load_active_context(task_dir)
+        
+        from sacas.task_contract import load_task_contract, task_contract_hash
+        contract = load_task_contract(task_dir)
+
         if active_manifest is not None:
             try:
+                # Validate task/context IDs agree
+                if contract and active_manifest.task_id != contract.task_id:
+                    diagnostics.append({
+                        "severity": "FAIL",
+                        "check": "id_mismatch",
+                        "message": f"Task contract ID ({contract.task_id}) does not match context ID ({active_manifest.task_id})."
+                    })
+                
+                # Validate contract hash agrees
+                if contract and active_manifest.task_contract_hash:
+                    expected_hash = task_contract_hash(contract)
+                    if active_manifest.task_contract_hash != expected_hash:
+                        diagnostics.append({
+                            "severity": "FAIL",
+                            "check": "contract_hash_mismatch",
+                            "message": "TaskContract hash in active_context.json does not match task.json."
+                        })
+
                 if not active_manifest.files:
                     diagnostics.append({
                         "severity": "WARNING",
@@ -156,7 +196,17 @@ def run_diagnostics(root: Path) -> dict[str, Any]:
                 stale_files = []
                 missing_files = []
                 
+                # Overlap and duplicate selection check
+                seen_paths = set()
                 for f in active_manifest.files:
+                    if f.path in seen_paths:
+                        diagnostics.append({
+                            "severity": "FAIL",
+                            "check": "duplicate_files",
+                            "message": f"Duplicate file context path found: {f.path}"
+                        })
+                    seen_paths.add(f.path)
+
                     all_files.append(f.path)
                     f_path = installation.repository_root / f.path
                     if not f_path.is_file():
@@ -165,6 +215,22 @@ def run_diagnostics(root: Path) -> dict[str, Any]:
                         curr_hash = hashlib.sha256(f_path.read_bytes()).hexdigest()
                         if curr_hash != f.hash:
                             stale_files.append(f.path)
+                        
+                        # Verify symbols/ranges validity
+                        if f.selection.get("mode") == "symbols":
+                            for sym in f.selection.get("symbols", []):
+                                name = getattr(sym, "name", None) or (sym.get("name") if isinstance(sym, dict) else None)
+                                rng = getattr(sym, "range", None) or (sym.get("range") if isinstance(sym, dict) else None)
+                                if rng:
+                                    start = getattr(rng, "start_line", None) or (rng.get("start_line") if isinstance(rng, dict) else None)
+                                    end = getattr(rng, "end_line", None) or (rng.get("end_line") if isinstance(rng, dict) else None)
+                                    if start is not None and end is not None:
+                                        if start > end or start < 1:
+                                            diagnostics.append({
+                                                "severity": "FAIL",
+                                                "check": "invalid_range",
+                                                "message": f"Invalid line range {start}-{end} for symbol {name} in {f.path}"
+                                            })
 
                 if missing_files:
                     diagnostics.append({
@@ -180,7 +246,9 @@ def run_diagnostics(root: Path) -> dict[str, Any]:
                     })
 
                 # Budget check
-                total_size = calculate_total_context_size(installation, tuple(all_files))
+                from sacas.budget import calculate_manifest_tokens
+                breakdown = calculate_manifest_tokens(installation, active_manifest)
+                total_size = breakdown.used
                 if total_size > manifest.context_budget:
                     diagnostics.append({
                         "severity": "WARNING",

@@ -63,11 +63,21 @@ class ActiveFileContext:
     git_revision: str
     reason: str
     hash: str
+    role: str = "source"
 
     def to_dict(self) -> dict[str, Any]:
         sel = self.selection.copy()
         if sel.get("mode") == "symbols":
-            sel["symbols"] = [s.to_dict() for s in sel.get("symbols", [])]
+            from sacas.regions import normalize_selections
+            from sacas.active_context import ActiveSymbolContext
+            symbols = []
+            for s in sel.get("symbols", []):
+                if isinstance(s, dict):
+                    symbols.append(ActiveSymbolContext.from_dict(s))
+                else:
+                    symbols.append(s)
+            normalized = normalize_selections(tuple(symbols))
+            sel["symbols"] = [s.to_dict() for s in normalized]
         return {
             "path": self.path,
             "selection": sel,
@@ -78,6 +88,7 @@ class ActiveFileContext:
             "git_revision": self.git_revision,
             "reason": self.reason,
             "hash": self.hash,
+            "role": self.role,
         }
 
     @classmethod
@@ -95,6 +106,7 @@ class ActiveFileContext:
             git_revision=data.get("git_revision", "unknown"),
             reason=data.get("reason", ""),
             hash=data.get("hash", ""),
+            role=data.get("role", "source")
         )
 
 @dataclass(frozen=True)
@@ -250,9 +262,8 @@ class ContextPolicyState:
 @dataclass(frozen=True)
 class ActiveContextManifest:
     task_id: str
-    goal: str
-    category: str
-    git_revision: str
+    task_contract_hash: str = ""
+    git_revision: str = "unknown"
     files: tuple[ActiveFileContext, ...] = ()
     rules: tuple[ActiveRuleContext, ...] = ()
     references: tuple[ActiveReferenceContext, ...] = ()
@@ -261,13 +272,14 @@ class ActiveContextManifest:
     policy: ContextPolicyState | None = None
     tests: tuple[str, ...] = ()
     schema_version: int = ACTIVE_CONTEXT_SCHEMA_VERSION
+    goal: str = ""
+    category: str = "investigate"
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "schema_version": self.schema_version,
             "task_id": self.task_id,
-            "goal": self.goal,
-            "category": self.category,
+            "task_contract_hash": self.task_contract_hash,
             "git_revision": self.git_revision,
             "files": [f.to_dict() for f in self.files],
             "rules": [r.to_dict() for r in self.rules],
@@ -292,8 +304,7 @@ class ActiveContextManifest:
         policy = ContextPolicyState.from_dict(pl) if pl else None
         return cls(
             task_id=data["task_id"],
-            goal=data["goal"],
-            category=data.get("category", "bugfix"),
+            task_contract_hash=data.get("task_contract_hash", ""),
             git_revision=data.get("git_revision", "unknown"),
             files=files,
             rules=rules,
@@ -302,24 +313,49 @@ class ActiveContextManifest:
             budget=budget,
             policy=policy,
             tests=tuple(data.get("tests", [])),
-            schema_version=data.get("schema_version", ACTIVE_CONTEXT_SCHEMA_VERSION)
+            schema_version=data.get("schema_version", ACTIVE_CONTEXT_SCHEMA_VERSION),
+            goal=data.get("goal", ""),
+            category=data.get("category", "investigate")
         )
 
 def load_active_context(task_dir: Path) -> ActiveContextManifest | None:
     path = task_dir / "active_context.json"
+    manifest = None
     if not path.is_file():
-        # Try migration
-        return migrate_legacy_active_context(task_dir)
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-        return ActiveContextManifest.from_dict(data)
-    except Exception:
-        return None
+        manifest = migrate_legacy_active_context(task_dir)
+    else:
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            manifest = ActiveContextManifest.from_dict(data)
+        except Exception:
+            pass
+    if manifest:
+        from sacas.task_contract import load_task_contract
+        contract = load_task_contract(task_dir)
+        if contract:
+            from dataclasses import replace
+            manifest = replace(manifest, goal=contract.goal, category=contract.category)
+    return manifest
 
 def save_active_context(task_dir: Path, manifest: ActiveContextManifest) -> None:
     from sacas.io import stable_json, write_text_atomic
     path = task_dir / "active_context.json"
     write_text_atomic(path, stable_json(manifest.to_dict()))
+    
+    from sacas.task_contract import load_task_contract, TaskContract, save_task_contract
+    if manifest.goal or manifest.category:
+        contract = load_task_contract(task_dir)
+        if not contract or contract.task_id != manifest.task_id:
+            contract = TaskContract(
+                schema_version=1,
+                task_id=manifest.task_id,
+                goal=manifest.goal,
+                category=manifest.category,
+                criteria=(),
+                constraints=(),
+                verification=()
+            )
+            save_task_contract(task_dir, contract)
 
 def migrate_legacy_active_context(task_dir: Path) -> ActiveContextManifest | None:
     legacy_path = task_dir / "expansions.json"
@@ -455,17 +491,31 @@ def migrate_legacy_active_context(task_dir: Path) -> ActiveContextManifest | Non
                     trigger="expansion"
                 ))
                 
-        manifest = ActiveContextManifest(
+        from sacas.task_contract import TaskContract, save_task_contract, task_contract_hash
+        contract = TaskContract(
+            schema_version=1,
             task_id=task_id,
             goal=goal,
             category=category,
+            criteria=(),
+            constraints=(),
+            verification=()
+        )
+        save_task_contract(task_dir, contract)
+        h = task_contract_hash(contract)
+                 
+        manifest = ActiveContextManifest(
+            task_id=task_id,
+            task_contract_hash=h,
             git_revision=legacy_data.get("git_revision", "unknown"),
             files=tuple(files_list),
             rules=tuple(rules_list),
             references=(),
             events=tuple(events_list),
             budget=None,
-            policy=None
+            policy=None,
+            goal=goal,
+            category=category
         )
         
         # Save to active_context.json

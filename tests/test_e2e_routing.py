@@ -81,10 +81,10 @@ def test_e2e_routing_loop(tmp_path: Path) -> None:
     assert exit_code == 0
 
     # 8. Test candidates generation during E2E refresh
-    # Set a tiny budget of 300 tokens
+    # Set a budget of 2000 tokens
     manifest_path = installation.sacas_root / ".sacas" / "manifest.json"
     manifest_data = json.loads(manifest_path.read_text(encoding="utf-8"))
-    manifest_data["context_budget"] = 300
+    manifest_data["context_budget"] = 2000
     manifest_path.write_text(json.dumps(manifest_data), encoding="utf-8")
 
     # Add caller relation to graphify cache

@@ -84,18 +84,32 @@ def migrate_repository(root: Path, apply: bool = False) -> dict[str, Any]:
             write_text_atomic(new_state, state_content)
             
             # Generate active_context.json
+            from sacas.task_contract import TaskContract, save_task_contract, task_contract_hash
             from sacas.active_context import ActiveContextManifest, save_active_context
-            manifest = ActiveContextManifest(
+            contract = TaskContract(
+                schema_version=1,
                 task_id=task_id,
                 goal=goal,
                 category="bugfix",
+                criteria=(),
+                constraints=(),
+                verification=()
+            )
+            save_task_contract(sacas_root / "tasks" / "current", contract)
+            h = task_contract_hash(contract)
+
+            manifest = ActiveContextManifest(
+                task_id=task_id,
+                task_contract_hash=h,
                 git_revision="unknown",
                 files=(),
                 rules=(),
                 references=(),
                 events=(),
                 budget=None,
-                policy=None
+                policy=None,
+                goal=goal,
+                category="bugfix"
             )
             save_active_context(sacas_root / "tasks" / "current", manifest)
             

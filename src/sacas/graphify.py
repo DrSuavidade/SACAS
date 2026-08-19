@@ -281,11 +281,29 @@ def _is_root_sacas_generated(relative: Path) -> bool:
     return relative.as_posix() in generated_files or relative.is_relative_to(Path("tasks/current"))
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
+class GraphQueryNode:
+    id: str
+    label: str | None
+    path: str | None
+    line: int | None
+    node_type: str | None
+    community: str | None
+
+@dataclass(frozen=True)
+class GraphQueryEdge:
+    source: str
+    target: str
+    relation: str
+    confidence: str | None
+
+@dataclass(frozen=True)
 class GraphifyQueryResult:
-    raw_output: str
-    paths: tuple[str, ...]
     status: str
+    nodes: tuple[GraphQueryNode, ...]
+    edges: tuple[GraphQueryEdge, ...]
+    raw_output: str
+    paths: tuple[str, ...] = ()
 
 
 
@@ -351,11 +369,13 @@ class GraphifyAdapter:
         except OSError:
             return False
 
-    def query(self, goal: str, graph_path: Path) -> GraphifyQueryResult | None:
+    def query(self, goal: str, graph_path: Path, *, token_budget: int | None = None) -> GraphifyQueryResult | None:
         """Query Graphify and return isolated parsed paths."""
         if not graph_path.is_file():
             return None
-        cmd = ("graphify", "query", goal, "--graph", str(graph_path.resolve()))
+        cmd = ["graphify", "query", goal, "--graph", str(graph_path.resolve())]
+        if token_budget is not None:
+            cmd += ["--budget", str(token_budget)]
         try:
             completed = subprocess.run(cmd, capture_output=True, text=True, check=False)
             if completed.returncode != 0:
@@ -365,18 +385,70 @@ class GraphifyAdapter:
             return None
 
     def _parse_query_output(self, raw_output: str) -> GraphifyQueryResult:
-        """Isolate parsing of query output format."""
+        """Parse CLI query output into structured nodes and edges."""
         import re
+        nodes = []
+        edges = []
         paths = []
         has_nodes = False
+
         for line in raw_output.splitlines():
+            line = line.strip()
             if line.startswith("NODE "):
                 has_nodes = True
-                match = re.search(r"\[src=([^\]\s]+)", line)
-                if match:
-                    src_file = match.group(1).strip()
-                    if src_file and src_file != "None":
-                        paths.append(src_file)
+                parts = line.split(" ", 2)
+                if len(parts) >= 2:
+                    node_id = parts[1]
+                    attrs_str = parts[2] if len(parts) > 2 else ""
+                    
+                    attrs = {}
+                    for m in re.finditer(r'(\w+)\s*=\s*(?:"([^"]*)"|(\S+))', attrs_str):
+                        k = m.group(1)
+                        v = m.group(2) or m.group(3)
+                        if v == "None":
+                            v = None
+                        attrs[k] = v
+                    
+                    path = attrs.get("path") or attrs.get("src")
+                    if path and path != "None":
+                        paths.append(path)
+                        
+                    line_val = None
+                    if attrs.get("line"):
+                        try:
+                            line_val = int(attrs["line"])
+                        except ValueError:
+                            pass
+                            
+                    nodes.append(GraphQueryNode(
+                        id=node_id,
+                        label=attrs.get("label"),
+                        path=path,
+                        line=line_val,
+                        node_type=attrs.get("node_type") or attrs.get("type"),
+                        community=attrs.get("community")
+                    ))
+            elif line.startswith("EDGE "):
+                parts = line.split(" ", 3)
+                if len(parts) >= 3:
+                    source = parts[1]
+                    target = parts[2]
+                    attrs_str = parts[3] if len(parts) > 3 else ""
+                    
+                    attrs = {}
+                    for m in re.finditer(r'(\w+)\s*=\s*(?:"([^"]*)"|(\S+))', attrs_str):
+                        k = m.group(1)
+                        v = m.group(2) or m.group(3)
+                        if v == "None":
+                            v = None
+                        attrs[k] = v
+                        
+                    edges.append(GraphQueryEdge(
+                        source=source,
+                        target=target,
+                        relation=attrs.get("relation") or attrs.get("type") or "calls",
+                        confidence=attrs.get("confidence") or attrs.get("provenance")
+                    ))
 
         if not has_nodes:
             if "No matching nodes found" in raw_output or not raw_output.strip():
@@ -386,7 +458,13 @@ class GraphifyAdapter:
         else:
             status = "success"
 
-        return GraphifyQueryResult(raw_output=raw_output, paths=tuple(dict.fromkeys(paths)), status=status)
+        return GraphifyQueryResult(
+            status=status,
+            nodes=tuple(nodes),
+            edges=tuple(edges),
+            raw_output=raw_output,
+            paths=tuple(dict.fromkeys(paths))
+        )
 
     def validate_query_contract(self, result: GraphifyQueryResult) -> bool:
         """Validate parsed query output conforms to basic expectations."""
@@ -411,7 +489,7 @@ class GraphifyProvider:
     def verify_capabilities(self, required: set[str]) -> bool:
         raise NotImplementedError
 
-    def query(self, goal: str, graph_path: Path) -> GraphifyQueryResult | None:
+    def query(self, goal: str, graph_path: Path, *, token_budget: int | None = None) -> GraphifyQueryResult | None:
         raise NotImplementedError
 
     def validate_query_contract(self, result: GraphifyQueryResult) -> bool:
@@ -453,8 +531,8 @@ class CliGraphifyProvider(GraphifyProvider):
                 return False
         return True
 
-    def query(self, goal: str, graph_path: Path) -> GraphifyQueryResult | None:
-        return self.adapter.query(goal, graph_path)
+    def query(self, goal: str, graph_path: Path, *, token_budget: int | None = None) -> GraphifyQueryResult | None:
+        return self.adapter.query(goal, graph_path, token_budget=token_budget)
 
     def validate_query_contract(self, result: GraphifyQueryResult) -> bool:
         return self.adapter.validate_query_contract(result)
@@ -501,17 +579,46 @@ class JsonGraphifyProvider(GraphifyProvider):
                 return False
         return True
 
-    def query(self, goal: str, graph_path: Path) -> GraphifyQueryResult | None:
+    def query(self, goal: str, graph_path: Path, *, token_budget: int | None = None) -> GraphifyQueryResult | None:
         if not self.graph_path.is_file():
             return None
         try:
             data = json.loads(self.graph_path.read_text(encoding="utf-8"))
             paths = []
+            nodes_list = []
             for node in data.get("nodes", []):
                 p = node.get("path") or node.get("id")
                 if p and any(part.lower() in goal.lower() for part in p.split("/")):
                     paths.append(p)
-            return GraphifyQueryResult(raw_output=json.dumps(data), paths=tuple(dict.fromkeys(paths)), status="success")
+                line_val = None
+                if node.get("line"):
+                    try:
+                        line_val = int(node["line"])
+                    except ValueError:
+                        pass
+                nodes_list.append(GraphQueryNode(
+                    id=node.get("id", ""),
+                    label=node.get("label"),
+                    path=p,
+                    line=line_val,
+                    node_type=node.get("type") or node.get("node_type"),
+                    community=node.get("community")
+                ))
+            edges_list = []
+            for edge in data.get("edges", []):
+                edges_list.append(GraphQueryEdge(
+                    source=edge.get("source", ""),
+                    target=edge.get("target", ""),
+                    relation=edge.get("relation") or edge.get("type") or "calls",
+                    confidence=edge.get("confidence") or edge.get("provenance")
+                ))
+            return GraphifyQueryResult(
+                status="success",
+                nodes=tuple(nodes_list),
+                edges=tuple(edges_list),
+                raw_output=json.dumps(data),
+                paths=tuple(dict.fromkeys(paths))
+            )
         except Exception:
             return None
 

@@ -195,3 +195,39 @@ def test_schema_migration_v1_to_v2(tmp_path: Path) -> None:
     files_paths = [f["path"] for f in active_data["files"]]
     assert "src/app.py" in files_paths
     assert "src/helper.py" in files_paths
+
+
+def test_refresh_preserves_contract_criteria_constraints_verification(tmp_path: Path) -> None:
+    from sacas.cli import main
+    from sacas.init import initialize
+    from sacas.task_contract import load_task_contract
+    
+    init_result = initialize(tmp_path)
+    
+    # Create task with criteria, constraints, and verification
+    main([
+        "task",
+        "Implement auth tokens",
+        "--root", str(tmp_path),
+        "--criteria", "Criteria-A", "Criteria-B",
+        "--constraints", "Constraint-C",
+        "--verification", "Verify-D"
+    ])
+    
+    task_dir = init_result.sacas_root / "tasks" / "current"
+    contract = load_task_contract(task_dir)
+    assert contract is not None
+    assert contract.criteria == ("Criteria-A", "Criteria-B")
+    assert contract.constraints == ("Constraint-C",)
+    assert contract.verification == ("Verify-D",)
+    
+    # Run refresh
+    exit_code = main(["refresh", "--root", str(tmp_path)])
+    assert exit_code == 0
+    
+    # Reload and verify they are preserved exactly
+    contract_after = load_task_contract(task_dir)
+    assert contract_after is not None
+    assert contract_after.criteria == ("Criteria-A", "Criteria-B")
+    assert contract_after.constraints == ("Constraint-C",)
+    assert contract_after.verification == ("Verify-D",)

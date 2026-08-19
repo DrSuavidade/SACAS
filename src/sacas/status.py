@@ -59,10 +59,28 @@ def get_status_report(installation: Installation) -> dict[str, Any]:
             stale_files.append(f.path)
 
     status = "stale" if stale_files else "fresh"
-    from sacas.budget import get_detailed_context_breakdown
-    all_files = tuple(initial_files + expanded_files)
-    breakdown = get_detailed_context_breakdown(installation, all_files)
-    estimated_size = breakdown["total"]
+    from sacas.budget import calculate_manifest_tokens, estimate_tokens
+    breakdown_obj = calculate_manifest_tokens(installation, manifest)
+    
+    def f_tokens(path: Path) -> int:
+        if path.is_file():
+            try:
+                return estimate_tokens(path.read_text(encoding="utf-8", errors="ignore"))
+            except OSError:
+                pass
+        return 0
+
+    breakdown = {
+        "router": f_tokens(installation.sacas_root / "ROUTER.md"),
+        "task": f_tokens(task_dir / "TASK.md"),
+        "context": f_tokens(task_dir / "CONTEXT.md"),
+        "state": f_tokens(task_dir / "STATE.md"),
+        "rules": breakdown_obj.rule_tokens,
+        "references": breakdown_obj.reference_tokens,
+        "source": breakdown_obj.source_tokens,
+        "total": breakdown_obj.used
+    }
+    estimated_size = breakdown_obj.used
 
     return {
         "current_task_id": task_id,

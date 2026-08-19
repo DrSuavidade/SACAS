@@ -276,10 +276,11 @@ def expand_context_command(
                     # Dry-run check budget
                     from sacas.budget import calculate_manifest_tokens
                     temp_manifest = ActiveContextManifest(
-                        task_id=manifest.task_id, goal=manifest.goal, category=manifest.category,
+                        task_id=manifest.task_id, task_contract_hash=manifest.task_contract_hash,
                         git_revision=manifest.git_revision, files=tuple(new_files + [new_file_ctx]),
                         rules=tuple(new_rules), references=tuple(new_refs), events=tuple(new_events),
-                        tests=manifest.tests, schema_version=manifest.schema_version
+                        tests=manifest.tests, schema_version=manifest.schema_version,
+                        goal=manifest.goal, category=manifest.category
                     )
                     breakdown = calculate_manifest_tokens(installation, temp_manifest)
                     if manifest.budget is None or breakdown.used <= manifest.budget.limit:
@@ -415,10 +416,11 @@ def expand_context_command(
             new_refs.append(ActiveReferenceContext(path=r_rel, selection=sel, hash=ref_hash, reason=reason or "Explicit CLI expand"))
 
     updated_manifest = ActiveContextManifest(
-        task_id=manifest.task_id, goal=manifest.goal, category=manifest.category,
+        task_id=manifest.task_id, task_contract_hash=manifest.task_contract_hash,
         git_revision=manifest.git_revision, files=tuple(new_files),
         rules=tuple(new_rules), references=tuple(new_refs), events=tuple(new_events),
-        budget=manifest.budget, policy=manifest.policy, tests=manifest.tests, schema_version=manifest.schema_version
+        budget=manifest.budget, policy=manifest.policy, tests=manifest.tests, schema_version=manifest.schema_version,
+        goal=manifest.goal, category=manifest.category
     )
     save_active_context(task_dir, updated_manifest)
     
