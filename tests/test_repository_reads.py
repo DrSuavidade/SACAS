@@ -232,6 +232,79 @@ class TestReadRepoText:
         result = resolve_repo_path(repo_root, "src/link.py")
         assert result == "src/real.py"
 
+    def test_read_rejects_external_symlink(self, tmp_path: Path):
+        """Secure reads must not follow a link that leaves the repository."""
+        repo_root = tmp_path / "repo"
+        repo_root.mkdir()
+        (repo_root / "src").mkdir()
+        external = tmp_path / "external.txt"
+        external.write_text("outside", encoding="utf-8")
+        link = repo_root / "src" / "outside.txt"
+        try:
+            link.symlink_to(external)
+        except (OSError, NotImplementedError):
+            pytest.skip("Symlinks not supported on this platform")
+
+        from sacas.io import read_repo_text
+
+        with pytest.raises(ValueError, match="Path escapes repository root"):
+            read_repo_text(repo_root, "src/outside.txt")
+
+    def test_read_repo_source_bytes_rejects_non_source_content(self, tmp_path: Path):
+        """Source hashing has exactly the same boundary as source text reads."""
+        repo_root = tmp_path / "repo"
+        repo_root.mkdir()
+        (repo_root / "src").mkdir()
+        (repo_root / "src" / "valid.py").write_bytes(b"x = 1\n")
+        (repo_root / "src" / "binary.bin").write_bytes(b"\x00\x01")
+
+        from sacas.io import read_repo_source_bytes
+
+        assert read_repo_source_bytes(repo_root, "src/valid.py") == b"x = 1\n"
+        with pytest.raises(ValueError, match="Binary file"):
+            read_repo_source_bytes(repo_root, "src/binary.bin")
+
+    def test_iter_repo_text_files_is_sorted_and_excludes_protected_paths(self, tmp_path: Path):
+        """Repository enumeration is deterministic and applies source-read policy."""
+        repo_root = tmp_path / "repo"
+        repo_root.mkdir()
+        (repo_root / "src").mkdir()
+        (repo_root / "src" / "z.py").write_bytes(b"z = 1\n")
+        (repo_root / "src" / "a.py").write_bytes(b"a = 1\n")
+        (repo_root / ".env").write_text("SECRET=1", encoding="utf-8")
+        (repo_root / "generated").mkdir()
+        (repo_root / "generated" / "bundle.js").write_text("ignored", encoding="utf-8")
+        (repo_root / "src" / "binary.bin").write_bytes(b"\x00")
+
+        from sacas.io import iter_repo_text_files
+
+        entries = list(iter_repo_text_files(repo_root, excluded_roots=("generated",)))
+        assert [(entry.path, entry.content) for entry in entries] == [
+            ("src/a.py", "a = 1\n"),
+            ("src/z.py", "z = 1\n"),
+        ]
+        with pytest.raises(AttributeError):
+            entries[0].path = "changed.py"
+
+    def test_iter_repo_text_files_deduplicates_canonical_symlink_targets(self, tmp_path: Path):
+        """The real path wins deterministically over an in-repository alias."""
+        repo_root = tmp_path / "repo"
+        repo_root.mkdir()
+        (repo_root / "src").mkdir()
+        target = repo_root / "src" / "target.py"
+        target.write_bytes(b"value = 1\n")
+        link = repo_root / "src" / "alias.py"
+        try:
+            link.symlink_to(target)
+        except (OSError, NotImplementedError):
+            pytest.skip("Symlinks not supported on this platform")
+
+        from sacas.io import iter_repo_text_files
+
+        entries = list(iter_repo_text_files(repo_root))
+
+        assert [(entry.path, entry.content) for entry in entries] == [("src/target.py", "value = 1\n")]
+
 
 class TestCompilerSecureReads:
     """Test that compiler uses secure path resolution (WP1.2)."""
@@ -326,5 +399,3 @@ class TestSacasIgnore:
         # Should be allowed with allow_ignored=True
         content = read_repo_text(repo_root, "src/debug.log", allow_ignored=True)
         assert content.strip() == "debug info"
-
-

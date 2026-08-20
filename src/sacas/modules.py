@@ -5,6 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 from pathlib import Path
+
+from .io import read_repo_text
+from .paths import resolve_repo_path
 import re
 
 
@@ -41,12 +44,14 @@ def module_metadata_paths(root: Path) -> tuple[str, ...]:
     root = root.resolve()
     paths: list[Path] = []
     for container in workspace_containers(root):
-        paths.extend(sorted((root / container).glob("*/package.json")))
+        for package in sorted((root / container).glob("*/package.json")):
+            if _owned_file(root, package) and _package_data(root, package) is not None:
+                paths.append(package)
     for filename in ("pyproject.toml", "Cargo.toml", "go.mod", "pom.xml", "build.gradle", "build.gradle.kts"):
         candidate = root / filename
-        if candidate.is_file():
+        if _owned_file(root, candidate):
             paths.append(candidate)
-    paths.extend(sorted(root.glob("*.csproj")))
+    paths.extend(project for project in sorted(root.glob("*.csproj")) if _owned_file(root, project))
     return tuple(sorted({path.relative_to(root).as_posix() for path in paths}))
 
 
@@ -59,10 +64,10 @@ def workspace_containers(root: Path) -> tuple[str, ...]:
     root = root.resolve()
     containers = set(DEFAULT_MODULE_CONTAINERS)
     package = root / "package.json"
-    if package.is_file():
+    if _owned_file(root, package):
         try:
-            data = json.loads(package.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
+            data = json.loads(read_repo_text(root, package.relative_to(root).as_posix()))
+        except (ValueError, OSError, json.JSONDecodeError):
             data = {}
         workspaces = data.get("workspaces", []) if isinstance(data, dict) else []
         if isinstance(workspaces, dict):
@@ -71,8 +76,8 @@ def workspace_containers(root: Path) -> tuple[str, ...]:
             containers.update(_simple_workspace_container(item) for item in workspaces if isinstance(item, str))
     for filename in ("pnpm-workspace.yaml", "pnpm-workspace.yml"):
         path = root / filename
-        if path.is_file():
-            for pattern in _pnpm_package_patterns(path):
+        if _owned_file(root, path):
+            for pattern in _pnpm_package_patterns(root, path):
                 containers.add(_simple_workspace_container(pattern))
     return tuple(sorted(container for container in containers if container))
 
@@ -85,11 +90,16 @@ def _simple_workspace_container(pattern: str) -> str | None:
     return None
 
 
-def _pnpm_package_patterns(path: Path) -> tuple[str, ...]:
+def _pnpm_package_patterns(root: Path, path: Path) -> tuple[str, ...]:
     """Parse only the top-level block-style ``packages:`` YAML sequence."""
+    try:
+        relative = path.relative_to(root).as_posix()
+        content = read_repo_text(root, relative)
+    except (ValueError, FileNotFoundError, OSError):
+        return ()
     patterns: list[str] = []
     in_packages = False
-    for line in path.read_text(encoding="utf-8").splitlines():
+    for line in content.splitlines():
         if not in_packages:
             if re.match(r"^packages:\s*(?:#.*)?$", line):
                 in_packages = True
@@ -114,22 +124,33 @@ def _package_modules(root: Path) -> list[Module]:
 
     for container in workspace_containers(root):
         for package in sorted((root / container).glob("*/package.json")):
-            add(package, _package_name(package))
+            if not _owned_file(root, package):
+                continue
+            data = _package_data(root, package)
+            if data is None:
+                continue
+            add(package, _package_name(data))
     for filename in ("pyproject.toml", "Cargo.toml", "go.mod", "pom.xml", "build.gradle", "build.gradle.kts"):
         path = root / filename
-        if path.is_file():
+        if _owned_file(root, path):
             add(path, root.name)
     for project in sorted(root.glob("*.csproj")):
-        add(project, project.stem)
+        if _owned_file(root, project):
+            add(project, project.stem)
     return list(modules.values())
 
 
-def _package_name(path: Path) -> str | None:
+def _package_data(root: Path, path: Path) -> dict | None:
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+        relative = path.relative_to(root).as_posix()
+        data = json.loads(read_repo_text(root, relative))
+    except (ValueError, OSError, json.JSONDecodeError):
         return None
-    value = data.get("name") if isinstance(data, dict) else None
+    return data if isinstance(data, dict) else None
+
+
+def _package_name(data: dict) -> str | None:
+    value = data.get("name")
     return value if isinstance(value, str) and value else None
 
 
@@ -137,8 +158,29 @@ def _directory_heuristics(root: Path) -> list[Module]:
     modules: list[Module] = []
     for container_name in ("apps", "packages", "services", "src"):
         container = root / container_name
-        if not container.is_dir():
+        if not _owned_directory(root, container):
             continue
-        for child in sorted(path for path in container.iterdir() if path.is_dir() and not path.name.startswith(".")):
+        for child in sorted(
+            path for path in container.iterdir()
+            if _owned_directory(root, path) and not path.name.startswith(".")
+        ):
             modules.append(Module(child.name, child.relative_to(root).as_posix(), "directory_heuristic", "low"))
     return modules
+
+
+def _owned_file(root: Path, path: Path) -> bool:
+    try:
+        relative = path.relative_to(root).as_posix()
+        resolve_repo_path(root, relative)
+    except ValueError:
+        return False
+    return path.is_file()
+
+
+def _owned_directory(root: Path, path: Path) -> bool:
+    try:
+        relative = path.relative_to(root).as_posix()
+        resolve_repo_path(root, relative)
+    except ValueError:
+        return False
+    return path.is_dir()

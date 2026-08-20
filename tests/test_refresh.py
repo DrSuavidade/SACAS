@@ -23,7 +23,11 @@ def test_refresh_and_status_behavior(tmp_path: Path) -> None:
     from sacas.init import initialize
     
     init_result = initialize(tmp_path)
-    
+
+    app_py = tmp_path / "src" / "app.py"
+    app_py.parent.mkdir(parents=True, exist_ok=True)
+    app_py.write_text("print('hello')", encoding="utf-8")
+
     # Create a task
     main([
         "task",
@@ -31,11 +35,6 @@ def test_refresh_and_status_behavior(tmp_path: Path) -> None:
         "--root", str(tmp_path),
         "--files", "src/app.py"
     ])
-    
-    # Write src/app.py
-    app_py = tmp_path / "src" / "app.py"
-    app_py.parent.mkdir(parents=True, exist_ok=True)
-    app_py.write_text("print('hello')", encoding="utf-8")
     
     # Write Graphify evidence with some edges for app.py
     # Let's say app.py is called by src/caller.py and has tests/test_app.py
@@ -96,7 +95,11 @@ def test_refresh_predictive_budgeting_and_ranking(tmp_path: Path) -> None:
     from sacas.init import initialize
     
     init_result = initialize(tmp_path)
-    
+
+    app_py = tmp_path / "src" / "app.py"
+    app_py.parent.mkdir(parents=True, exist_ok=True)
+    app_py.write_text("print('hello')", encoding="utf-8")
+
     # Create a task
     main([
         "task",
@@ -104,11 +107,6 @@ def test_refresh_predictive_budgeting_and_ranking(tmp_path: Path) -> None:
         "--root", str(tmp_path),
         "--files", "src/app.py"
     ])
-    
-    # Write src/app.py
-    app_py = tmp_path / "src" / "app.py"
-    app_py.parent.mkdir(parents=True, exist_ok=True)
-    app_py.write_text("print('hello')", encoding="utf-8")
     
     # Write Graphify evidence
     graphify_manifest_path = init_result.sacas_root / ".sacas" / "graphify.json"

@@ -5,6 +5,7 @@ from pathlib import Path
 import re
 import hashlib
 from sacas.budget import estimate_tokens
+from sacas.io import iter_repo_text_files
 
 class FallbackIndex:
     def __init__(self, repository_root: Path, sacas_root: Path):
@@ -28,37 +29,19 @@ class FallbackIndex:
 
     def update(self) -> None:
         """Scan repository and update changed/new files in the index."""
-        ignored_parts = {".git", ".sacas", "__pycache__", "Structure", "graphify-out", ".worktrees"}
-        
-        # Scan repo files
         current_paths = set()
-        for path in self.repository_root.rglob("*"):
-            if not path.is_file():
-                continue
-            relative = path.relative_to(self.repository_root)
-            if any(part in ignored_parts for part in relative.parts):
-                continue
-                
-            rel_str = relative.as_posix()
+        for source in iter_repo_text_files(
+            self.repository_root,
+            excluded_roots=("Structure", "graphify-out", ".worktrees"),
+        ):
+            rel_str = source.path
             current_paths.add(rel_str)
-            
-            try:
-                stat = path.stat()
-                mtime_ns = stat.st_mtime_ns
-                size = stat.st_size
-            except OSError:
-                continue
-                
+            content = source.content
+            content_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
             cached = self.entries.get(rel_str)
-            if cached and cached.get("mtime_ns") == mtime_ns and cached.get("size") == size:
+            if cached and cached.get("content_hash") == content_hash:
                 continue
-                
-            # File changed or new - parse and index it
-            try:
-                content = path.read_text(encoding="utf-8", errors="ignore")
-            except OSError:
-                content = ""
-                
+
             # Extract symbols simple heuristic
             symbols = []
             # match def, class, function, etc.
@@ -67,7 +50,7 @@ class FallbackIndex:
                 symbols.append(m[1])
                 
             # Language
-            suffix = path.suffix.lower()
+            suffix = Path(rel_str).suffix.lower()
             if suffix == ".py":
                 lang = "python"
             elif suffix in (".js", ".ts", ".jsx", ".tsx"):
@@ -80,14 +63,14 @@ class FallbackIndex:
                 lang = "unknown"
                 
             self.entries[rel_str] = {
-                "mtime_ns": mtime_ns,
-                "size": size,
+                "content_hash": content_hash,
+                "size": len(content.encode("utf-8")),
                 "path": rel_str,
                 "tokens": estimate_tokens(content),
-                "filename_tokens": estimate_tokens(path.name),
-                "directory_tokens": estimate_tokens(str(relative.parent)),
+                "filename_tokens": estimate_tokens(Path(rel_str).name),
+                "directory_tokens": estimate_tokens(str(Path(rel_str).parent)),
                 "symbols": list(dict.fromkeys(symbols)),
-                "test_indicator": "test" in path.name.lower() or "test" in str(relative.parent).lower(),
+                "test_indicator": "test" in Path(rel_str).name.lower() or "test" in str(Path(rel_str).parent).lower(),
                 "language": lang
             }
             

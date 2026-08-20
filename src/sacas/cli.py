@@ -10,8 +10,18 @@ from pathlib import Path
 from sacas import __version__
 from sacas.graphify import collect_graphify, repository_relative_path, write_graphify_manifest
 from sacas.init import initialize
+from sacas.io import read_repo_source_bytes
 from sacas.map import build_system_map, write_system_map
 from sacas.paths import Installation
+
+
+def _hash_repo_source(repository_root: Path, path: str) -> str:
+    """Hash only a file admitted by the repository source-read boundary."""
+    import hashlib
+    try:
+        return hashlib.sha256(read_repo_source_bytes(repository_root, path)).hexdigest()
+    except (ValueError, FileNotFoundError, OSError):
+        return ""
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -318,10 +328,7 @@ def expand_context_command(
                     if path in [f.path for f in new_files]:
                         continue
                     
-                    f_path = installation.repository_root / path
-                    f_hash = ""
-                    if f_path.is_file():
-                        f_hash = hashlib.sha256(f_path.read_bytes()).hexdigest()
+                    f_hash = _hash_repo_source(installation.repository_root, path)
                         
                     conf_map = {"high": 1.0, "medium": 0.7, "low": 0.4}
                     cand_conf = cand.get("confidence", "high")
@@ -385,10 +392,7 @@ def expand_context_command(
     for f in files:
         if f in [item.path for item in new_files]:
             continue
-        f_path = installation.repository_root / f
-        f_hash = ""
-        if f_path.is_file():
-            f_hash = hashlib.sha256(f_path.read_bytes()).hexdigest()
+        f_hash = _hash_repo_source(installation.repository_root, f)
             
         new_files.append(ActiveFileContext(
             path=f,
@@ -447,10 +451,7 @@ def expand_context_command(
                 )
                 break
         if not found:
-            f_path = installation.repository_root / sym_file
-            f_hash = ""
-            if f_path.is_file():
-                f_hash = hashlib.sha256(f_path.read_bytes()).hexdigest()
+            f_hash = _hash_repo_source(installation.repository_root, sym_file)
             new_files.append(ActiveFileContext(
                 path=sym_file,
                 selection={"mode": "symbols", "symbols": [ActiveSymbolContext(name=sym_name, range=rng, reason=reason or "Explicit CLI expand")]},
@@ -480,10 +481,7 @@ def expand_context_command(
         else:
             r_rel = r_clean
         if not any(rule.path == r_rel for rule in new_rules):
-            r_path = installation.repository_root / r_rel
-            r_hash = ""
-            if r_path.is_file():
-                r_hash = hashlib.sha256(r_path.read_bytes()).hexdigest()
+            r_hash = _hash_repo_source(installation.repository_root, r_rel)
             new_rules.append(ActiveRuleContext(path=r_rel, hash=r_hash, reason=reason or "Explicit CLI expand"))
 
     for ref in references:
@@ -505,10 +503,7 @@ def expand_context_command(
             sel = {"mode": "full"}
             
         if not any(reference.path == r_rel for reference in new_refs):
-            ref_path = installation.repository_root / r_rel
-            ref_hash = ""
-            if ref_path.is_file():
-                ref_hash = hashlib.sha256(ref_path.read_bytes()).hexdigest()
+            ref_hash = _hash_repo_source(installation.repository_root, r_rel)
             new_refs.append(ActiveReferenceContext(path=r_rel, selection=sel, hash=ref_hash, reason=reason or "Explicit CLI expand"))
 
     from dataclasses import replace

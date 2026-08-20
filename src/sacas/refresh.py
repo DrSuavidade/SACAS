@@ -7,7 +7,7 @@ import json
 from dataclasses import replace
 from pathlib import Path
 from sacas.graphify import read_graphify_manifest
-from sacas.io import stable_json, write_text_atomic, read_repo_bytes
+from sacas.io import stable_json, write_text_atomic, read_repo_source_bytes
 from sacas.paths import Installation
 from sacas.tasks import (
     is_file_protected,
@@ -34,7 +34,7 @@ def _compute_source_hashes(installation: Installation, file_paths: tuple[str, ..
     hashes = {}
     for path in file_paths:
         try:
-            content_bytes = read_repo_bytes(installation.repository_root, path)
+            content_bytes = read_repo_source_bytes(installation.repository_root, path)
             hashes[path] = hashlib.sha256(content_bytes).hexdigest()
         except (ValueError, FileNotFoundError, OSError):
             hashes[path] = ""
@@ -82,7 +82,7 @@ def _get_stale_files(
     for f in manifest.all_files:
         # Compute current source hash
         try:
-            content_bytes = read_repo_bytes(installation.repository_root, f.path)
+            content_bytes = read_repo_source_bytes(installation.repository_root, f.path)
             curr_hash = hashlib.sha256(content_bytes).hexdigest()
         except (ValueError, FileNotFoundError, OSError):
             curr_hash = ""
@@ -127,7 +127,7 @@ def refresh_context(
             continue
             
         try:
-            content_bytes = read_repo_bytes(installation.repository_root, filepath)
+            content_bytes = read_repo_source_bytes(installation.repository_root, filepath)
             curr_hash = hashlib.sha256(content_bytes).hexdigest()
         except (ValueError, FileNotFoundError, OSError):
             curr_hash = ""
@@ -383,7 +383,7 @@ def generate_candidates_for_manifest(
     candidates_list = []
 
     boundaries_file = installation.sacas_root / "rules" / "boundaries.md"
-    parsed_boundaries = parse_protected_boundaries(boundaries_file)
+    parsed_boundaries = parse_protected_boundaries(installation.repository_root, boundaries_file)
 
     RELATION_DIRECTION_WEIGHTS = {
         "bugfix": {

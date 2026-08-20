@@ -12,6 +12,7 @@ from sacas.budget import calculate_context_size, calculate_total_context_size
 from sacas.graphify import read_graphify_manifest
 from sacas.paths import discover_manifest, Installation
 from sacas.tasks import is_file_protected, parse_protected_boundaries
+from sacas.io import read_repo_source_bytes
 
 
 def check_regions_in_file(path: Path) -> list[str]:
@@ -209,29 +210,29 @@ def run_diagnostics(root: Path) -> dict[str, Any]:
                     seen_paths.add(f.path)
 
                     all_files.append(f.path)
-                    f_path = installation.repository_root / f.path
-                    if not f_path.is_file():
-                        missing_files.append(f.path)
-                    else:
-                        curr_hash = hashlib.sha256(f_path.read_bytes()).hexdigest()
+                    try:
+                        curr_hash = hashlib.sha256(read_repo_source_bytes(installation.repository_root, f.path)).hexdigest()
                         if curr_hash != f.hash:
                             stale_files.append(f.path)
-                        
-                        # Verify symbols/ranges validity
-                        if f.selection.get("mode") == "symbols":
-                            for sym in f.selection.get("symbols", []):
-                                name = getattr(sym, "name", None) or (sym.get("name") if isinstance(sym, dict) else None)
-                                rng = getattr(sym, "range", None) or (sym.get("range") if isinstance(sym, dict) else None)
-                                if rng:
-                                    start = getattr(rng, "start_line", None) or (rng.get("start_line") if isinstance(rng, dict) else None)
-                                    end = getattr(rng, "end_line", None) or (rng.get("end_line") if isinstance(rng, dict) else None)
-                                    if start is not None and end is not None:
-                                        if start > end or start < 1:
-                                            diagnostics.append({
-                                                "severity": "FAIL",
-                                                "check": "invalid_range",
-                                                "message": f"Invalid line range {start}-{end} for symbol {name} in {f.path}"
-                                            })
+                    except (ValueError, FileNotFoundError, OSError):
+                        missing_files.append(f.path)
+
+                    # Verify symbols/ranges validity for every admitted file,
+                    # including files that were successfully read above.
+                    if f.selection.get("mode") == "symbols":
+                        for sym in f.selection.get("symbols", []):
+                            name = getattr(sym, "name", None) or (sym.get("name") if isinstance(sym, dict) else None)
+                            rng = getattr(sym, "range", None) or (sym.get("range") if isinstance(sym, dict) else None)
+                            if rng:
+                                start = getattr(rng, "start_line", None) or (rng.get("start_line") if isinstance(rng, dict) else None)
+                                end = getattr(rng, "end_line", None) or (rng.get("end_line") if isinstance(rng, dict) else None)
+                                if start is not None and end is not None:
+                                    if start > end or start < 1:
+                                        diagnostics.append({
+                                            "severity": "FAIL",
+                                            "check": "invalid_range",
+                                            "message": f"Invalid line range {start}-{end} for symbol {name} in {f.path}"
+                                        })
 
                 if missing_files:
                     diagnostics.append({
@@ -259,7 +260,7 @@ def run_diagnostics(root: Path) -> dict[str, Any]:
 
                 # Protected boundaries warning
                 boundaries_file = sacas_root / "rules" / "boundaries.md"
-                parsed_boundaries = parse_protected_boundaries(boundaries_file)
+                parsed_boundaries = parse_protected_boundaries(installation.repository_root, boundaries_file)
                 protected_hits = []
                 for f in all_files:
                     reason = is_file_protected(f, parsed_boundaries)

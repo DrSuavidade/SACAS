@@ -5,6 +5,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from sacas.io import read_repo_text
+
 
 class RegionError(ValueError):
     """Raised when a generated region is absent, duplicated, or malformed."""
@@ -198,13 +200,9 @@ class SymbolRangeResolver:
     def resolve(installation, file_path: str, symbol_name: str) -> SourceRange | None:
         from sacas.graphify import get_graphify_provider
         
-        full_path = installation.repository_root / file_path
-        if not full_path.is_file():
-            return None
-            
         try:
-            content = full_path.read_text(encoding="utf-8")
-        except Exception:
+            content = read_repo_text(installation.repository_root, file_path)
+        except (ValueError, FileNotFoundError, OSError):
             return None
 
         # Tier 1: Graphify provider locate_symbol
@@ -233,12 +231,9 @@ class SymbolRangeResolver:
         """Resolve a node to the best symbol range selection.
         Returns (selection_dict, reason) or None.
         """
-        full_path = installation.repository_root / file_path
-        if not full_path.is_file():
-            return None
         try:
-            content = full_path.read_text(encoding="utf-8")
-        except Exception:
+            content = read_repo_text(installation.repository_root, file_path)
+        except (ValueError, FileNotFoundError, OSError):
             return None
 
         # 1. Try resolving enclosing symbol at line (Python AST)

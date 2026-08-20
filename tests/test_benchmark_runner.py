@@ -10,6 +10,38 @@ from sacas.paths import discover_manifest
 from sacas.active_context import save_active_context
 from sacas.cli import main
 
+
+def test_b0_and_b1_enumerate_only_secure_text_entries(tmp_path: Path) -> None:
+    from sacas.benchmark_runner import _baseline_b0_whole_repo, _baseline_b1_basic_search
+
+    installation = initialize(tmp_path).installation
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "match.py").write_text(
+        "# filler\n" * 60 + "needle appears beyond the old sample window\n",
+        encoding="utf-8",
+    )
+    (tmp_path / ".env").write_text("needle=secret", encoding="utf-8")
+    (tmp_path / ".sacasignore").write_text("ignored/**\n", encoding="utf-8")
+    (tmp_path / "ignored").mkdir()
+    (tmp_path / "ignored" / "match.txt").write_text("needle", encoding="utf-8")
+    (tmp_path / "src" / "binary.bin").write_bytes(b"\x00needle")
+    (tmp_path / "src" / "invalid.txt").write_bytes(b"\xffneedle")
+    (tmp_path / "src" / "oversized.txt").write_bytes(b"needle" + b"x" * 1_000_000)
+    external = tmp_path.parent / f"{tmp_path.name}-external.txt"
+    external.write_text("needle", encoding="utf-8")
+    external_link = tmp_path / "src" / "external-link.txt"
+    try:
+        external_link.symlink_to(external)
+    except (OSError, NotImplementedError):
+        pytest.skip("Symlinks are not supported on this platform")
+
+    _, all_files = _baseline_b0_whole_repo(installation)
+    _, matched_files = _baseline_b1_basic_search(installation, "needle")
+
+    assert "src/match.py" in all_files
+    assert {".env", "ignored/match.txt", "src/binary.bin", "src/invalid.txt", "src/oversized.txt", "src/external-link.txt"}.isdisjoint(all_files)
+    assert matched_files == ["src/match.py"]
+
 def test_benchmark_suite_metrics(tmp_path: Path) -> None:
     # 1. Initialize
     init_result = initialize(tmp_path)

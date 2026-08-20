@@ -274,3 +274,64 @@ def test_pnpm_workspace_parser_accepts_four_space_package_indentation(tmp_path: 
     assert [(module.path, module.source) for module in detect_modules(root)] == [
         ("services/service", "workspace_metadata")
     ]
+
+
+def test_pnpm_workspace_symlink_outside_repository_is_ignored(tmp_path: Path) -> None:
+    from sacas.modules import workspace_containers
+
+    root = tmp_path / "repository"
+    root.mkdir()
+    external = tmp_path / "outside-pnpm-workspace.yaml"
+    external.write_text('packages:\n  - "unsafe/*"\n', encoding="utf-8")
+    descriptor = root / "pnpm-workspace.yaml"
+    try:
+        descriptor.symlink_to(external)
+    except (OSError, NotImplementedError):
+        pytest.skip("Symlinks not supported on this platform")
+
+    assert "unsafe" not in workspace_containers(root)
+
+
+def test_module_detection_ignores_external_symlinked_package_manifest(tmp_path: Path) -> None:
+    from sacas.modules import detect_modules
+
+    root = tmp_path / "repository"
+    (root / "apps" / "safe").mkdir(parents=True)
+    (root / "apps" / "safe" / "package.json").write_text('{"name":"safe"}', encoding="utf-8")
+    external = tmp_path / "external-package.json"
+    external.write_text('{"name":"unsafe"}', encoding="utf-8")
+    link = root / "apps" / "unsafe" / "package.json"
+    link.parent.mkdir()
+    try:
+        link.symlink_to(external)
+    except (OSError, NotImplementedError):
+        pytest.skip("Symlinks not supported on this platform")
+
+    assert [(module.name, module.path) for module in detect_modules(root)] == [("safe", "apps/safe")]
+
+
+def test_repository_metadata_and_directory_inventory_ignore_external_symlinks(tmp_path: Path) -> None:
+    from sacas.analysis import analyze_repository
+    from sacas.repository import collect_repository_evidence
+
+    root = tmp_path / "repository"
+    root.mkdir()
+    external_package = tmp_path / "external-package.json"
+    external_package.write_text('{"dependencies": {"next": "1"}}', encoding="utf-8")
+    package_link = root / "package.json"
+    external_directory = tmp_path / "external-app"
+    external_directory.mkdir()
+    directory_link = root / "apps" / "external-app"
+    directory_link.parent.mkdir()
+    try:
+        package_link.symlink_to(external_package)
+        directory_link.symlink_to(external_directory, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("Symlinks not supported on this platform")
+
+    evidence = collect_repository_evidence(root)
+    analysis = analyze_repository(root)
+
+    assert evidence.evidence == ()
+    assert analysis.modules == ()
+    assert "package.json" not in analysis.freshness.paths

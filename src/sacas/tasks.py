@@ -10,9 +10,17 @@ from pathlib import Path
 from sacas.budget import calculate_context_size, calculate_manifest_tokens
 from sacas.effects import calculate_task_effects
 from sacas.graphify import read_graphify_manifest
-from sacas.io import stable_json, write_text_atomic, read_repo_bytes, read_repo_text
+from sacas.io import stable_json, write_text_atomic, read_repo_source_bytes, read_repo_text
 from sacas.models import Manifest
 from sacas.paths import Installation
+
+
+EXPLICIT_CONTEXT_REASON = "Explicitly specified by user"
+
+
+def is_explicit_rule_or_reference(reason: str | None) -> bool:
+    """Return whether a rule/reference originated from explicit user input."""
+    return reason == EXPLICIT_CONTEXT_REASON
 from sacas.regions import render_generated_region, replace_generated_region
 from sacas.state import (
     generate_pickup_markdown,
@@ -42,20 +50,22 @@ class TaskResult:
     task_id: str
 
 
-def parse_protected_boundaries(boundaries_file: Path) -> tuple[tuple[str, str], ...]:
+def parse_protected_boundaries(
+    repository_root: Path, boundaries_file: Path
+) -> tuple[tuple[str, str], ...]:
     """Parse MANUAL entries from the boundaries.md file."""
     boundaries: list[tuple[str, str]] = []
-    if boundaries_file.is_file():
-        try:
-            content = boundaries_file.read_text(encoding="utf-8")
-            for line in content.splitlines():
-                if line.strip().startswith("MANUAL "):
-                    parts = line.strip()[7:].split("|", 1)
-                    path_prefix = parts[0].strip()
-                    reason = parts[1].strip() if len(parts) > 1 else "Protected area"
-                    boundaries.append((path_prefix, reason))
-        except OSError:
-            pass
+    try:
+        relative = boundaries_file.relative_to(repository_root).as_posix()
+        content = read_repo_text(repository_root, relative, allow_ignored=True)
+    except (ValueError, FileNotFoundError, OSError):
+        return ()
+    for line in content.splitlines():
+        if line.strip().startswith("MANUAL "):
+            parts = line.strip()[7:].split("|", 1)
+            path_prefix = parts[0].strip()
+            reason = parts[1].strip() if len(parts) > 1 else "Protected area"
+            boundaries.append((path_prefix, reason))
     return tuple(boundaries)
 
 
@@ -149,6 +159,14 @@ def score_file_against_goal(filepath: str, file_content: str, keywords: list[str
     return score, matched_keywords
 
 
+def _source_hash(repository_root: Path, relative_path: str) -> str | None:
+    """Return a source hash only when the repository boundary admits the file."""
+    try:
+        return hashlib.sha256(read_repo_source_bytes(repository_root, relative_path)).hexdigest()
+    except (ValueError, FileNotFoundError, OSError):
+        return None
+
+
 def run_fallback_routing(root: Path, sacas_root: Path, goal: str, boundaries: tuple[tuple[str, str], ...], commit: str) -> list[dict]:
     keywords = extract_keywords(goal)
     if not keywords:
@@ -164,10 +182,9 @@ def run_fallback_routing(root: Path, sacas_root: Path, goal: str, boundaries: tu
     for score, filepath, matched in candidates[:5]:
         if is_file_protected(filepath, boundaries):
             continue
-        try:
-            f_hash = hashlib.sha256((root / filepath).read_bytes()).hexdigest()
-        except OSError:
-            f_hash = ""
+        f_hash = _source_hash(root, filepath)
+        if f_hash is None:
+            continue
 
         results.append({
             "path": filepath,
@@ -184,6 +201,7 @@ def run_fallback_routing(root: Path, sacas_root: Path, goal: str, boundaries: tu
 
 
 def route_rules_and_references(
+    repository_root: Path,
     sacas_root: Path,
     goal: str,
     explicit_rules: tuple[str, ...],
@@ -204,7 +222,7 @@ def route_rules_and_references(
                 r_rel = "Structure/" + r_clean
             else:
                 r_rel = r_clean
-            rules_list.append(ActiveRuleContext(path=r_rel, hash="", reason="Explicitly specified by user"))
+            rules_list.append(ActiveRuleContext(path=r_rel, hash="", reason=EXPLICIT_CONTEXT_REASON))
     else:
         # Heuristic rules routing
         rules_dir = sacas_root / "rules"
@@ -214,6 +232,10 @@ def route_rules_and_references(
                 filename = p.name.lower()
                 # Default: always load boundaries.md if it exists, otherwise check keywords
                 if filename == "boundaries.md" or any(kw in filename for kw in keywords):
+                    try:
+                        read_repo_text(repository_root, p.relative_to(repository_root).as_posix())
+                    except (ValueError, FileNotFoundError, OSError):
+                        continue
                     rules_list.append(ActiveRuleContext(path=rel_path, hash="", reason="Heuristic rule match"))
                     
     # 2. References
@@ -236,7 +258,7 @@ def route_rules_and_references(
             else:
                 sel = {"mode": "full"}
                 
-            refs_list.append(ActiveReferenceContext(path=r_rel, selection=sel, hash="", reason="Explicitly specified by user"))
+            refs_list.append(ActiveReferenceContext(path=r_rel, selection=sel, hash="", reason=EXPLICIT_CONTEXT_REASON))
     else:
         # Heuristic references routing
         refs_dir = sacas_root / "references"
@@ -248,7 +270,7 @@ def route_rules_and_references(
                 # Check keyword match in filename
                 if any(kw in filename for kw in keywords):
                     try:
-                        content = p.read_text(encoding="utf-8")
+                        content = read_repo_text(repository_root, p.relative_to(repository_root).as_posix())
                         matched_headings = []
                         for line in content.splitlines():
                             if line.startswith("#"):
@@ -264,9 +286,8 @@ def route_rules_and_references(
                         else:
                             sel = {"mode": "full"}
                             reason = "Heuristic reference file match"
-                    except OSError:
-                        sel = {"mode": "full"}
-                        reason = "Heuristic reference file match"
+                    except (ValueError, FileNotFoundError, OSError):
+                        continue
                         
                     refs_list.append(ActiveReferenceContext(path=rel_path, selection=sel, hash="", reason=reason))
                     
@@ -291,7 +312,7 @@ def route_goal(
     task_id = hashlib.sha256(goal.strip().encode("utf-8")).hexdigest()[:8]
     old_manifest = installation.manifest
     boundaries_file = installation.sacas_root / "rules" / "boundaries.md"
-    parsed_boundaries = parse_protected_boundaries(boundaries_file)
+    parsed_boundaries = parse_protected_boundaries(installation.repository_root, boundaries_file)
     commit = get_git_commit(installation.repository_root)
     active_files = []
     events = []
@@ -316,26 +337,22 @@ def route_goal(
             category = "investigate"
 
     # 1. Process rules and references first
-    rules_list, refs_list = route_rules_and_references(installation.sacas_root, goal, rules, references)
+    rules_list, refs_list = route_rules_and_references(installation.repository_root, installation.sacas_root, goal, rules, references)
 
     # Hash rules
     hashed_rules = []
     for r in rules_list:
-        r_hash = ""
-        try:
-            r_hash = hashlib.sha256(read_repo_bytes(installation.repository_root, r.path)).hexdigest()
-        except (ValueError, FileNotFoundError, OSError):
-            pass
+        r_hash = _source_hash(installation.repository_root, r.path)
+        if r_hash is None:
+            continue
         hashed_rules.append(ActiveRuleContext(path=r.path, hash=r_hash, reason=r.reason))
 
     # Hash references
     hashed_refs = []
     for ref in refs_list:
-        ref_hash = ""
-        try:
-            ref_hash = hashlib.sha256(read_repo_bytes(installation.repository_root, ref.path)).hexdigest()
-        except (ValueError, FileNotFoundError, OSError):
-            pass
+        ref_hash = _source_hash(installation.repository_root, ref.path)
+        if ref_hash is None:
+            continue
         hashed_refs.append(ActiveReferenceContext(path=ref.path, selection=ref.selection, hash=ref_hash, reason=ref.reason))
 
     # 2. Process explicit files (if provided)
@@ -347,11 +364,9 @@ def route_goal(
             except ValueError:
                 continue
 
-            f_hash = ""
-            try:
-                f_hash = hashlib.sha256(read_repo_bytes(installation.repository_root, f_rel)).hexdigest()
-            except (ValueError, FileNotFoundError, OSError):
-                pass
+            f_hash = _source_hash(installation.repository_root, f_rel)
+            if f_hash is None:
+                continue
 
             # Repeat symbols syntax helper
             file_symbols = []
@@ -400,11 +415,9 @@ def route_goal(
             t_rel = resolve_repo_path(installation.repository_root, t)
         except ValueError:
             continue
-        t_hash = ""
-        try:
-            t_hash = hashlib.sha256(read_repo_bytes(installation.repository_root, t_rel)).hexdigest()
-        except (ValueError, FileNotFoundError, OSError):
-            pass
+        t_hash = _source_hash(installation.repository_root, t_rel)
+        if t_hash is None:
+            continue
         active_files.append(ActiveFileContext(
             path=t_rel,
             selection={"mode": "full"},
@@ -463,11 +476,9 @@ def route_goal(
                         if is_file_protected(f_rel, parsed_boundaries):
                             continue
 
-                        f_hash = ""
-                        try:
-                            f_hash = hashlib.sha256(read_repo_bytes(installation.repository_root, f_rel)).hexdigest()
-                        except (ValueError, FileNotFoundError, OSError):
-                            pass
+                        f_hash = _source_hash(installation.repository_root, f_rel)
+                        if f_hash is None:
+                            continue
                         
                         node = path_to_node.get(path)
                         confidence = "high"
@@ -581,6 +592,8 @@ def route_goal(
             # Fallback Lexical Search
             fallback_results = run_fallback_routing(installation.repository_root, installation.sacas_root, goal, parsed_boundaries, commit)
             for item in fallback_results:
+                if not item["hash"]:
+                    continue
                 cand_cost = 0
                 try:
                     cand_cost = estimate_tokens(read_repo_text(installation.repository_root, item["path"]))
@@ -826,7 +839,7 @@ def regenerate_task_markdown(
             pass
 
     boundaries_file = installation.sacas_root / "rules" / "boundaries.md"
-    parsed_boundaries = parse_protected_boundaries(boundaries_file)
+    parsed_boundaries = parse_protected_boundaries(installation.repository_root, boundaries_file)
 
     effects_lines = []
     all_files = tuple(f.path for f in manifest.files)

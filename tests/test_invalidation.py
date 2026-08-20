@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import shutil
 import tempfile
 from pathlib import Path
 
@@ -44,8 +45,13 @@ class FakeInstallation:
 
 
 @pytest.fixture
-def fixture_repo() -> Path:
-    return Path("tests/fixtures/context_compiler")
+def fixture_repo(tmp_path: Path) -> Path:
+    """Mutation-oriented refresh tests must never alter the source fixture."""
+    source = Path(__file__).parent / "fixtures" / "context_compiler"
+    copied = tmp_path / "context_compiler"
+    shutil.copytree(source, copied)
+    assert copied != source
+    return copied
 
 
 @pytest.fixture
@@ -509,10 +515,9 @@ def test_refresh_deleted_file(fake_installation: FakeInstallation):
     # Run refresh
     changed = refresh_context(fake_installation)
     
-    # Should detect deletion (hash becomes empty)
+    # Should detect deletion and remove the no-longer-admissible source.
     assert changed == True
     
     from sacas.active_context import load_active_context
     updated = load_active_context(task_dir)
-    # File should have empty hash now
-    assert updated.files[0].hash == ""
+    assert updated.files == ()

@@ -10,9 +10,38 @@ from sacas.active_context import (
     ActiveRuleContext,
     ActiveReferenceContext,
 )
-from sacas.budget import calculate_manifest_tokens
+from sacas.budget import (
+    calculate_manifest_tokens,
+    calculate_total_context_size,
+    get_detailed_context_breakdown,
+)
 from sacas.paths import Installation
 from sacas.models import Manifest
+
+
+def test_legacy_budget_ignores_binary_repository_rules_and_references(tmp_path: Path) -> None:
+    """Legacy accounting must not count repository-controlled binary content."""
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    sacas_root = repo_root / "Structure"
+    (sacas_root / "rules").mkdir(parents=True)
+    (sacas_root / "references").mkdir()
+    (sacas_root / "tasks" / "current").mkdir(parents=True)
+    (sacas_root / "rules" / "binary.md").write_bytes(b"rule\x00payload")
+    (sacas_root / "references" / "invalid.md").write_bytes(b"reference\xffpayload")
+
+    installation = Installation(
+        repository_root=repo_root,
+        sacas_root=sacas_root,
+        manifest_path=repo_root / ".sacas" / "manifest.json",
+        manifest=Manifest(repository_root=".", sacas_root="Structure", context_budget=12000),
+    )
+
+    breakdown = get_detailed_context_breakdown(installation, ())
+
+    assert breakdown["rules"] == 0
+    assert breakdown["references"] == 0
+    assert calculate_total_context_size(installation, ()) == 0
 
 def test_calculate_manifest_tokens(tmp_path: Path) -> None:
     # 1. Setup repository structure

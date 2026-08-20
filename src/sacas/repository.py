@@ -10,6 +10,9 @@ from dataclasses import dataclass
 import json
 from pathlib import Path
 
+from .io import read_repo_text
+from .paths import resolve_repo_path
+
 
 @dataclass(frozen=True, slots=True)
 class Evidence:
@@ -54,7 +57,7 @@ def collect_repository_evidence(root: Path) -> RepositoryEvidence:
         found.append(Evidence(ecosystem, relative.as_posix()))
 
     package = root / "package.json"
-    if package.is_file():
+    if _owned_file(root, package):
         add("npm", Path("package.json"))
         if _package_has_next(package):
             add("nextjs", Path("package.json"))
@@ -74,12 +77,14 @@ def collect_repository_evidence(root: Path) -> RepositoryEvidence:
         ("build.gradle.kts", "gradle"),
         ("pyproject.toml", "python"),
     ):
-        if (root / filename).is_file():
+        if _owned_file(root, root / filename):
             add(ecosystem, Path(filename))
     for project in sorted(root.glob("*.csproj")):
-        add("dotnet", project.relative_to(root))
+        if _owned_file(root, project):
+            add("dotnet", project.relative_to(root))
     for solution in sorted(root.glob("*.sln")):
-        add("dotnet", solution.relative_to(root))
+        if _owned_file(root, solution):
+            add("dotnet", solution.relative_to(root))
 
     unique = {(item.ecosystem, item.path): item for item in found}
     return RepositoryEvidence(root, tuple(unique[key] for key in sorted(unique)))
@@ -87,10 +92,20 @@ def collect_repository_evidence(root: Path) -> RepositoryEvidence:
 
 def _package_has_next(path: Path) -> bool:
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+        data = json.loads(read_repo_text(path.parent, path.name))
+    except (ValueError, OSError, json.JSONDecodeError):
         return False
     if not isinstance(data, dict):
         return False
     sections = ("dependencies", "devDependencies", "peerDependencies", "optionalDependencies")
     return any(isinstance(data.get(section), dict) and "next" in data[section] for section in sections)
+
+
+def _owned_file(root: Path, path: Path) -> bool:
+    """Return whether *path* is a regular file that resolves inside *root*."""
+    try:
+        relative = path.relative_to(root).as_posix()
+        resolve_repo_path(root, relative)
+    except ValueError:
+        return False
+    return path.is_file()

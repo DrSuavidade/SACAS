@@ -7,8 +7,9 @@ import hashlib
 import json
 from pathlib import Path
 
-from .io import write_json_atomic
+from .io import read_repo_source_bytes, write_json_atomic
 from .modules import Module, detect_modules, module_metadata_paths, workspace_containers
+from .paths import resolve_repo_path
 from .repository import Evidence, collect_repository_evidence
 
 
@@ -119,16 +120,16 @@ def _fingerprint(root: Path, paths: tuple[str, ...], inventory_roots: tuple[str,
         digest.update(relative.encode("utf-8"))
         digest.update(b"\0")
         try:
-            digest.update((root / relative).read_bytes())
-        except OSError:
+            digest.update(read_repo_source_bytes(root, relative))
+        except (ValueError, FileNotFoundError, OSError):
             digest.update(b"<missing>")
         digest.update(b"\0")
     for inventory_root in inventory_roots:
         container = root / inventory_root
         digest.update(f"@inventory:{inventory_root}".encode("utf-8"))
         digest.update(b"\0")
-        if container.is_dir():
-            for child in sorted(path for path in container.iterdir() if path.is_dir()):
+        if _owned_directory(root, container):
+            for child in sorted(path for path in container.iterdir() if _owned_directory(root, path)):
                 relative = child.relative_to(root).as_posix()
                 digest.update(relative.encode("utf-8"))
                 digest.update(b":package.json=")
@@ -140,7 +141,8 @@ def _fingerprint(root: Path, paths: tuple[str, ...], inventory_roots: tuple[str,
     for filename in ROOT_MARKERS:
         _digest_marker(digest, root / filename, filename)
     for marker in sorted([*root.glob("*.csproj"), *root.glob("*.sln")]):
-        _digest_marker(digest, marker, marker.name)
+        if _owned_file(root, marker):
+            _digest_marker(digest, marker, marker.name)
     return digest.hexdigest()
 
 
@@ -148,7 +150,25 @@ def _digest_marker(digest: "hashlib._Hash", path: Path, label: str) -> None:
     digest.update(label.encode("utf-8"))
     digest.update(b"=")
     try:
-        digest.update(path.read_bytes())
-    except OSError:
+        digest.update(read_repo_source_bytes(path.parent, path.name))
+    except (ValueError, FileNotFoundError, OSError):
         digest.update(b"<missing>")
     digest.update(b"\0")
+
+
+def _owned_file(root: Path, path: Path) -> bool:
+    try:
+        relative = path.relative_to(root).as_posix()
+        resolve_repo_path(root, relative)
+    except ValueError:
+        return False
+    return path.is_file()
+
+
+def _owned_directory(root: Path, path: Path) -> bool:
+    try:
+        relative = path.relative_to(root).as_posix()
+        resolve_repo_path(root, relative)
+    except ValueError:
+        return False
+    return path.is_dir()

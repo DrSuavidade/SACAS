@@ -3,17 +3,26 @@
 from __future__ import annotations
 
 from contextlib import suppress
+from dataclasses import dataclass
 import fnmatch
 import json
 import os
 from pathlib import Path
 import tempfile
-from typing import Any
+from typing import Any, Iterator
 
 from sacas.paths import resolve_repo_path
 
 
 DEFAULT_MAX_BYTES = 1_000_000
+
+
+@dataclass(frozen=True, slots=True)
+class RepositoryTextFile:
+    """An immutable source entry returned by secure repository enumeration."""
+
+    path: str
+    content: str
 
 SECRET_PATTERNS = (
     ".env",
@@ -198,6 +207,64 @@ def read_repo_bytes(
         raise ValueError(f"File exceeds size limit ({max_bytes} bytes): {rel_path}")
 
     return content_bytes
+
+
+def read_repo_source_bytes(
+    repository_root: Path,
+    user_path: str,
+    *,
+    allow_ignored: bool = False,
+    max_bytes: int | None = DEFAULT_MAX_BYTES,
+) -> bytes:
+    """Read hashable source bytes through the text-only repository boundary.
+
+    Callers that treat a file as source must not silently accept binary or
+    invalid UTF-8 data.  Encoding the validated text keeps source hashing and
+    source rendering on one policy boundary.
+    """
+    return read_repo_text(
+        repository_root,
+        user_path,
+        allow_ignored=allow_ignored,
+        max_bytes=max_bytes,
+    ).encode("utf-8")
+
+
+def iter_repo_text_files(
+    repository_root: Path,
+    *,
+    allow_ignored: bool = False,
+    max_bytes: int | None = DEFAULT_MAX_BYTES,
+    excluded_roots: tuple[str, ...] = (),
+) -> Iterator[RepositoryTextFile]:
+    """Yield readable repository text files in stable repository-relative order."""
+    root = repository_root.resolve()
+    excluded = tuple(
+        resolve_repo_path(root, excluded_root).rstrip("/")
+        for excluded_root in excluded_roots
+    )
+    candidates = sorted(
+        (path for path in root.rglob("*") if path.is_file()),
+        key=lambda path: path.as_posix(),
+    )
+    seen_relative: set[str] = set()
+    for candidate in candidates:
+        try:
+            relative = candidate.resolve().relative_to(root).as_posix()
+            if relative in seen_relative:
+                continue
+            seen_relative.add(relative)
+            if any(relative == item or relative.startswith(f"{item}/") for item in excluded):
+                continue
+            content = read_repo_text(
+                root,
+                relative,
+                allow_ignored=allow_ignored,
+                max_bytes=max_bytes,
+            )
+        except (FileNotFoundError, OSError, ValueError):
+            continue
+        yield RepositoryTextFile(relative, content)
 
 
 def stable_json(data: Any) -> str:

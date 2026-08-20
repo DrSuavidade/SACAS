@@ -10,23 +10,25 @@ from sacas.budget import calculate_context_size, calculate_manifest_tokens
 from sacas.tasks import route_goal, run_fallback_routing, extract_keywords
 from sacas.refresh import generate_candidates_for_manifest
 from sacas.graphify import get_graphify_provider
+from sacas.io import RepositoryTextFile, iter_repo_text_files
+
+
+def _get_repo_entries(installation: Installation) -> list[RepositoryTextFile]:
+    """Get all repository files excluding SACAS/Graphify directories."""
+    return list(iter_repo_text_files(
+        installation.repository_root,
+        excluded_roots=("Structure", "graphify-out", ".worktrees"),
+    ))
 
 
 def _get_repo_files(installation: Installation) -> list[str]:
-    """Get all repository files excluding SACAS/Graphify directories."""
-    ignored_parts = {".git", ".sacas", "__pycache__", "Structure", "graphify-out", ".worktrees"}
-    repo_files = []
-    for path in installation.repository_root.rglob("*"):
-        if path.is_file():
-            relative = path.relative_to(installation.repository_root)
-            if not any(part in ignored_parts for part in relative.parts):
-                repo_files.append(relative.as_posix())
-    return sorted(repo_files)
+    return [entry.path for entry in _get_repo_entries(installation)]
 
 
 def _baseline_b0_whole_repo(installation: Installation) -> tuple[int, list[str]]:
     """B0: Whole repository baseline."""
-    repo_files = _get_repo_files(installation)
+    repo_entries = _get_repo_entries(installation)
+    repo_files = [entry.path for entry in repo_entries]
     tokens = calculate_context_size(installation.repository_root, tuple(repo_files))
     return tokens, repo_files
 
@@ -41,9 +43,10 @@ def _baseline_b1_basic_search(installation: Installation, goal: str) -> tuple[in
     if not keywords:
         return 0, []
     
-    repo_files = _get_repo_files(installation)
+    repo_entries = _get_repo_entries(installation)
     scored_files = []
-    for f in repo_files:
+    for entry in repo_entries:
+        f = entry.path
         score = 0
         fname = Path(f).name.lower()
         
@@ -54,16 +57,11 @@ def _baseline_b1_basic_search(installation: Installation, goal: str) -> tuple[in
                 if fname.startswith(kw):
                     score += 5
         
-        # Content keyword matching (simulated - read first 50 lines)
-        try:
-            content = (installation.repository_root / f).read_text(encoding="utf-8", errors="ignore")
-            lines = content.splitlines()[:50]
-            content_sample = " ".join(lines).lower()
-            for kw in keywords:
-                if kw in content_sample:
-                    score += 3
-        except OSError:
-            pass
+        # Content keyword matching searches the whole eligible source entry.
+        content_sample = entry.content.lower()
+        for kw in keywords:
+            if kw in content_sample:
+                score += 3
         
         if score > 0:
             scored_files.append((score, f))
@@ -79,7 +77,7 @@ def _baseline_b2_lexical_fallback(installation: Installation, goal: str) -> tupl
     from sacas.tasks import get_git_commit, parse_protected_boundaries
     commit = get_git_commit(installation.repository_root)
     boundaries_file = installation.sacas_root / "rules" / "boundaries.md"
-    parsed_boundaries = parse_protected_boundaries(boundaries_file)
+    parsed_boundaries = parse_protected_boundaries(installation.repository_root, boundaries_file)
     
     fallback_results = run_fallback_routing(installation.repository_root, installation.sacas_root, goal, parsed_boundaries, commit)
     files = [item["path"] for item in fallback_results]

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
 import tempfile
 from pathlib import Path
 
@@ -35,8 +36,13 @@ class FakeInstallation:
 
 
 @pytest.fixture
-def fixture_repo() -> Path:
-    return Path("tests/fixtures/context_compiler")
+def fixture_repo(tmp_path: Path) -> Path:
+    """Each compiler test receives a writable copy, never the checked-in fixture."""
+    source = Path(__file__).parent / "fixtures" / "context_compiler"
+    copied = tmp_path / "context_compiler"
+    shutil.copytree(source, copied)
+    assert copied != source
+    return copied
 
 
 @pytest.fixture

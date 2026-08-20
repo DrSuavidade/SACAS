@@ -15,11 +15,73 @@ from pathlib import PureWindowsPath
 import subprocess
 from typing import Any
 
-from .io import write_json_atomic
+from .io import read_repo_bytes, write_json_atomic
+from .paths import resolve_repo_path
 
 
 GraphifyRunner = Callable[[tuple[str, ...]], int | str | None]
 _RUNNABLE_MODES = frozenset({"code-only", "semantic"})
+MAX_GRAPH_SNAPSHOT_BYTES = 50 * 1024 * 1024
+
+
+class GraphSnapshotError(ValueError):
+    """A controlled optional-evidence failure with a stable reason code."""
+
+    def __init__(self, code: str) -> None:
+        self.code = code
+        super().__init__(code)
+
+
+def read_graph_snapshot(
+    repository_root: Path,
+    graph_path: str,
+    *,
+    max_bytes: int = MAX_GRAPH_SNAPSHOT_BYTES,
+) -> tuple[bytes, dict[str, Any]]:
+    """Read a Graphify JSON object through an explicitly bounded raw boundary."""
+    try:
+        relative = resolve_repo_path(repository_root, graph_path)
+        raw = read_repo_bytes(
+            repository_root,
+            relative,
+            allow_ignored=True,
+            max_bytes=max_bytes,
+        )
+    except FileNotFoundError as error:
+        raise GraphSnapshotError("absent") from error
+    except ValueError as error:
+        if "size limit" in str(error):
+            raise GraphSnapshotError("size_limit") from error
+        raise GraphSnapshotError("unreadable") from error
+    except OSError as error:
+        raise GraphSnapshotError("unreadable") from error
+    if b"\x00" in raw:
+        raise GraphSnapshotError("nul_byte")
+    try:
+        decoded = raw.decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise GraphSnapshotError("invalid_utf8") from error
+    try:
+        data = json.loads(decoded)
+    except json.JSONDecodeError as error:
+        raise GraphSnapshotError("invalid_json") from error
+    if not isinstance(data, dict):
+        raise GraphSnapshotError("not_object")
+    nodes = data.get("nodes", [])
+    edges = data.get("edges", [])
+    if (
+        not isinstance(nodes, list)
+        or not isinstance(edges, list)
+        or any(not isinstance(node, dict) or not isinstance(node.get("id"), str) for node in nodes)
+        or any(
+            not isinstance(edge, dict)
+            or not isinstance(edge.get("source"), str)
+            or not isinstance(edge.get("target"), str)
+            for edge in edges
+        )
+    ):
+        raise GraphSnapshotError("invalid_structure")
+    return raw, data
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,33 +145,17 @@ def collect_graphify(
                 provenance=f"graphify_{mode}",
                 warning=f"Graphify {mode} execution failed with exit code {result}",
             )
-    graph_path = root_path / output / "graph.json"
-    if not graph_path.is_file():
-        return _empty(
-            root_path,
-            output,
-            status="unavailable",
-            provenance=f"graphify_{mode}",
-            warning="Graphify graph.json is absent",
-        )
+    graph_relative = f"{output}/graph.json"
+    graph_path = root_path / graph_relative
     try:
-        raw = graph_path.read_bytes()
-        graph = json.loads(raw)
-    except (OSError, json.JSONDecodeError):
+        raw, graph = read_graph_snapshot(root_path, graph_relative)
+    except GraphSnapshotError as error:
         return _empty(
             root_path,
             output,
             status="unavailable",
             provenance=f"graphify_{mode}",
-            warning="Graphify graph.json is unreadable",
-        )
-    if not isinstance(graph, dict):
-        return _empty(
-            root_path,
-            output,
-            status="unavailable",
-            provenance=f"graphify_{mode}",
-            warning="Graphify graph.json is not an object",
+            warning=("Graphify graph.json is absent" if error.code == "absent" else "Graphify graph.json is unreadable"),
         )
     nodes = _nodes(graph.get("nodes"))
     edges = _edges(graph.get("edges"))
@@ -374,7 +420,10 @@ class GraphifyAdapter:
 
     def query(self, goal: str, graph_path: Path, *, token_budget: int | None = None) -> GraphifyQueryResult | None:
         """Query Graphify and return isolated parsed paths."""
-        if not graph_path.is_file():
+        try:
+            graph_relative = graph_path.resolve().relative_to(self.repository_root.resolve()).as_posix()
+            read_graph_snapshot(self.repository_root, graph_relative)
+        except (GraphSnapshotError, ValueError):
             return None
         cmd = ["graphify", "query", goal, "--graph", str(graph_path.resolve())]
         if token_budget is not None:
@@ -476,12 +525,11 @@ class GraphifyAdapter:
         # Compute graph snapshot hash from the graph.json file
         graph_path = Path(self.repository_root) / "graphify-out" / "graph.json"
         graph_snapshot_hash = ""
-        if graph_path.is_file():
-            try:
-                raw = graph_path.read_bytes()
-                graph_snapshot_hash = hashlib.sha256(raw).hexdigest()
-            except OSError:
-                pass
+        try:
+            raw, _ = read_graph_snapshot(self.repository_root, "graphify-out/graph.json")
+            graph_snapshot_hash = hashlib.sha256(raw).hexdigest()
+        except GraphSnapshotError:
+            pass
         
         # Generate a query ID
         import uuid
@@ -593,8 +641,9 @@ class CliGraphifyProvider(GraphifyProvider):
 
 
 class JsonGraphifyProvider(GraphifyProvider):
-    def __init__(self, graph_path: Path):
+    def __init__(self, graph_path: Path, repository_root: Path | None = None):
         self.graph_path = graph_path
+        self.repository_root = repository_root or graph_path.parent
         self.capabilities = GraphCapabilities(
             query=False,
             neighbors=True,
@@ -602,46 +651,76 @@ class JsonGraphifyProvider(GraphifyProvider):
             symbol_locations=False
         )
 
+    def _read_data(self) -> dict[str, Any] | None:
+        try:
+            _, data = read_graph_snapshot(
+                self.repository_root,
+                self.graph_path.relative_to(self.repository_root).as_posix(),
+            )
+            return data
+        except (GraphSnapshotError, ValueError):
+            return None
+
     def verify_capabilities(self, required: set[str]) -> bool:
-        if not self.graph_path.is_file():
+        if self._read_data() is None:
             return False
         for req in required:
             if not getattr(self.capabilities, req, False):
                 return False
         return True
 
+    @staticmethod
+    def _optional_str(value: object) -> str | None:
+        return value if isinstance(value, str) else None
+
+    @classmethod
+    def _node_path(cls, node: dict[str, Any]) -> str:
+        path = cls._optional_str(node.get("path"))
+        return path or node["id"]
+
+    @classmethod
+    def _edge_relation(cls, edge: dict[str, Any]) -> str:
+        return cls._optional_str(edge.get("relation")) or cls._optional_str(edge.get("type")) or "calls"
+
     def query(self, goal: str, graph_path: Path, *, token_budget: int | None = None) -> GraphifyQueryResult | None:
         if not self.graph_path.is_file():
             return None
         try:
-            data = json.loads(self.graph_path.read_text(encoding="utf-8"))
+            data = self._read_data()
+            if data is None:
+                return None
             paths = []
             nodes_list = []
             for node in data.get("nodes", []):
-                p = node.get("path") or node.get("id")
-                if p and any(part.lower() in goal.lower() for part in p.split("/")):
+                if not isinstance(node, dict):
+                    return None
+                p = self._node_path(node)
+                if any(part.lower() in goal.lower() for part in p.split("/")):
                     paths.append(p)
                 line_val = None
-                if node.get("line"):
+                if node.get("line") is not None:
                     try:
                         line_val = int(node["line"])
-                    except ValueError:
+                    except (TypeError, ValueError):
                         pass
                 nodes_list.append(GraphQueryNode(
-                    id=node.get("id", ""),
-                    label=node.get("label"),
+                    id=node["id"],
+                    label=self._optional_str(node.get("label")),
                     path=p,
                     line=line_val,
-                    node_type=node.get("type") or node.get("node_type"),
-                    community=node.get("community")
+                    node_type=self._optional_str(node.get("type")) or self._optional_str(node.get("node_type")),
+                    community=self._optional_str(node.get("community")),
                 ))
             edges_list = []
             for edge in data.get("edges", []):
+                if not isinstance(edge, dict):
+                    return None
                 edges_list.append(GraphQueryEdge(
-                    source=edge.get("source", ""),
-                    target=edge.get("target", ""),
-                    relation=edge.get("relation") or edge.get("type") or "calls",
-                    confidence=edge.get("confidence") or edge.get("provenance")
+                    source=edge["source"],
+                    target=edge["target"],
+                    relation=self._edge_relation(edge),
+                    confidence=self._optional_str(edge.get("confidence")) or self._optional_str(edge.get("provenance")),
+                    provenance=self._optional_str(edge.get("provenance")),
                 ))
             return GraphifyQueryResult(
                 status="success",
@@ -650,7 +729,7 @@ class JsonGraphifyProvider(GraphifyProvider):
                 raw_output=json.dumps(data),
                 paths=tuple(dict.fromkeys(paths))
             )
-        except Exception:
+        except (GraphSnapshotError, OSError, ValueError, json.JSONDecodeError):
             return None
 
     def validate_query_contract(self, result: GraphifyQueryResult) -> bool:
@@ -660,12 +739,16 @@ class JsonGraphifyProvider(GraphifyProvider):
         if not self.graph_path.is_file():
             return []
         try:
-            data = json.loads(self.graph_path.read_text(encoding="utf-8"))
+            data = self._read_data()
+            if data is None:
+                return []
             result = []
             for edge in data.get("edges", []):
+                if not isinstance(edge, dict):
+                    return []
                 source = edge.get("source")
                 target = edge.get("target")
-                kind = edge.get("type") or edge.get("relationship") or "related"
+                kind = self._optional_str(edge.get("type")) or self._optional_str(edge.get("relationship")) or "related"
                 if source == path or target == path:
                     result.append((source, target, kind))
             return result
@@ -676,12 +759,16 @@ class JsonGraphifyProvider(GraphifyProvider):
         if not self.graph_path.is_file():
             return ()
         try:
-            data = json.loads(self.graph_path.read_text(encoding="utf-8"))
+            data = self._read_data()
+            if data is None:
+                return ()
             grouped = {}
             for node in data.get("nodes", []):
-                comm = node.get("community")
-                path = node.get("path") or node.get("id")
-                if comm and path:
+                if not isinstance(node, dict):
+                    return ()
+                comm = self._optional_str(node.get("community"))
+                path = self._node_path(node)
+                if comm:
                     grouped.setdefault(comm, set()).add(path)
             return tuple((name, tuple(sorted(paths))) for name, paths in sorted(grouped.items()))
         except Exception:
@@ -696,7 +783,7 @@ def get_graphify_provider(installation: Installation, required: set[str] | None 
         required = set()
     cli_provider = CliGraphifyProvider(installation.repository_root, installation.sacas_root)
     json_path = installation.repository_root / "graphify-out" / "graph.json"
-    json_provider = JsonGraphifyProvider(json_path)
+    json_provider = JsonGraphifyProvider(json_path, installation.repository_root)
 
     if preferred == "cli":
         if cli_provider.verify_capabilities(required):

@@ -20,6 +20,80 @@ def graph_fixture(destination: Path) -> Path:
     return output
 
 
+@pytest.mark.parametrize(
+    ("content", "error"),
+    [
+        (b"{\"nodes\": [}", "invalid_json"),
+        (b"[\"not-an-object\"]", "not_object"),
+        (b"{\"nodes\": \"bad\"}\x00", "nul_byte"),
+        (b"\xff", "invalid_utf8"),
+    ],
+)
+def test_read_graph_snapshot_returns_controlled_errors_for_invalid_data(
+    tmp_path: Path, content: bytes, error: str
+) -> None:
+    from sacas.graphify import GraphSnapshotError, read_graph_snapshot
+
+    graph = tmp_path / "graphify-out" / "graph.json"
+    graph.parent.mkdir()
+    graph.write_bytes(content)
+
+    with pytest.raises(GraphSnapshotError) as raised:
+        read_graph_snapshot(tmp_path, "graphify-out/graph.json")
+
+    assert raised.value.code == error
+
+
+def test_read_graph_snapshot_enforces_the_raw_graph_size_limit(tmp_path: Path) -> None:
+    from sacas.graphify import GraphSnapshotError, read_graph_snapshot
+
+    graph = tmp_path / "graphify-out" / "graph.json"
+    graph.parent.mkdir()
+    graph.write_bytes(b"{" + b" " * 64 + b"}")
+
+    with pytest.raises(GraphSnapshotError, match="size_limit"):
+        read_graph_snapshot(tmp_path, "graphify-out/graph.json", max_bytes=64)
+
+
+def test_read_graph_snapshot_rejects_invalid_node_or_edge_collections(tmp_path: Path) -> None:
+    """A valid JSON document must still have graph-shaped collections."""
+    from sacas.graphify import GraphSnapshotError, read_graph_snapshot
+
+    graph = tmp_path / "graphify-out" / "graph.json"
+    graph.parent.mkdir()
+    graph.write_text('{"nodes": "bad", "edges": []}', encoding="utf-8")
+
+    with pytest.raises(GraphSnapshotError) as raised:
+        read_graph_snapshot(tmp_path, "graphify-out/graph.json")
+
+    assert raised.value.code == "invalid_structure"
+
+
+@pytest.mark.parametrize(
+    "document",
+    [
+        {"nodes": [1], "edges": []},
+        {"nodes": [{}], "edges": []},
+        {"nodes": [], "edges": [1]},
+        {"nodes": [], "edges": [{}]},
+    ],
+)
+def test_read_graph_snapshot_rejects_malformed_node_and_edge_entries(
+    tmp_path: Path, document: dict[str, object]
+) -> None:
+    """Consumers receive only the node/edge shape they all understand."""
+    from sacas.graphify import GraphSnapshotError, read_graph_snapshot
+
+    graph = tmp_path / "graphify-out" / "graph.json"
+    graph.parent.mkdir()
+    graph.write_text(json.dumps(document), encoding="utf-8")
+
+    with pytest.raises(GraphSnapshotError) as raised:
+        read_graph_snapshot(tmp_path, "graphify-out/graph.json")
+
+    assert raised.value.code == "invalid_structure"
+
+
 def test_off_mode_does_not_read_or_invoke_graphify(tmp_path: Path) -> None:
     from sacas.graphify import collect_graphify
 

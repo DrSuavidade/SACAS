@@ -10,6 +10,7 @@ from sacas.budget import calculate_context_size, calculate_total_context_size
 from sacas.graphify import read_graphify_manifest, GraphifyAdapter
 from sacas.map import impact_records
 from sacas.paths import Installation
+from sacas.io import iter_repo_text_files
 from sacas.tasks import (
     is_file_protected,
     parse_protected_boundaries,
@@ -41,15 +42,13 @@ def run_context_simulation(installation: Installation) -> dict[str, Any]:
     graphify_ver = GraphifyAdapter.get_installed_version() or "N/A"
 
     # List all files in repo
-    ignored_parts = {".git", ".sacas", "__pycache__", "Structure", "graphify-out", ".worktrees"}
-    repo_files = []
-    for path in root.rglob("*"):
-        if path.is_file():
-            relative = path.relative_to(root)
-            if not any(part in ignored_parts for part in relative.parts):
-                repo_files.append(relative.as_posix())
-
-    repo_files = sorted(repo_files)[:50]
+    repo_files = [
+        entry.path
+        for entry in iter_repo_text_files(
+            root,
+            excluded_roots=("Structure", "graphify-out", ".worktrees"),
+        )
+    ][:50]
 
     graphify_manifest_path = sacas_root / ".sacas" / "graphify.json"
     evidence = None
@@ -60,7 +59,7 @@ def run_context_simulation(installation: Installation) -> dict[str, Any]:
             pass
 
     boundaries_file = sacas_root / "rules" / "boundaries.md"
-    parsed_boundaries = parse_protected_boundaries(boundaries_file)
+    parsed_boundaries = parse_protected_boundaries(installation.repository_root, boundaries_file)
 
     baseline_sizes = []
     graphify_sizes = []

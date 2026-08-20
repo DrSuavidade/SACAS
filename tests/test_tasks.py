@@ -4,6 +4,13 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+
+
+def test_explicit_rule_or_reference_is_identified_by_its_reason() -> None:
+    from sacas.tasks import EXPLICIT_CONTEXT_REASON, is_explicit_rule_or_reference
+
+    assert is_explicit_rule_or_reference(EXPLICIT_CONTEXT_REASON)
+    assert not is_explicit_rule_or_reference("Heuristic rule match")
 import pytest
 
 
@@ -12,6 +19,10 @@ def test_task_generation_creates_files_with_stable_id(tmp_path: Path) -> None:
     from sacas.tasks import generate_task
 
     init_result = initialize(tmp_path)
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "auth.py").write_text("def login():\n    pass\n", encoding="utf-8")
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "test_auth.py").write_text("def test_login():\n    pass\n", encoding="utf-8")
     goal = "Implement login authentication"
     
     # Run task generation
@@ -110,6 +121,9 @@ def test_task_protected_boundaries(tmp_path: Path) -> None:
     boundaries_file.write_text(
         "MANUAL src/sensitive/ | Sensitive logic\n", encoding="utf-8"
     )
+    (tmp_path / "src" / "sensitive").mkdir(parents=True)
+    (tmp_path / "src" / "sensitive" / "secret.py").write_text("secret = 1\n", encoding="utf-8")
+    (tmp_path / "src" / "safe.py").write_text("safe = 1\n", encoding="utf-8")
 
     generate_task(
         init_result.installation,

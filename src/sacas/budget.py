@@ -100,6 +100,14 @@ def calculate_total_context_size(installation, files: tuple[str, ...], tokenizer
                 pass
         return 0
 
+    def add_repository_file_tokens(path: Path) -> int:
+        """Count repository-owned docs only through the secure text boundary."""
+        try:
+            relative = path.relative_to(installation.repository_root).as_posix()
+            return estimate_tokens(read_repo_text(installation.repository_root, relative), tokenizer)
+        except (ValueError, FileNotFoundError, OSError):
+            return 0
+
     total_tokens += add_file_tokens(installation.sacas_root / "ROUTER.md")
     task_dir = installation.sacas_root / "tasks" / "current"
     total_tokens += add_file_tokens(task_dir / "TASK.md")
@@ -110,13 +118,13 @@ def calculate_total_context_size(installation, files: tuple[str, ...], tokenizer
     if rules_dir.is_dir():
         for p in rules_dir.rglob("*"):
             if p.is_file():
-                total_tokens += add_file_tokens(p)
+                total_tokens += add_repository_file_tokens(p)
 
     refs_dir = installation.sacas_root / "references"
     if refs_dir.is_dir():
         for p in refs_dir.rglob("*"):
             if p.is_file():
-                total_tokens += add_file_tokens(p)
+                total_tokens += add_repository_file_tokens(p)
 
     return total_tokens
 
@@ -131,6 +139,14 @@ def get_detailed_context_breakdown(installation, files: tuple[str, ...], tokeniz
                 pass
         return 0
 
+    def add_repository_file_tokens(path: Path) -> int:
+        """Count repository-owned docs only through the secure text boundary."""
+        try:
+            relative = path.relative_to(installation.repository_root).as_posix()
+            return estimate_tokens(read_repo_text(installation.repository_root, relative), tokenizer)
+        except (ValueError, FileNotFoundError, OSError):
+            return 0
+
     source_tokens = calculate_context_size(installation.repository_root, files, tokenizer)
     router_tokens = add_file_tokens(installation.sacas_root / "ROUTER.md")
 
@@ -144,14 +160,14 @@ def get_detailed_context_breakdown(installation, files: tuple[str, ...], tokeniz
     if rules_dir.is_dir():
         for p in rules_dir.rglob("*"):
             if p.is_file():
-                rules_tokens += add_file_tokens(p)
+                rules_tokens += add_repository_file_tokens(p)
 
     refs_tokens = 0
     refs_dir = installation.sacas_root / "references"
     if refs_dir.is_dir():
         for p in refs_dir.rglob("*"):
             if p.is_file():
-                refs_tokens += add_file_tokens(p)
+                refs_tokens += add_repository_file_tokens(p)
 
     return {
         "source": source_tokens,

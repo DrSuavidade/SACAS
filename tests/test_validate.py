@@ -84,6 +84,35 @@ def test_validate_detects_budget_overrun(tmp_path: Path) -> None:
     assert any(item["check"] == "budget_limit" for item in report["diagnostics"])
 
 
+def test_validate_reports_invalid_symbol_range_for_a_readable_file(tmp_path: Path) -> None:
+    """Range validation must run after a successful source read too."""
+    from sacas.cli import main
+    from sacas.init import initialize
+    from sacas.validate import run_diagnostics
+
+    initialization = initialize(tmp_path)
+    source = tmp_path / "src" / "app.py"
+    source.parent.mkdir()
+    source.write_text("def app():\n    return 1\n", encoding="utf-8")
+    assert main(["task", "Validate a range", "--root", str(tmp_path), "--files", "src/app.py"]) == 0
+
+    context_path = initialization.sacas_root / "tasks" / "current" / "active_context.json"
+    context = json.loads(context_path.read_text(encoding="utf-8"))
+    context["files"][0]["selection"] = {
+        "mode": "symbols",
+        "symbols": [{
+            "name": "app",
+            "range": {"start_line": 3, "end_line": 1, "source": "explicit", "confidence": 1.0},
+            "reason": "test",
+        }],
+    }
+    context_path.write_text(json.dumps(context), encoding="utf-8")
+
+    report = run_diagnostics(tmp_path)
+
+    assert any(item["check"] == "invalid_range" for item in report["diagnostics"])
+
+
 def test_validate_detects_empty_scope(tmp_path: Path) -> None:
     from sacas.cli import main
     from sacas.init import initialize

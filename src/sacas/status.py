@@ -6,6 +6,7 @@ import hashlib
 import json
 from typing import Any
 from sacas.budget import calculate_context_size
+from sacas.io import read_repo_source_bytes, read_repo_text
 from sacas.paths import Installation
 
 
@@ -47,15 +48,11 @@ def get_status_report(installation: Installation) -> dict[str, Any]:
         else:
             expanded_files.append(f.path)
 
-        f_path = installation.repository_root / f.path
-        if f_path.is_file():
-            try:
-                curr_hash = hashlib.sha256(f_path.read_bytes()).hexdigest()
+        try:
+                curr_hash = hashlib.sha256(read_repo_source_bytes(installation.repository_root, f.path)).hexdigest()
                 if curr_hash != f.hash:
                     stale_files.append(f.path)
-            except OSError:
-                stale_files.append(f.path)
-        else:
+        except (ValueError, FileNotFoundError, OSError):
             stale_files.append(f.path)
 
     status = "stale" if stale_files else "fresh"
@@ -63,11 +60,10 @@ def get_status_report(installation: Installation) -> dict[str, Any]:
     breakdown_obj = calculate_manifest_tokens(installation, manifest)
     
     def f_tokens(path: Path) -> int:
-        if path.is_file():
-            try:
-                return estimate_tokens(path.read_text(encoding="utf-8", errors="ignore"))
-            except OSError:
-                pass
+        try:
+            return estimate_tokens(read_repo_text(path.parent, path.name, allow_ignored=True))
+        except (ValueError, FileNotFoundError, OSError):
+            pass
         return 0
 
     breakdown = {
