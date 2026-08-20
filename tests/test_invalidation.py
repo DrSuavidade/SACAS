@@ -97,17 +97,16 @@ def temp_repo_with_graph() -> Path:
 
 
 def test_compute_graph_snapshot_hash(fake_installation: FakeInstallation):
-    """Test computing graph snapshot hash."""
-    # No graphify.json - need to ensure it doesn't exist
-    graph_dir = fake_installation.sacas_root / ".sacas"
-    graph_file = graph_dir / "graphify.json"
-    if graph_file.exists():
-        graph_file.unlink()
+    """The fingerprint belongs to configured raw graph.json, not SACAS metadata."""
+    fake_installation.manifest.graphify_mode = "existing"
+    fake_installation.manifest.graphify_output = "custom-output"
+    graph_dir = fake_installation.repository_root / "custom-output"
+    graph_file = graph_dir / "graph.json"
     
     hash_val = _compute_graph_snapshot_hash(fake_installation)
     assert hash_val == ""
     
-    # With graphify.json
+    # With raw graph.json
     graph_dir.mkdir(parents=True, exist_ok=True)
     graph_file.write_text('{"nodes": [], "edges": []}')
     
@@ -151,7 +150,7 @@ def test_is_graph_changed(fake_installation: FakeInstallation):
     # Same hash - should not be changed
     assert _is_graph_changed(manifest, "sha256:old") == False
     
-    # Manifest has no graph hash - no change regardless of current
+    # A newly available graph is an invalidation too: it changes routing inputs.
     manifest_no_graph = ActiveContextManifest(
         task_id="test",
         task_contract_hash="sha256:task",
@@ -163,7 +162,7 @@ def test_is_graph_changed(fake_installation: FakeInstallation):
         category="investigate"
     )
     assert _is_graph_changed(manifest_no_graph, "") == False
-    assert _is_graph_changed(manifest_no_graph, "sha256:new") == False
+    assert _is_graph_changed(manifest_no_graph, "sha256:new") == True
 
 
 def test_is_task_changed(fake_installation: FakeInstallation):

@@ -229,3 +229,318 @@ def test_refresh_preserves_contract_criteria_constraints_verification(tmp_path: 
     assert contract_after.criteria == ("Criteria-A", "Criteria-B")
     assert contract_after.constraints == ("Constraint-C",)
     assert contract_after.verification == ("Verify-D",)
+
+
+def test_refresh_converges_contract_fingerprint_and_context_pack_in_one_run(tmp_path: Path) -> None:
+    """Editing task.json cannot leave the manifest and compiled pack on the old contract."""
+    from sacas.compiler import read_context_pack
+    from sacas.init import initialize
+    from sacas.paths import discover_manifest
+    from sacas.refresh import refresh_context
+    from sacas.task_contract import TaskContract, save_task_contract, task_contract_hash
+    from sacas.active_context import load_active_context
+
+    initialized = initialize(tmp_path, graphify_mode="off")
+    source = tmp_path / "src" / "auth.py"
+    source.parent.mkdir()
+    source.write_text("def login(): pass\n", encoding="utf-8")
+    from sacas.tasks import generate_task
+    generate_task(initialized.installation, "Update auth", files=("src/auth.py",))
+
+    task_dir = initialized.sacas_root / "tasks" / "current"
+    changed_contract = TaskContract(
+        schema_version=1,
+        task_id="task-contract-identifier",
+        goal="Investigate payment ledger failures",
+        category="bugfix",
+        criteria=("new criterion",),
+        constraints=(),
+        verification=(),
+    )
+    save_task_contract(task_dir, changed_contract)
+
+    refreshed_installation = discover_manifest(tmp_path)
+    assert refreshed_installation is not None
+    assert refresh_context(refreshed_installation) is True
+
+    manifest = load_active_context(task_dir)
+    assert manifest is not None
+    expected = task_contract_hash(changed_contract)
+    assert manifest.task_id == changed_contract.task_id
+    assert manifest.goal == changed_contract.goal
+    assert manifest.category == changed_contract.category
+    assert manifest.task_contract_hash == expected
+    header, _ = read_context_pack(initialized.sacas_root / ".sacas" / "runtime" / "context.pack.jsonl")
+    assert header.task_id == changed_contract.task_id
+    assert header.task_contract_hash == expected
+
+    # A converged contract must not keep causing a rewrite on every refresh.
+    manifest_identity = (task_dir / "active_context.json").read_bytes()
+    pack_path = initialized.sacas_root / ".sacas" / "runtime" / "context.pack.jsonl"
+    pack_identity = pack_path.read_bytes()
+    assert refresh_context(discover_manifest(tmp_path)) is False
+    assert (task_dir / "active_context.json").read_bytes() == manifest_identity
+    assert pack_path.read_bytes() == pack_identity
+
+
+def _configure_custom_graph_output(repository: Path, output: str, mode: str = "existing") -> None:
+    """Persist a normal installation configuration; routing reads graph bytes directly."""
+    manifest_path = repository / "Structure" / ".sacas" / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["graphify_mode"] = mode
+    manifest["graphify_output"] = output
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+
+def _custom_graph_provider(monkeypatch: pytest.MonkeyPatch, repository: Path, output: str) -> None:
+    from sacas.graphify import JsonGraphifyProvider
+
+    graph_path = repository / output / "graph.json"
+
+    class QueryableJsonProvider(JsonGraphifyProvider):
+        # This is a test adapter for a configured graph file.  Production may
+        # select a CLI provider; the scenario needs deterministic real JSON
+        # query behavior without consulting SACAS graphify metadata.
+        def verify_capabilities(self, required: set[str]) -> bool:
+            return self._read_data() is not None
+
+    monkeypatch.setattr(
+        "sacas.graphify.get_graphify_provider",
+        lambda *_args, **_kwargs: QueryableJsonProvider(graph_path, repository),
+    )
+
+
+def _write_graph(path: Path, target: str) -> bytes:
+    raw = json.dumps({"nodes": [{"id": target, "path": target}], "edges": []}).encode("utf-8")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(raw)
+    return raw
+
+
+def test_custom_graph_bytes_drive_refresh_identity_reroute_and_convergence(tmp_path: Path) -> None:
+    """A configured custom graph is canonical input, including raw-byte-only changes."""
+    import hashlib
+    from sacas.active_context import load_active_context
+    from sacas.compiler import read_context_pack
+    from sacas.init import initialize
+    from sacas.paths import discover_manifest
+    from sacas.refresh import refresh_context
+    from sacas.tasks import generate_task
+
+    initialize(tmp_path, graphify_mode="existing")
+    _configure_custom_graph_output(tmp_path, "custom-graph")
+    source = tmp_path / "src" / "auth.py"
+    source.parent.mkdir()
+    source.write_text("def login(): pass\n", encoding="utf-8")
+    graph_path = tmp_path / "custom-graph" / "graph.json"
+    first_raw = _write_graph(graph_path, "src/auth.py")
+    installation = discover_manifest(tmp_path)
+    assert installation is not None
+    generate_task(installation, "auth.py")
+    task_dir = tmp_path / "Structure" / "tasks" / "current"
+    first_manifest = load_active_context(task_dir)
+    assert first_manifest is not None
+    assert first_manifest.graph_snapshot_hash == hashlib.sha256(first_raw).hexdigest()
+    assert any(item.source == "graphify" for item in first_manifest.files)
+
+    # Semantically identical JSON with different raw bytes is a distinct evidence snapshot.
+    second_raw = first_raw + b"\n"
+    graph_path.write_bytes(second_raw)
+    assert refresh_context(discover_manifest(tmp_path)) is True
+    refreshed = load_active_context(task_dir)
+    assert refreshed is not None
+    assert refreshed.graph_snapshot_hash == hashlib.sha256(second_raw).hexdigest()
+    assert any(event.source == "graphify" for event in refreshed.events)
+    header, _ = read_context_pack(tmp_path / "Structure" / ".sacas" / "runtime" / "context.pack.jsonl")
+    assert header.graph_snapshot_hash == hashlib.sha256(second_raw).hexdigest()
+    assert refresh_context(discover_manifest(tmp_path)) is False
+
+
+def test_graph_mode_off_and_graph_deletion_clear_identity_then_converge(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Removing configured graph evidence never preserves a stale snapshot identity."""
+    from sacas.active_context import load_active_context
+    from sacas.init import initialize
+    from sacas.paths import discover_manifest
+    from sacas.refresh import refresh_context
+    from sacas.tasks import generate_task
+
+    initialize(tmp_path, graphify_mode="existing")
+    _configure_custom_graph_output(tmp_path, "custom-graph")
+    source = tmp_path / "src" / "auth.py"
+    source.parent.mkdir()
+    source.write_text("def login(): pass\n", encoding="utf-8")
+    graph_path = tmp_path / "custom-graph" / "graph.json"
+    _write_graph(graph_path, "src/auth.py")
+    _custom_graph_provider(monkeypatch, tmp_path, "custom-graph")
+    installation = discover_manifest(tmp_path)
+    assert installation is not None
+    generate_task(installation, "auth.py")
+    task_dir = tmp_path / "Structure" / "tasks" / "current"
+
+    _configure_custom_graph_output(tmp_path, "custom-graph", mode="off")
+    assert refresh_context(discover_manifest(tmp_path)) is True
+    off_manifest = load_active_context(task_dir)
+    assert off_manifest is not None
+    assert off_manifest.graph_snapshot_hash == ""
+    assert any(item.source == "heuristic" for item in off_manifest.files)
+    assert refresh_context(discover_manifest(tmp_path)) is False
+
+    _configure_custom_graph_output(tmp_path, "custom-graph", mode="existing")
+    graph_path.unlink()
+    assert refresh_context(discover_manifest(tmp_path)) is False
+    deleted_manifest = load_active_context(task_dir)
+    assert deleted_manifest is not None
+    assert deleted_manifest.graph_snapshot_hash == ""
+
+
+def test_deleting_a_configured_graph_clears_identity_uses_fallback_and_converges(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Deletion is an invalidation event even when the graph had previously routed matches."""
+    from sacas.active_context import load_active_context
+    from sacas.init import initialize
+    from sacas.paths import discover_manifest
+    from sacas.refresh import refresh_context
+    from sacas.tasks import generate_task
+
+    initialize(tmp_path, graphify_mode="existing")
+    _configure_custom_graph_output(tmp_path, "custom-graph")
+    source = tmp_path / "src" / "auth.py"
+    source.parent.mkdir()
+    source.write_text("def login(): pass\n", encoding="utf-8")
+    graph_path = tmp_path / "custom-graph" / "graph.json"
+    _write_graph(graph_path, "src/auth.py")
+    _custom_graph_provider(monkeypatch, tmp_path, "custom-graph")
+    installation = discover_manifest(tmp_path)
+    assert installation is not None
+    generate_task(installation, "auth.py")
+
+    graph_path.unlink()
+    assert refresh_context(discover_manifest(tmp_path)) is True
+    task_dir = tmp_path / "Structure" / "tasks" / "current"
+    deleted_manifest = load_active_context(task_dir)
+    assert deleted_manifest is not None
+    assert deleted_manifest.graph_snapshot_hash == ""
+    assert any(item.source == "heuristic" for item in deleted_manifest.files)
+    assert refresh_context(discover_manifest(tmp_path)) is False
+
+
+@pytest.mark.parametrize("provider_result", ("failure", "no_matches"))
+def test_graph_fallback_keeps_valid_raw_identity_and_converges(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, provider_result: str
+) -> None:
+    """Optional Graphify failures retain valid evidence identity while using lexical routing."""
+    import hashlib
+    from sacas.active_context import load_active_context
+    from sacas.graphify import GraphifyQueryResult, JsonGraphifyProvider
+    from sacas.init import initialize
+    from sacas.paths import discover_manifest
+    from sacas.refresh import refresh_context
+    from sacas.tasks import generate_task
+
+    initialize(tmp_path, graphify_mode="existing")
+    _configure_custom_graph_output(tmp_path, "custom-graph")
+    source = tmp_path / "src" / "auth.py"
+    source.parent.mkdir()
+    source.write_text("def login(): pass\n", encoding="utf-8")
+    raw = _write_graph(tmp_path / "custom-graph" / "graph.json", "src/auth.py")
+
+    class FallbackProvider(JsonGraphifyProvider):
+        def verify_capabilities(self, required: set[str]) -> bool:
+            return True
+
+        def query(self, goal: str, graph_path: Path, *, token_budget: int | None = None):
+            if provider_result == "failure":
+                return None
+            return GraphifyQueryResult(
+                status="success", nodes=(), edges=(), raw_output="no matches", paths=()
+            )
+
+    graph_path = tmp_path / "custom-graph" / "graph.json"
+    monkeypatch.setattr(
+        "sacas.graphify.get_graphify_provider",
+        lambda *_args, **_kwargs: FallbackProvider(graph_path, tmp_path),
+    )
+    installation = discover_manifest(tmp_path)
+    assert installation is not None
+    generate_task(installation, "auth.py")
+
+    task_dir = tmp_path / "Structure" / "tasks" / "current"
+    manifest = load_active_context(task_dir)
+    assert manifest is not None
+    assert manifest.graph_snapshot_hash == hashlib.sha256(raw).hexdigest()
+    assert any(item.source == "heuristic" for item in manifest.files)
+    assert any(event.source == "heuristic" for event in manifest.events)
+    assert refresh_context(discover_manifest(tmp_path)) is False
+
+
+@pytest.mark.parametrize("provider_result", ("failure", "no_matches"))
+def test_graph_refresh_fallback_replaces_stale_graph_provenance_and_converges(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, provider_result: str
+) -> None:
+    """A changed valid graph that cannot route must replace, not retain, old graph admissions."""
+    import hashlib
+    from sacas.active_context import load_active_context
+    from sacas.compiler import read_context_pack
+    from sacas.graphify import GraphifyQueryResult, JsonGraphifyProvider
+    from sacas.init import initialize
+    from sacas.paths import discover_manifest
+    from sacas.refresh import refresh_context
+    from sacas.tasks import generate_task
+
+    initialize(tmp_path, graphify_mode="existing")
+    _configure_custom_graph_output(tmp_path, "custom-graph")
+    source = tmp_path / "src" / "auth.py"
+    source.parent.mkdir()
+    source.write_text("def login(): pass\n", encoding="utf-8")
+    graph_path = tmp_path / "custom-graph" / "graph.json"
+    _write_graph(graph_path, "src/auth.py")
+
+    phase = "matching"
+
+    class LifecycleProvider(JsonGraphifyProvider):
+        def verify_capabilities(self, required: set[str]) -> bool:
+            return True
+
+        def query(self, goal: str, graph_file: Path, *, token_budget: int | None = None):
+            if phase == "matching":
+                return super().query(goal, graph_file, token_budget=token_budget)
+            if provider_result == "failure":
+                return None
+            return GraphifyQueryResult("success", (), (), "no matches", paths=())
+
+    monkeypatch.setattr(
+        "sacas.graphify.get_graphify_provider",
+        lambda *_args, **_kwargs: LifecycleProvider(graph_path, tmp_path),
+    )
+    installation = discover_manifest(tmp_path)
+    assert installation is not None
+    generate_task(installation, "auth.py")
+    task_dir = tmp_path / "Structure" / "tasks" / "current"
+    initial = load_active_context(task_dir)
+    assert initial is not None
+    assert any(item.source == "graphify" for item in initial.files)
+    assert any(event.source == "graphify" for event in initial.events)
+
+    phase = "fallback"
+    new_raw = graph_path.read_bytes() + b"\n"
+    graph_path.write_bytes(new_raw)
+    assert refresh_context(discover_manifest(tmp_path)) is True
+
+    refreshed = load_active_context(task_dir)
+    assert refreshed is not None
+    expected_hash = hashlib.sha256(new_raw).hexdigest()
+    assert refreshed.graph_snapshot_hash == expected_hash
+    assert not any(item.source == "graphify" for item in refreshed.files)
+    assert not any(event.source == "graphify" for event in refreshed.events)
+    assert any(item.source == "heuristic" for item in refreshed.files)
+    assert any(event.source == "heuristic" for event in refreshed.events)
+    pack_path = tmp_path / "Structure" / ".sacas" / "runtime" / "context.pack.jsonl"
+    header, _ = read_context_pack(pack_path)
+    assert header.graph_snapshot_hash == expected_hash
+
+    pack_bytes = pack_path.read_bytes()
+    assert refresh_context(discover_manifest(tmp_path)) is False
+    assert pack_path.read_bytes() == pack_bytes

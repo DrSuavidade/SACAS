@@ -307,7 +307,7 @@ def route_goal(
     task_contract_hash: str | None = None
 ) -> ActiveContextManifest:
     """Collect initial context files, resolving Graphify structural seed hits or fallback lexical matches."""
-    from sacas.graphify import get_graphify_provider
+    from sacas.graphify import get_graphify_provider, resolve_graph_routing_outcome
     from sacas.enforce import negotiate_policy
     task_id = hashlib.sha256(goal.strip().encode("utf-8")).hexdigest()[:8]
     old_manifest = installation.manifest
@@ -460,11 +460,17 @@ def route_goal(
         graphify_success = False
         if old_manifest.graphify_mode != "off":
             provider = get_graphify_provider(installation, required={"query"})
-            if provider.verify_capabilities(required={"query"}):
-                graph_path = installation.repository_root / old_manifest.graphify_output / "graph.json"
-                # Wire retrieval budget into provider.query!
-                query_res = provider.query(goal, graph_path, token_budget=retrieval_budget)
-                if query_res and provider.validate_query_contract(query_res):
+            graph_relative = f"{old_manifest.graphify_output}/graph.json"
+            outcome = resolve_graph_routing_outcome(
+                installation.repository_root,
+                graph_relative,
+                goal,
+                provider,
+                token_budget=retrieval_budget,
+            )
+            graph_snapshot_hash = outcome.snapshot_hash
+            query_res = outcome.query_result
+            if not outcome.use_lexical_fallback and query_res is not None:
                     path_to_node = {n.path: n for n in query_res.nodes if n.path}
                     for path in query_res.paths:
                         from sacas.paths import resolve_repo_path

@@ -7,7 +7,7 @@ consumes ``graphify-out/graph.json`` or asks Graphify itself to produce it.
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import hashlib
 import json
 from pathlib import Path
@@ -355,6 +355,75 @@ class GraphifyQueryResult:
     query_id: str = ""
 
 
+@dataclass(frozen=True, slots=True)
+class GraphRoutingOutcome:
+    """One explicit result for every graph-routing attempt.
+
+    ``snapshot_hash`` is always derived from the validated raw ``graph.json``
+    bytes.  It deliberately never uses the generated SACAS Graphify manifest.
+    """
+
+    snapshot_hash: str
+    query_result: GraphifyQueryResult | None
+    use_lexical_fallback: bool
+    warning: str = ""
+
+
+def raw_graph_snapshot_hash(repository_root: Path, graph_relative_path: str) -> str:
+    """Return the raw secure graph snapshot identity, or no identity."""
+    raw, _ = read_graph_snapshot(repository_root, graph_relative_path)
+    return hashlib.sha256(raw).hexdigest()
+
+
+def resolve_graph_routing_outcome(
+    repository_root: Path,
+    graph_relative_path: str,
+    goal: str,
+    provider: "GraphifyProvider",
+    *,
+    token_budget: int | None = None,
+) -> GraphRoutingOutcome:
+    """Query optional graph evidence with deterministic lexical degradation."""
+    try:
+        snapshot_hash = raw_graph_snapshot_hash(repository_root, graph_relative_path)
+    except GraphSnapshotError:
+        return GraphRoutingOutcome(
+            snapshot_hash="",
+            query_result=None,
+            use_lexical_fallback=True,
+            warning="Graphify snapshot unavailable; using lexical fallback",
+        )
+
+    graph_path = repository_root / graph_relative_path
+    try:
+        capable = provider.verify_capabilities(required={"query"})
+        result = provider.query(goal, graph_path, token_budget=token_budget) if capable else None
+        if result is not None and not provider.validate_query_contract(result):
+            result = None
+    except Exception:
+        # Graphify is optional.  Its provider boundary must never prevent the
+        # caller from retaining the validated snapshot identity and routing
+        # lexically instead.
+        result = None
+    if result is not None:
+        result = replace(result, graph_snapshot_hash=snapshot_hash)
+    if result is None or not result.paths:
+        return GraphRoutingOutcome(
+            snapshot_hash=snapshot_hash,
+            query_result=result,
+            use_lexical_fallback=True,
+            warning=(
+                "Graphify query produced no usable matches; retry via `sacas map` "
+                "or task reroute; using lexical fallback"
+            ),
+        )
+    return GraphRoutingOutcome(
+        snapshot_hash=snapshot_hash,
+        query_result=result,
+        use_lexical_fallback=False,
+    )
+
+
 
 class GraphifyAdapter:
     """A verified interface to the external Graphify package."""
@@ -432,11 +501,11 @@ class GraphifyAdapter:
             completed = subprocess.run(cmd, capture_output=True, text=True, check=False)
             if completed.returncode != 0:
                 return None
-            return self._parse_query_output(completed.stdout)
+            return self._parse_query_output(completed.stdout, graph_path)
         except OSError:
             return None
 
-    def _parse_query_output(self, raw_output: str) -> GraphifyQueryResult:
+    def _parse_query_output(self, raw_output: str, graph_path: Path | None = None) -> GraphifyQueryResult:
         """Parse CLI query output into structured nodes and edges."""
         import re
         nodes = []
@@ -522,13 +591,13 @@ class GraphifyAdapter:
         else:
             status = "success"
 
-        # Compute graph snapshot hash from the graph.json file
-        graph_path = Path(self.repository_root) / "graphify-out" / "graph.json"
+        # Compute the identity from the exact snapshot passed to this query.
+        snapshot_path = graph_path or (Path(self.repository_root) / "graphify-out" / "graph.json")
         graph_snapshot_hash = ""
         try:
-            raw, _ = read_graph_snapshot(self.repository_root, "graphify-out/graph.json")
-            graph_snapshot_hash = hashlib.sha256(raw).hexdigest()
-        except GraphSnapshotError:
+            relative = snapshot_path.resolve().relative_to(self.repository_root.resolve()).as_posix()
+            graph_snapshot_hash = raw_graph_snapshot_hash(self.repository_root, relative)
+        except (GraphSnapshotError, ValueError):
             pass
         
         # Generate a query ID
@@ -645,7 +714,7 @@ class JsonGraphifyProvider(GraphifyProvider):
         self.graph_path = graph_path
         self.repository_root = repository_root or graph_path.parent
         self.capabilities = GraphCapabilities(
-            query=False,
+            query=True,
             neighbors=True,
             communities=True,
             symbol_locations=False
@@ -727,7 +796,11 @@ class JsonGraphifyProvider(GraphifyProvider):
                 nodes=tuple(nodes_list),
                 edges=tuple(edges_list),
                 raw_output=json.dumps(data),
-                paths=tuple(dict.fromkeys(paths))
+                paths=tuple(dict.fromkeys(paths)),
+                graph_snapshot_hash=raw_graph_snapshot_hash(
+                    self.repository_root,
+                    self.graph_path.relative_to(self.repository_root).as_posix(),
+                ),
             )
         except (GraphSnapshotError, OSError, ValueError, json.JSONDecodeError):
             return None
@@ -782,7 +855,7 @@ def get_graphify_provider(installation: Installation, required: set[str] | None 
     if required is None:
         required = set()
     cli_provider = CliGraphifyProvider(installation.repository_root, installation.sacas_root)
-    json_path = installation.repository_root / "graphify-out" / "graph.json"
+    json_path = installation.repository_root / installation.manifest.graphify_output / "graph.json"
     json_provider = JsonGraphifyProvider(json_path, installation.repository_root)
 
     if preferred == "cli":
@@ -796,9 +869,15 @@ def get_graphify_provider(installation: Installation, required: set[str] | None 
         if cli_provider.verify_capabilities(required):
             return cli_provider
     else:  # auto
-        if not required or required.issubset({"neighbors", "communities"}):
-            if json_provider.verify_capabilities(required):
-                return json_provider
+        # The CLI remains the richer default provider for Graphify's standard
+        # output.  A configured non-standard output is necessarily served by
+        # the validated JSON provider, because it is the exact snapshot that
+        # the installation declares as canonical input.
+        if (
+            installation.manifest.graphify_output != "graphify-out"
+            and json_provider.verify_capabilities(required)
+        ):
+            return json_provider
         if cli_provider.verify_capabilities(required):
             return cli_provider
         if json_provider.verify_capabilities(required):

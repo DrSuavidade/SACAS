@@ -6,7 +6,7 @@ import hashlib
 import json
 from dataclasses import replace
 from pathlib import Path
-from sacas.graphify import read_graphify_manifest
+from sacas.graphify import GraphSnapshotError, raw_graph_snapshot_hash, read_graphify_manifest
 from sacas.io import stable_json, write_text_atomic, read_repo_source_bytes
 from sacas.paths import Installation
 from sacas.tasks import (
@@ -15,17 +15,19 @@ from sacas.tasks import (
     regenerate_task_markdown,
 )
 from sacas.active_context import load_active_context, load_task_state, save_active_context, ActiveFileContext
+from sacas.task_contract import TaskContract, load_task_contract, task_contract_hash
 
 
 def _compute_graph_snapshot_hash(installation: Installation) -> str:
-    """Compute hash of graphify.json snapshot."""
-    graphify_manifest_path = installation.sacas_root / ".sacas" / "graphify.json"
-    if not graphify_manifest_path.is_file():
+    """Compute the raw configured graph.json identity through its secure reader."""
+    if installation.manifest.graphify_mode == "off":
         return ""
     try:
-        content = graphify_manifest_path.read_bytes()
-        return hashlib.sha256(content).hexdigest()
-    except OSError:
+        return raw_graph_snapshot_hash(
+            installation.repository_root,
+            f"{installation.manifest.graphify_output}/graph.json",
+        )
+    except GraphSnapshotError:
         return ""
 
 
@@ -51,14 +53,16 @@ def _is_task_changed(manifest: ActiveContextManifest, task_dir: Path) -> bool:
     return manifest.task_contract_hash != current_hash
 
 
+def task_contract_hash_for_refresh(task_dir: Path, fallback_hash: str) -> str:
+    """Use the current canonical task contract when a refresh rebuilds context."""
+    from sacas.task_contract import load_task_contract, task_contract_hash
+
+    contract = load_task_contract(task_dir)
+    return task_contract_hash(contract) if contract is not None else fallback_hash
+
+
 def _is_graph_changed(manifest: ActiveContextManifest, current_graph_hash: str) -> bool:
     """Check if graph snapshot has changed."""
-    # If manifest has no graph hash, it wasn't using graphify
-    if not manifest.graph_snapshot_hash:
-        return False
-    # If current graph hash is empty, graphify.json was removed
-    if not current_graph_hash:
-        return True
     return manifest.graph_snapshot_hash != current_graph_hash
 
 
@@ -114,6 +118,9 @@ def refresh_context(
     manifest, contract = load_task_state(task_dir)
     if manifest is None:
         raise ValueError("Active task metadata (active_context.json) is missing or unreadable.")
+    # task.json is canonical when a refresh reroutes; load_task_state deliberately
+    # withholds it on an ID mismatch, so read it directly for convergence.
+    canonical_contract = contract or load_task_contract(task_dir)
 
     changed = False
     updated_files = []
@@ -159,7 +166,10 @@ def refresh_context(
     # 2. Check for invalidation triggers
     current_graph_hash = _compute_graph_snapshot_hash(installation)
     graph_changed = _is_graph_changed(manifest, current_graph_hash)
-    task_changed = _is_task_changed(manifest, task_dir)
+    task_changed = (
+        canonical_contract is not None
+        and manifest.task_contract_hash != task_contract_hash(canonical_contract)
+    )
 
     # Determine what needs re-routing
     needs_reroute = False
@@ -212,11 +222,23 @@ def refresh_context(
         manifest = _re_route_files(
             installation, manifest, reroute_files, reroute_symbols, task_dir,
             full_reroute=full_reroute,
-            graph_rediscovery=graph_rediscovery
+            graph_rediscovery=graph_rediscovery,
+            contract=canonical_contract,
         )
         changed = True
         # Update graph snapshot hash after re-routing
-        manifest = replace(manifest, graph_snapshot_hash=current_graph_hash)
+        manifest = replace(
+            manifest,
+            task_id=canonical_contract.task_id if canonical_contract else manifest.task_id,
+            goal=canonical_contract.goal if canonical_contract else manifest.goal,
+            category=canonical_contract.category if canonical_contract else manifest.category,
+            task_contract_hash=(
+                task_contract_hash(canonical_contract)
+                if canonical_contract
+                else manifest.task_contract_hash
+            ),
+            graph_snapshot_hash=current_graph_hash,
+        )
         save_active_context(task_dir, manifest)
 
     # 5. Scope expansion analysis to output candidates.json (only if NOT selective refresh)
@@ -249,10 +271,13 @@ def _re_route_files(
     reroute_symbols: set[str],
     task_dir: Path,
     full_reroute: bool = False,
-    graph_rediscovery: bool = False
+    graph_rediscovery: bool = False,
+    contract: TaskContract | None = None,
 ) -> ActiveContextManifest:
     """Re-route specified files/symbols or do full re-route if full_reroute=True."""
     from sacas.tasks import route_goal
+    routing_goal = contract.goal if contract else manifest.goal
+    routing_category = contract.category if contract else manifest.category
     
     if full_reroute:
         # Full re-route: run discovery from scratch with the task goal
@@ -263,15 +288,15 @@ def _re_route_files(
         
         new_manifest = route_goal(
             installation=installation,
-            goal=manifest.goal,
-            category=manifest.category,
+            goal=routing_goal,
+            category=routing_category,
             files=(),
             symbols=(),
             tests=explicit_tests,
             rules=explicit_rules,
             references=explicit_refs,
             context_policy="advisory",
-            task_contract_hash=manifest.task_contract_hash
+            task_contract_hash=task_contract_hash_for_refresh(task_dir, manifest.task_contract_hash)
         )
         
         # Preserve explicit files (they were manually admitted)
@@ -290,15 +315,15 @@ def _re_route_files(
         
         new_manifest = route_goal(
             installation=installation,
-            goal=manifest.goal,
-            category=manifest.category,
+            goal=routing_goal,
+            category=routing_category,
             files=(),
             symbols=(),
             tests=explicit_tests,
             rules=explicit_rules,
             references=explicit_refs,
             context_policy="advisory",
-            task_contract_hash=manifest.task_contract_hash
+            task_contract_hash=task_contract_hash_for_refresh(task_dir, manifest.task_contract_hash)
         )
         
         final_files = list(explicit_files) + list(new_manifest.files)
@@ -310,15 +335,15 @@ def _re_route_files(
         # Partial re-route: re-route only specified files/symbols
         new_manifest = route_goal(
             installation=installation,
-            goal=manifest.goal,
-            category=manifest.category,
+            goal=routing_goal,
+            category=routing_category,
             files=tuple(reroute_files),
             symbols=tuple(reroute_symbols),
             tests=tuple(manifest.tests),
             rules=tuple(r.path for r in manifest.rules),
             references=tuple(ref.path for ref in manifest.references),
             context_policy="advisory",
-            task_contract_hash=manifest.task_contract_hash
+            task_contract_hash=task_contract_hash_for_refresh(task_dir, manifest.task_contract_hash)
         )
         
         # Keep unaffected files as-is
@@ -336,8 +361,9 @@ def _re_route_files(
     merged_files = list(file_map.values())
     
     # Merge events: keep unaffected events, add new ones
-    if full_reroute:
-        # For full re-route, preserve explicit admission events, add new ones
+    if full_reroute or graph_rediscovery:
+        # Discovery invalidations replace all derived evidence; only explicit
+        # admissions retain their identity across a full or graph reroute.
         explicit_events = [e for e in manifest.events if e.source == "explicit"]
         merged_events = explicit_events + list(new_manifest.events)
     else:
