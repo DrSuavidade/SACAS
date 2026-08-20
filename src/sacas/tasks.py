@@ -304,7 +304,13 @@ def route_goal(
     rules: tuple[str, ...] = (),
     references: tuple[str, ...] = (),
     context_policy: str = "advisory",
-    task_contract_hash: str | None = None
+    task_contract_hash: str | None = None,
+    *,
+    seed_files: tuple[ActiveFileContext, ...] = (),
+    seed_tests: tuple[str, ...] = (),
+    seed_rules: tuple[ActiveRuleContext, ...] = (),
+    seed_references: tuple[ActiveReferenceContext, ...] = (),
+    seed_events: tuple[AdmissionEvent, ...] = (),
 ) -> ActiveContextManifest:
     """Collect initial context files, resolving Graphify structural seed hits or fallback lexical matches."""
     from sacas.graphify import get_graphify_provider, resolve_graph_routing_outcome
@@ -314,8 +320,10 @@ def route_goal(
     boundaries_file = installation.sacas_root / "rules" / "boundaries.md"
     parsed_boundaries = parse_protected_boundaries(installation.repository_root, boundaries_file)
     commit = get_git_commit(installation.repository_root)
-    active_files = []
-    events = []
+    # Reroutes provide preserved explicit context as seeds.  It is admitted
+    # before discovery so the skeleton budget sees the actual retained scope.
+    active_files = list(seed_files)
+    events = list(seed_events)
     graph_snapshot_hash = ""  # Will be set if Graphify succeeds
 
     # Infer category
@@ -340,20 +348,32 @@ def route_goal(
     rules_list, refs_list = route_rules_and_references(installation.repository_root, installation.sacas_root, goal, rules, references)
 
     # Hash rules
-    hashed_rules = []
+    hashed_rules = list(seed_rules)
     for r in rules_list:
         r_hash = _source_hash(installation.repository_root, r.path)
         if r_hash is None:
             continue
         hashed_rules.append(ActiveRuleContext(path=r.path, hash=r_hash, reason=r.reason))
+        if rules:
+            events.append(AdmissionEvent(
+                id=f"evt-init-{len(events):03d}", target=r.path, action="admit",
+                source="explicit", reason=r.reason, trigger="initial_route",
+                ranking_score=1.0, confidence=1.0, evidence=("explicit_user_input", "rule"),
+            ))
 
     # Hash references
-    hashed_refs = []
+    hashed_refs = list(seed_references)
     for ref in refs_list:
         ref_hash = _source_hash(installation.repository_root, ref.path)
         if ref_hash is None:
             continue
         hashed_refs.append(ActiveReferenceContext(path=ref.path, selection=ref.selection, hash=ref_hash, reason=ref.reason))
+        if references:
+            events.append(AdmissionEvent(
+                id=f"evt-init-{len(events):03d}", target=ref.path, action="admit",
+                source="explicit", reason=ref.reason, trigger="initial_route",
+                ranking_score=1.0, confidence=1.0, evidence=("explicit_user_input", "reference"),
+            ))
 
     # 2. Process explicit files (if provided)
     if files:
@@ -409,7 +429,8 @@ def route_goal(
             ))
 
     # 3. Process tests as ordinary context with role="test"
-    for t in tests:
+    all_tests = tuple(dict.fromkeys((*seed_tests, *tests)))
+    for t in all_tests:
         from sacas.paths import resolve_repo_path
         try:
             t_rel = resolve_repo_path(installation.repository_root, t)
@@ -432,6 +453,11 @@ def route_goal(
             hash=t_hash,
             role="test"
         ))
+        events.append(AdmissionEvent(
+            id=f"evt-init-{len(events):03d}", target=t_rel, action="admit",
+            source="explicit", reason="Explicitly specified test context", trigger="initial_route",
+            ranking_score=1.0, confidence=1.0, evidence=("explicit_user_input", "test_file"),
+        ))
 
     # 4. If files were NOT explicitly provided, run Graphify/lexical routing with preventive budget
     if not files:
@@ -445,7 +471,7 @@ def route_goal(
             events=tuple(events),
             budget=None,
             policy=None,
-            tests=tests,
+            tests=all_tests,
             goal=goal,
             category=category
         )
@@ -457,7 +483,7 @@ def route_goal(
         # Confidence string to float mapping
         conf_map = {"high": 1.0, "medium": 0.7, "low": 0.4}
 
-        graphify_success = False
+        graphify_admissions = 0
         if old_manifest.graphify_mode != "off":
             provider = get_graphify_provider(installation, required={"query"})
             graph_relative = f"{old_manifest.graphify_output}/graph.json"
@@ -592,9 +618,9 @@ def route_goal(
                             graph_edge_kind=graph_edge_kind,
                             graph_confidence=graph_confidence,
                         ))
-                    graphify_success = len(active_files) > 0
+                        graphify_admissions += 1
 
-        if not graphify_success:
+        if graphify_admissions == 0:
             # Fallback Lexical Search
             fallback_results = run_fallback_routing(installation.repository_root, installation.sacas_root, goal, parsed_boundaries, commit)
             for item in fallback_results:
@@ -653,7 +679,7 @@ def route_goal(
         events=tuple(events),
         budget=None,
         policy=None,
-        tests=tests,
+        tests=all_tests,
         goal=goal,
         category=category
     )

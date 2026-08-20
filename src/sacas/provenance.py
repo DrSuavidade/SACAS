@@ -36,15 +36,14 @@ def trace_file_to_goal(installation: Installation, target_path: str, manifest: A
     )
     
     # Find the fragment in the context pack to get admission_event_ids
-    fragment = None
+    fragments = []
     try:
         pack_path = installation.sacas_root / ".sacas" / "runtime" / "context.pack.jsonl"
         if pack_path.is_file():
-            header, fragments = read_context_pack(pack_path)
-            for frag in fragments:
+            _header, pack_fragments = read_context_pack(pack_path)
+            for frag in pack_fragments:
                 if frag.source == target_path:
-                    fragment = frag
-                    break
+                    fragments.append(frag)
     except Exception:
         pass
     
@@ -55,47 +54,33 @@ def trace_file_to_goal(installation: Installation, target_path: str, manifest: A
             admission_event = event
             break
     
-    # If we have a fragment with admission_event_ids, use those
-    fragment_admission_ids = ()
-    if fragment and fragment.admission_event_ids:
-        fragment_admission_ids = fragment.admission_event_ids
-    
-    if not admission_event and not fragment_admission_ids:
+    if not admission_event and not fragments:
         return root
-    
-    # Build chain: task -> graphify/lexical evidence -> admission -> context_pack -> file
+
+    # Build a fragment-local chain.  Do not flatten IDs from sibling fragments:
+    # callers must be able to see exactly which admission produced each payload.
     children = []
-    
-    # Use fragment admission IDs if available, otherwise fall back to manifest event
-    if fragment_admission_ids:
-        # Build chain from fragment admission IDs
-        for adm_id in fragment_admission_ids:
-            # Find the admission event in manifest
-            adm_event = None
-            for event in manifest.events:
-                if event.id == adm_id:
-                    adm_event = event
-                    break
-            if adm_event:
-                # Add evidence chain for this admission
-                children.extend(_build_evidence_chain(adm_event))
-    elif admission_event:
-        # Fall back to single admission event
+    for fragment in fragments:
+        fragment_children: list[ProvenanceNode] = []
+        for admission_id in fragment.admission_event_ids:
+            event = next((candidate for candidate in manifest.events if candidate.id == admission_id), None)
+            if event is not None:
+                fragment_children.extend(_build_evidence_chain(event))
+        children.append(ProvenanceNode(
+            type="context_pack",
+            label="Context pack entry",
+            details={
+                "file": target_path,
+                "content_hash": fragment.content_hash,
+                "fragment_id": fragment.id,
+                "selector": fragment.selector,
+            },
+            children=tuple(fragment_children),
+        ))
+
+    # Older packs did not carry event IDs; retain the legacy file admission.
+    if not fragments and admission_event:
         children.extend(_build_evidence_chain(admission_event))
-    
-    # Context pack entry - read from actual pack file
-    pack_hash = _get_pack_fragment_hash(installation, target_path)
-    pack_node = ProvenanceNode(
-        type="context_pack",
-        label=f"Context pack entry",
-        details={
-            "file": target_path,
-            "content_hash": pack_hash,
-            "fragment_id": fragment.id if fragment else None,
-        },
-        children=()
-    )
-    children.append(pack_node)
     
     # File
     file_node = ProvenanceNode(
@@ -257,17 +242,6 @@ def _build_evidence_chain(admission_event: AdmissionEvent) -> list[ProvenanceNod
     children.append(admit_node)
     
     return children
-
-
-def _get_pack_fragment_hash(installation: Installation, target_path: str) -> str:
-    """Get file hash from repository."""
-    import hashlib
-    from sacas.io import read_repo_bytes
-    try:
-        content_bytes = read_repo_bytes(installation.repository_root, path)
-        return hashlib.sha256(content_bytes).hexdigest()[:16]
-    except Exception:
-        return ""
 
 
 def render_provenance_chain(node: ProvenanceNode, indent: int = 0) -> list[str]:

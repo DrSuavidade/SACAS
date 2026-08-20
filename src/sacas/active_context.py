@@ -78,16 +78,16 @@ class ActiveFileContext:
     def to_dict(self) -> dict[str, Any]:
         sel = self.selection.copy()
         if sel.get("mode") == "symbols":
-            from sacas.regions import normalize_selections
-            from sacas.active_context import ActiveSymbolContext
             symbols = []
             for s in sel.get("symbols", []):
                 if isinstance(s, dict):
                     symbols.append(ActiveSymbolContext.from_dict(s))
                 else:
                     symbols.append(s)
-            normalized = normalize_selections(tuple(symbols))
-            sel["symbols"] = [s.to_dict() for s in normalized]
+            # Persist every selector independently.  Compiler-only range
+            # merging may reduce payload size, but it must not erase the
+            # source selector identities used for refresh and provenance.
+            sel["symbols"] = [s.to_dict() for s in symbols]
         return {
             "path": self.path,
             "selection": sel,

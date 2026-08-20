@@ -785,6 +785,48 @@ def test_compiler_admission_event_ids_collected(installation: FakeInstallation):
     assert "evt-001" in fragments[0].admission_event_ids
 
 
+def test_compiler_merged_symbol_fragment_keeps_each_symbol_event(installation: FakeInstallation):
+    """One merged range must retain its constituent selectors' provenance."""
+    from sacas.active_context import AdmissionEvent, ActiveSymbolContext, SourceRange
+    manifest = ActiveContextManifest(
+        task_id="merged-events", task_contract_hash="hash", git_revision="rev",
+        files=(ActiveFileContext(
+            path="src/auth.py", source="explicit", selection={"mode": "symbols", "symbols": [
+                ActiveSymbolContext("login", SourceRange(1, 3, "parser", 1.0)),
+                ActiveSymbolContext("validate", SourceRange(3, 5, "parser", 1.0)),
+            ]},
+        ),),
+        events=(
+            AdmissionEvent("evt-login", "src/auth.py::login", "admit", "explicit", "login", "initial"),
+            AdmissionEvent("evt-validate", "src/auth.py::validate", "admit", "explicit", "validate", "initial"),
+        ),
+    )
+    _, fragments = compile_context_pack(installation, manifest)
+    assert len(fragments) == 1
+    assert fragments[0].selector == "src/auth.py::login,validate"
+    assert fragments[0].admission_event_ids == ("evt-login", "evt-validate")
+
+
+def test_compiler_merged_selector_is_sorted_independent_of_manifest_symbol_order(installation: FakeInstallation):
+    """The serialized selector remains canonical when persisted symbol order differs."""
+    from sacas.active_context import AdmissionEvent, ActiveSymbolContext, SourceRange
+    manifest = ActiveContextManifest(
+        task_id="merged-events", task_contract_hash="hash", git_revision="rev",
+        files=(ActiveFileContext(
+            path="src/auth.py", source="explicit", selection={"mode": "symbols", "symbols": [
+                ActiveSymbolContext("validate", SourceRange(3, 5, "parser", 1.0)),
+                ActiveSymbolContext("login", SourceRange(1, 3, "parser", 1.0)),
+            ]},
+        ),),
+        events=(
+            AdmissionEvent("evt-login", "src/auth.py::login", "admit", "explicit", "login", "initial"),
+            AdmissionEvent("evt-validate", "src/auth.py::validate", "admit", "explicit", "validate", "initial"),
+        ),
+    )
+    _, fragments = compile_context_pack(installation, manifest)
+    assert fragments[0].selector == "src/auth.py::login,validate"
+
+
 def test_compiler_ranking_confidence_separate(installation: FakeInstallation):
     """WP3.3: Ranking score and confidence are separate fields."""
     manifest = ActiveContextManifest(

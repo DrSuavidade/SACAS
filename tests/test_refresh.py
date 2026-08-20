@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 from pathlib import Path
 import pytest
 
@@ -281,6 +282,790 @@ def test_refresh_converges_contract_fingerprint_and_context_pack_in_one_run(tmp_
     assert refresh_context(discover_manifest(tmp_path)) is False
     assert (task_dir / "active_context.json").read_bytes() == manifest_identity
     assert pack_path.read_bytes() == pack_identity
+
+
+def test_selective_refresh_refuses_when_an_unselected_context_layer_is_stale(tmp_path: Path) -> None:
+    """A selective refresh must not publish a partially-current manifest."""
+    from dataclasses import replace
+    from sacas.active_context import ActiveFileContext, load_active_context, save_active_context
+    from sacas.init import initialize
+    from sacas.paths import discover_manifest
+    from sacas.refresh import refresh_context
+    from sacas.tasks import generate_task
+
+    initialized = initialize(tmp_path, graphify_mode="off")
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "main.py").write_text("def main(): pass\n", encoding="utf-8")
+    (tmp_path / "docs").mkdir()
+    extra = tmp_path / "docs" / "runbook.md"
+    extra.write_text("first\n", encoding="utf-8")
+    generate_task(initialized.installation, "Update main", files=("src/main.py",))
+
+    task_dir = initialized.sacas_root / "tasks" / "current"
+    manifest = load_active_context(task_dir)
+    assert manifest is not None
+    reference = ActiveFileContext(
+        path="docs/runbook.md", selection={"mode": "full"}, source="explicit",
+        hash=hashlib.sha256(extra.read_bytes()).hexdigest(), role="reference",
+        reason="explicit runbook",
+    )
+    save_active_context(task_dir, replace(manifest, reference_files=(reference,)))
+    before = (task_dir / "active_context.json").read_bytes()
+    extra.write_text("second\n", encoding="utf-8")
+
+    installation = discover_manifest(tmp_path)
+    assert installation is not None
+    with pytest.raises(ValueError, match="unselected stale context"):
+        refresh_context(installation, selective_files=("src/main.py",))
+    assert (task_dir / "active_context.json").read_bytes() == before
+
+
+def test_selective_refresh_refuses_stale_rule_or_reference_without_writing(tmp_path: Path) -> None:
+    """Rules and references are canonical inputs, not exempt metadata."""
+    from sacas.active_context import load_active_context
+    from sacas.init import initialize
+    from sacas.paths import discover_manifest
+    from sacas.refresh import refresh_context
+    from sacas.tasks import generate_task
+
+    initialized = initialize(tmp_path, graphify_mode="off")
+    source = tmp_path / "src" / "main.py"
+    source.parent.mkdir()
+    source.write_text("def main(): pass\n", encoding="utf-8")
+    rule = initialized.sacas_root / "rules" / "custom.md"
+    reference = initialized.sacas_root / "references" / "custom.md"
+    rule.write_text("first rule\n", encoding="utf-8")
+    reference.write_text("first reference\n", encoding="utf-8")
+    generate_task(
+        initialized.installation,
+        "Update main",
+        files=("src/main.py",),
+        rules=("rules/custom.md",),
+        references=("references/custom.md",),
+    )
+
+    task_dir = initialized.sacas_root / "tasks" / "current"
+    before = (task_dir / "active_context.json").read_bytes()
+    rule.write_text("second rule\n", encoding="utf-8")
+    reference.write_text("second reference\n", encoding="utf-8")
+
+    installation = discover_manifest(tmp_path)
+    assert installation is not None
+    with pytest.raises(ValueError, match="unselected stale context"):
+        refresh_context(installation, selective_files=("src/main.py",))
+    assert (task_dir / "active_context.json").read_bytes() == before
+
+
+def test_refresh_rehashes_rules_and_references(tmp_path: Path) -> None:
+    """An ordinary refresh updates each non-source canonical input hash."""
+    from sacas.active_context import load_active_context
+    from sacas.init import initialize
+    from sacas.paths import discover_manifest
+    from sacas.refresh import refresh_context
+    from sacas.tasks import generate_task
+
+    initialized = initialize(tmp_path, graphify_mode="off")
+    source = tmp_path / "src" / "main.py"
+    source.parent.mkdir()
+    source.write_text("def main(): pass\n", encoding="utf-8")
+    rule = initialized.sacas_root / "rules" / "custom.md"
+    reference = initialized.sacas_root / "references" / "custom.md"
+    rule.write_text("first rule\n", encoding="utf-8")
+    reference.write_text("first reference\n", encoding="utf-8")
+    generate_task(
+        initialized.installation,
+        "Update main",
+        files=("src/main.py",),
+        rules=("rules/custom.md",),
+        references=("references/custom.md",),
+    )
+    rule.write_text("second rule\n", encoding="utf-8")
+    reference.write_text("second reference\n", encoding="utf-8")
+
+    installation = discover_manifest(tmp_path)
+    assert installation is not None
+    assert refresh_context(installation) is True
+    refreshed = load_active_context(initialized.sacas_root / "tasks" / "current")
+    assert refreshed is not None
+    assert refreshed.rules[0].hash == hashlib.sha256(rule.read_bytes()).hexdigest()
+    assert refreshed.references[0].hash == hashlib.sha256(reference.read_bytes()).hexdigest()
+
+
+def test_refresh_rehashes_every_context_file_layer(tmp_path: Path) -> None:
+    """Source refresh updates hashes in files, reference_files, and working_files."""
+    from dataclasses import replace
+    from sacas.active_context import ActiveFileContext, load_active_context, save_active_context
+    from sacas.init import initialize
+    from sacas.paths import discover_manifest
+    from sacas.refresh import refresh_context
+    from sacas.tasks import generate_task
+
+    initialized = initialize(tmp_path, graphify_mode="off")
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "main.py").write_text("def main(): pass\n", encoding="utf-8")
+    (tmp_path / "docs").mkdir()
+    extra = tmp_path / "docs" / "runbook.md"
+    extra.write_text("first\n", encoding="utf-8")
+    generate_task(initialized.installation, "Update main", files=("src/main.py",))
+    task_dir = initialized.sacas_root / "tasks" / "current"
+    manifest = load_active_context(task_dir)
+    assert manifest is not None
+    context = ActiveFileContext(path="docs/runbook.md", selection={"mode": "full"}, source="explicit", hash="old", role="reference")
+    save_active_context(task_dir, replace(manifest, reference_files=(context,), working_files=(context,)))
+    extra.write_text("second\n", encoding="utf-8")
+
+    installation = discover_manifest(tmp_path)
+    assert installation is not None
+    assert refresh_context(installation) is True
+    refreshed = load_active_context(task_dir)
+    assert refreshed is not None
+    expected = hashlib.sha256(extra.read_bytes()).hexdigest()
+    assert refreshed.reference_files[0].hash == expected
+    assert refreshed.working_files[0].hash == expected
+
+
+def test_task_reroute_keeps_explicit_admission_ids_for_all_explicit_context(tmp_path: Path) -> None:
+    """Task invalidation preserves user context evidence while discovery is recomputed."""
+    from sacas.active_context import load_active_context
+    from sacas.init import initialize
+    from sacas.paths import discover_manifest
+    from sacas.refresh import refresh_context
+    from sacas.task_contract import TaskContract, load_task_contract, save_task_contract
+    from sacas.tasks import generate_task
+
+    initialized = initialize(tmp_path, graphify_mode="off")
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "main.py").write_text("def main(): pass\n", encoding="utf-8")
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "test_main.py").write_text("def test_main(): pass\n", encoding="utf-8")
+    (initialized.sacas_root / "rules" / "custom.md").write_text("rule\n", encoding="utf-8")
+    (initialized.sacas_root / "references" / "custom.md").write_text("reference\n", encoding="utf-8")
+    generate_task(
+        initialized.installation, "Update main", files=("src/main.py",),
+        tests=("tests/test_main.py",), rules=("rules/custom.md",), references=("references/custom.md",),
+    )
+    task_dir = initialized.sacas_root / "tasks" / "current"
+    before = load_active_context(task_dir)
+    assert before is not None
+    explicit_before = {event.target: event.id for event in before.events if event.source == "explicit"}
+    assert {"src/main.py", "tests/test_main.py", "Structure/rules/custom.md", "Structure/references/custom.md"} <= explicit_before.keys()
+
+    contract = load_task_contract(task_dir)
+    assert contract is not None
+    save_task_contract(task_dir, TaskContract(
+        schema_version=contract.schema_version, task_id=contract.task_id, goal=contract.goal,
+        category=contract.category, criteria=("new criterion",), constraints=contract.constraints,
+        verification=contract.verification,
+    ))
+    installation = discover_manifest(tmp_path)
+    assert installation is not None
+    assert refresh_context(installation) is True
+    after = load_active_context(task_dir)
+    assert after is not None
+    explicit_after = {event.target: event.id for event in after.events if event.source == "explicit"}
+    assert explicit_after == explicit_before
+
+
+def test_task_reroute_preserves_explicit_layer_membership_and_discards_other_origins(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A contract change retains explicit entries in their original layer only."""
+    from dataclasses import replace
+    from sacas.active_context import ActiveFileContext, load_active_context, save_active_context
+    from sacas.init import initialize
+    from sacas.paths import discover_manifest
+    from sacas.refresh import refresh_context
+    from sacas.task_contract import load_task_contract, save_task_contract
+    from sacas.tasks import generate_task
+    import sacas.tasks
+
+    initialized = initialize(tmp_path, graphify_mode="off")
+    for name in ("main.py", "reference_explicit.py", "reference_heuristic.py", "reference_graph.py", "working_explicit.py", "working_heuristic.py", "working_graph.py"):
+        path = tmp_path / "src" / name
+        path.parent.mkdir(exist_ok=True)
+        path.write_text(f"def {name[:-3]}(): pass\n", encoding="utf-8")
+    generate_task(initialized.installation, "Update main", files=("src/main.py",))
+    task_dir = initialized.sacas_root / "tasks" / "current"
+    original = load_active_context(task_dir)
+    assert original is not None
+
+    def context(path: str, source: str) -> ActiveFileContext:
+        return ActiveFileContext(
+            path=path,
+            selection={"mode": "full"},
+            source=source,
+            hash=hashlib.sha256((tmp_path / path).read_bytes()).hexdigest(),
+            reason=f"{source} admission",
+        )
+
+    reference_items = (
+        context("src/reference_explicit.py", "explicit"),
+        context("src/reference_heuristic.py", "heuristic"),
+        context("src/reference_graph.py", "graphify"),
+    )
+    working_items = (
+        context("src/working_explicit.py", "explicit"),
+        context("src/working_heuristic.py", "heuristic"),
+        context("src/working_graph.py", "graphify"),
+    )
+    save_active_context(task_dir, replace(original, reference_files=reference_items, working_files=working_items))
+    contract = load_task_contract(task_dir)
+    assert contract is not None
+    save_task_contract(task_dir, replace(contract, criteria=("a changed contract",)))
+
+    observed: list[dict[str, object]] = []
+    original_route_goal = sacas.tasks.route_goal
+
+    def record_route_goal(*args, **kwargs):
+        observed.append(kwargs)
+        return original_route_goal(*args, **kwargs)
+
+    monkeypatch.setattr(sacas.tasks, "route_goal", record_route_goal)
+    installation = discover_manifest(tmp_path)
+    assert installation is not None
+    assert refresh_context(installation) is True
+
+    assert {file.path for file in observed[0]["seed_files"]} >= {
+        "src/main.py", "src/reference_explicit.py", "src/working_explicit.py",
+    }
+    assert {file.source for file in observed[0]["seed_files"]} == {"explicit"}
+    refreshed = load_active_context(task_dir)
+    assert refreshed is not None
+    assert [file.path for file in refreshed.reference_files] == ["src/reference_explicit.py"]
+    assert [file.path for file in refreshed.working_files] == ["src/working_explicit.py"]
+    assert not {
+        "src/reference_heuristic.py", "src/reference_graph.py",
+        "src/working_heuristic.py", "src/working_graph.py",
+    } & {file.path for file in refreshed.all_files}
+
+
+def test_source_refresh_reresolves_symbols_without_replacing_selector_events(tmp_path: Path) -> None:
+    """A changed selector keeps its independently-addressable admission evidence."""
+    from dataclasses import replace
+    from sacas.active_context import ActiveSymbolContext, AdmissionEvent, SourceRange, load_active_context, save_active_context
+    from sacas.init import initialize
+    from sacas.paths import discover_manifest
+    from sacas.refresh import refresh_context
+    from sacas.tasks import generate_task
+
+    initialized = initialize(tmp_path, graphify_mode="off")
+    source = tmp_path / "src" / "service.py"
+    source.parent.mkdir()
+    source.write_text("\n\ndef work():\n    return 1\n", encoding="utf-8")
+    generate_task(initialized.installation, "Investigate service", files=("src/service.py",), symbols=("src/service.py::work",))
+    task_dir = initialized.sacas_root / "tasks" / "current"
+    original = load_active_context(task_dir)
+    assert original is not None
+    file = replace(original.files[0], source="heuristic", evidence=("lexical",), reason="matched goal")
+    events = (
+        AdmissionEvent("evt-file", "src/service.py", "admit", "heuristic", "matched", "initial"),
+        AdmissionEvent("evt-symbol", "src/service.py::work", "admit", "heuristic", "selector", "initial"),
+    )
+    save_active_context(task_dir, replace(original, files=(file,), events=events))
+    source.write_text("\n\n\n\ndef work():\n    return 1\n", encoding="utf-8")
+
+    installation = discover_manifest(tmp_path)
+    assert installation is not None
+    assert refresh_context(installation) is True
+
+    refreshed = load_active_context(task_dir)
+    assert refreshed is not None
+    assert refreshed.files[0].source == "heuristic"
+    assert refreshed.files[0].evidence == ("lexical",)
+    symbol = refreshed.files[0].selection["symbols"][0]
+    assert symbol.name == "work"
+    assert symbol.range is not None and symbol.range.start_line == 5
+    assert [event.id for event in refreshed.events] == ["evt-file", "evt-symbol"]
+    assert refreshed.events[1].target == "src/service.py::work"
+
+
+def test_task_reroute_seeds_explicit_context_before_discovery(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Contract changes feed preserved user context to routing as budgeted seeds."""
+    from dataclasses import replace
+    from sacas.init import initialize
+    from sacas.paths import discover_manifest
+    from sacas.refresh import refresh_context
+    from sacas.task_contract import TaskContract, load_task_contract, save_task_contract
+    from sacas.tasks import generate_task
+    import sacas.tasks
+
+    initialized = initialize(tmp_path, graphify_mode="off")
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "main.py").write_text("def main(): pass\n", encoding="utf-8")
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "test_main.py").write_text("def test_main(): pass\n", encoding="utf-8")
+    (initialized.sacas_root / "rules" / "custom.md").write_text("rule\n", encoding="utf-8")
+    (initialized.sacas_root / "references" / "custom.md").write_text("reference\n", encoding="utf-8")
+    generate_task(
+        initialized.installation, "Update main", files=("src/main.py",),
+        tests=("tests/test_main.py",), rules=("rules/custom.md",), references=("references/custom.md",),
+    )
+    task_dir = initialized.sacas_root / "tasks" / "current"
+    contract = load_task_contract(task_dir)
+    assert contract is not None
+    save_task_contract(task_dir, replace(contract, criteria=("new criterion",)))
+
+    observed: list[dict[str, object]] = []
+    original_route_goal = sacas.tasks.route_goal
+    def record_route_goal(*args, **kwargs):
+        observed.append(kwargs)
+        return original_route_goal(*args, **kwargs)
+    monkeypatch.setattr(sacas.tasks, "route_goal", record_route_goal)
+
+    installation = discover_manifest(tmp_path)
+    assert installation is not None
+    assert refresh_context(installation) is True
+    assert len(observed) == 1
+    assert [file.path for file in observed[0]["seed_files"]] == ["src/main.py"]
+    assert observed[0]["seed_tests"] == ("tests/test_main.py",)
+    assert [rule.path for rule in observed[0]["seed_rules"]] == ["Structure/rules/custom.md"]
+    assert [reference.path for reference in observed[0]["seed_references"]] == ["Structure/references/custom.md"]
+    assert {event.target for event in observed[0]["seed_events"]} >= {
+        "src/main.py", "tests/test_main.py", "Structure/rules/custom.md", "Structure/references/custom.md",
+    }
+
+
+def test_full_reroute_discards_legacy_nonexplicit_tests(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Only still-admitted explicit test contexts seed a contract reroute."""
+    from dataclasses import replace
+    from sacas.active_context import ActiveFileContext, load_active_context, save_active_context
+    from sacas.init import initialize
+    from sacas.paths import discover_manifest
+    from sacas.refresh import refresh_context
+    from sacas.task_contract import load_task_contract, save_task_contract
+    from sacas.tasks import generate_task
+    import sacas.tasks
+
+    initialized = initialize(tmp_path, graphify_mode="off")
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "main.py").write_text("def main(): pass\n", encoding="utf-8")
+    (tmp_path / "tests").mkdir()
+    explicit_test = tmp_path / "tests" / "test_explicit.py"
+    legacy_test = tmp_path / "tests" / "test_legacy.py"
+    explicit_test.write_text("def test_explicit(): pass\n", encoding="utf-8")
+    legacy_test.write_text("def test_legacy(): pass\n", encoding="utf-8")
+    generate_task(
+        initialized.installation, "Update main",
+        files=("src/main.py",), tests=("tests/test_explicit.py",),
+    )
+    task_dir = initialized.sacas_root / "tasks" / "current"
+    original = load_active_context(task_dir)
+    assert original is not None
+    legacy_context = ActiveFileContext(
+        path="tests/test_legacy.py", selection={"mode": "full"}, source="heuristic",
+        hash=hashlib.sha256(legacy_test.read_bytes()).hexdigest(), role="test",
+        reason="legacy heuristic test",
+    )
+    save_active_context(
+        task_dir,
+        replace(
+            original,
+            files=(*original.files, legacy_context),
+            tests=("tests/test_explicit.py", "tests/test_legacy.py", "tests/not-admitted.py"),
+        ),
+    )
+    contract = load_task_contract(task_dir)
+    assert contract is not None
+    save_task_contract(task_dir, replace(contract, criteria=("new criterion",)))
+
+    observed: list[dict[str, object]] = []
+    original_route_goal = sacas.tasks.route_goal
+    def record_route_goal(*args, **kwargs):
+        observed.append(kwargs)
+        return original_route_goal(*args, **kwargs)
+    monkeypatch.setattr(sacas.tasks, "route_goal", record_route_goal)
+
+    installation = discover_manifest(tmp_path)
+    assert installation is not None
+    assert refresh_context(installation) is True
+    assert observed[0]["seed_tests"] == ("tests/test_explicit.py",)
+    refreshed = load_active_context(task_dir)
+    assert refreshed is not None
+    assert refreshed.tests == ("tests/test_explicit.py",)
+    assert "tests/test_legacy.py" not in {file.path for file in refreshed.all_files}
+
+
+def test_full_reroute_seeds_explicit_rules_and_references_by_reason_not_event(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Explicit rule/reference retention is not coupled to optional event history."""
+    from dataclasses import replace
+    from sacas.active_context import load_active_context, save_active_context
+    from sacas.init import initialize
+    from sacas.paths import discover_manifest
+    from sacas.refresh import refresh_context
+    from sacas.task_contract import load_task_contract, save_task_contract
+    from sacas.tasks import generate_task
+    import sacas.tasks
+
+    initialized = initialize(tmp_path, graphify_mode="off")
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "main.py").write_text("def main(): pass\n", encoding="utf-8")
+    (initialized.sacas_root / "rules" / "custom.md").write_text("rule\n", encoding="utf-8")
+    (initialized.sacas_root / "references" / "custom.md").write_text("reference\n", encoding="utf-8")
+    generate_task(
+        initialized.installation, "Update main", files=("src/main.py",),
+        rules=("rules/custom.md",), references=("references/custom.md",),
+    )
+    task_dir = initialized.sacas_root / "tasks" / "current"
+    original = load_active_context(task_dir)
+    assert original is not None
+    save_active_context(
+        task_dir,
+        replace(original, events=tuple(event for event in original.events if event.target == "src/main.py")),
+    )
+    contract = load_task_contract(task_dir)
+    assert contract is not None
+    save_task_contract(task_dir, replace(contract, criteria=("new criterion",)))
+
+    observed: list[dict[str, object]] = []
+    original_route_goal = sacas.tasks.route_goal
+    def record_route_goal(*args, **kwargs):
+        observed.append(kwargs)
+        return original_route_goal(*args, **kwargs)
+    monkeypatch.setattr(sacas.tasks, "route_goal", record_route_goal)
+
+    installation = discover_manifest(tmp_path)
+    assert installation is not None
+    assert refresh_context(installation) is True
+    assert [rule.path for rule in observed[0]["seed_rules"]] == ["Structure/rules/custom.md"]
+    assert [reference.path for reference in observed[0]["seed_references"]] == ["Structure/references/custom.md"]
+
+
+def test_task_contract_reroute_replaces_heuristic_rules_and_references_but_keeps_explicit(
+    tmp_path: Path,
+) -> None:
+    """A task change keeps explicit context and recomputes, rather than retaining, heuristics."""
+    from dataclasses import replace
+    from sacas.active_context import (
+        ActiveReferenceContext,
+        ActiveRuleContext,
+        load_active_context,
+        save_active_context,
+    )
+    from sacas.init import initialize
+    from sacas.paths import discover_manifest
+    from sacas.refresh import refresh_context
+    from sacas.task_contract import load_task_contract, save_task_contract
+    from sacas.tasks import generate_task
+
+    initialized = initialize(tmp_path, graphify_mode="off")
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "main.py").write_text("def main(): pass\n", encoding="utf-8")
+    rules_dir = initialized.sacas_root / "rules"
+    references_dir = initialized.sacas_root / "references"
+    (rules_dir / "custom.md").write_text("explicit rule\n", encoding="utf-8")
+    (rules_dir / "authentication.md").write_text("old heuristic rule\n", encoding="utf-8")
+    (rules_dir / "payments.md").write_text("recomputed heuristic rule\n", encoding="utf-8")
+    (references_dir / "custom.md").write_text("explicit reference\n", encoding="utf-8")
+    (references_dir / "authentication.md").write_text("old heuristic reference\n", encoding="utf-8")
+    (references_dir / "payments.md").write_text("recomputed heuristic reference\n", encoding="utf-8")
+    generate_task(
+        initialized.installation,
+        "Update authentication",
+        files=("src/main.py",),
+        rules=("rules/custom.md",),
+        references=("references/custom.md",),
+    )
+    task_dir = initialized.sacas_root / "tasks" / "current"
+    original = load_active_context(task_dir)
+    assert original is not None
+    save_active_context(
+        task_dir,
+        replace(
+            original,
+            rules=(*original.rules, ActiveRuleContext(
+                path="Structure/rules/authentication.md", hash="old-rule", reason="Heuristic rule match",
+            )),
+            references=(*original.references, ActiveReferenceContext(
+                path="Structure/references/authentication.md", selection={"mode": "full"},
+                hash="old-reference", reason="Heuristic reference file match",
+            )),
+        ),
+    )
+    contract = load_task_contract(task_dir)
+    assert contract is not None
+    save_task_contract(task_dir, replace(contract, goal="Update payments"))
+
+    installation = discover_manifest(tmp_path)
+    assert installation is not None
+    assert refresh_context(installation) is True
+
+    refreshed = load_active_context(task_dir)
+    assert refreshed is not None
+    assert "Structure/rules/authentication.md" not in {rule.path for rule in refreshed.rules}
+    assert {
+        "Structure/rules/custom.md", "Structure/rules/payments.md",
+    } <= {rule.path for rule in refreshed.rules}
+    assert {reference.path for reference in refreshed.references} == {
+        "Structure/references/custom.md", "Structure/references/payments.md",
+    }
+    assert next(rule for rule in refreshed.rules if rule.path.endswith("custom.md")).reason == "Explicitly specified by user"
+    assert next(reference for reference in refreshed.references if reference.path.endswith("custom.md")).reason == "Explicitly specified by user"
+
+
+def test_graph_rediscovery_seeds_non_graph_context_and_explicit_origin_wins(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Rediscovery budgets retained context and cannot replace an explicit file's origin."""
+    from dataclasses import replace
+    from sacas.active_context import AdmissionEvent, ActiveFileContext, load_active_context, save_active_context
+    from sacas.graphify import GraphifyQueryResult, JsonGraphifyProvider
+    from sacas.init import initialize
+    from sacas.paths import discover_manifest
+    from sacas.refresh import refresh_context
+    from sacas.tasks import generate_task
+    import sacas.tasks
+
+    initialized = initialize(tmp_path, graphify_mode="existing")
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "auth.py").write_text("def auth(): pass\n", encoding="utf-8")
+    (tmp_path / "src" / "other.py").write_text("def other(): pass\n", encoding="utf-8")
+    for name in ("reference.py", "reference_graph.py", "working.py", "working_graph.py"):
+        (tmp_path / "src" / name).write_text(f"def {name[:-3]}(): pass\n", encoding="utf-8")
+    graph = tmp_path / "graphify-out" / "graph.json"
+    graph.parent.mkdir()
+    graph.write_text('{"nodes": [], "edges": []}', encoding="utf-8")
+    generate_task(initialized.installation, "Investigate auth", files=("src/auth.py",))
+    task_dir = initialized.sacas_root / "tasks" / "current"
+    original = load_active_context(task_dir)
+    assert original is not None
+    heuristic = ActiveFileContext(
+        path="src/other.py", selection={"mode": "full"}, source="heuristic", hash="",
+        ranking_score=0.2, confidence=0.2, reason="matched goal",
+    )
+    def context(path: str, source: str) -> ActiveFileContext:
+        return ActiveFileContext(
+            path=path, selection={"mode": "full"}, source=source,
+            hash=hashlib.sha256((tmp_path / path).read_bytes()).hexdigest(),
+            reason=f"{source} context",
+        )
+    save_active_context(
+        task_dir,
+        replace(
+            original,
+            files=(*original.files, heuristic),
+            reference_files=(
+                context("src/reference.py", "explicit"),
+                context("src/reference_graph.py", "graphify"),
+            ),
+            working_files=(
+                context("src/working.py", "heuristic"),
+                context("src/working_graph.py", "graphify"),
+            ),
+            events=(*original.events,
+                AdmissionEvent("evt-reference-graph", "src/reference_graph.py", "admit", "graphify", "old graph", "initial"),
+                AdmissionEvent("evt-working-graph", "src/working_graph.py", "admit", "graphify", "old graph", "initial"),
+            ),
+        ),
+    )
+    graph.write_text('{"nodes": [], "edges": [], "changed": true}', encoding="utf-8")
+
+    observed: list[dict[str, object]] = []
+    original_route_goal = sacas.tasks.route_goal
+    def record_route_goal(*args, **kwargs):
+        observed.append(kwargs)
+        return original_route_goal(*args, **kwargs)
+    monkeypatch.setattr(sacas.tasks, "route_goal", record_route_goal)
+
+    class AuthGraphProvider(JsonGraphifyProvider):
+        def verify_capabilities(self, required: set[str]) -> bool:
+            return True
+
+        def query(self, goal: str, graph_path: Path, *, token_budget: int | None = None):
+            return GraphifyQueryResult("success", (), (), "auth", paths=("src/auth.py",))
+
+    monkeypatch.setattr("sacas.graphify.get_graphify_provider", lambda *_args, **_kwargs: AuthGraphProvider(graph, tmp_path))
+    installation = discover_manifest(tmp_path)
+    assert installation is not None
+    assert refresh_context(installation) is True
+    assert {file.path for file in observed[0]["seed_files"]} == {
+        "src/auth.py", "src/other.py", "src/reference.py", "src/working.py",
+    }
+    refreshed = load_active_context(task_dir)
+    assert refreshed is not None
+    assert next(file for file in refreshed.files if file.path == "src/auth.py").source == "explicit"
+    assert not any(
+        event.source == "graphify" and event.target.split("::", 1)[0] == "src/auth.py"
+        for event in refreshed.events
+    )
+    assert [file.path for file in refreshed.reference_files] == ["src/reference.py"]
+    assert [file.path for file in refreshed.working_files] == ["src/working.py"]
+    assert not {
+        "src/reference_graph.py", "src/working_graph.py",
+    } & {file.path for file in refreshed.all_files}
+    assert not any(event.source == "graphify" and event.target in {
+        "src/reference_graph.py", "src/working_graph.py",
+    } for event in refreshed.events)
+
+
+def test_graph_rediscovery_replaces_heuristic_context_with_fresh_graph_provenance(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A fresh Graphify hit supersedes a retained heuristic admission for its path."""
+    from dataclasses import replace
+    from sacas.active_context import AdmissionEvent, ActiveFileContext, load_active_context, save_active_context
+    from sacas.graphify import GraphifyQueryResult, JsonGraphifyProvider
+    from sacas.init import initialize
+    from sacas.paths import discover_manifest
+    from sacas.refresh import refresh_context
+    from sacas.tasks import generate_task
+
+    initialized = initialize(tmp_path, graphify_mode="existing")
+    source = tmp_path / "src" / "auth.py"
+    source.parent.mkdir()
+    source.write_text("def auth(): pass\n", encoding="utf-8")
+    graph = tmp_path / "graphify-out" / "graph.json"
+    graph.parent.mkdir()
+    graph.write_text('{"nodes": [], "edges": []}', encoding="utf-8")
+    generate_task(initialized.installation, "Investigate auth")
+    task_dir = initialized.sacas_root / "tasks" / "current"
+    original = load_active_context(task_dir)
+    assert original is not None
+    heuristic = ActiveFileContext(
+        path="src/auth.py", selection={"mode": "full"}, source="heuristic",
+        hash=hashlib.sha256(source.read_bytes()).hexdigest(), ranking_score=1.0,
+        confidence=0.5, evidence=("lexical",), reason="lexical auth match",
+    )
+    heuristic_event = AdmissionEvent(
+        "evt-heuristic-auth", "src/auth.py", "admit", "heuristic",
+        "lexical auth match", "initial_route", evidence=("lexical",),
+    )
+    save_active_context(
+        task_dir,
+        replace(original, files=(heuristic,), events=(heuristic_event,)),
+    )
+    graph.write_text('{"nodes": [], "edges": [], "revision": 2}', encoding="utf-8")
+
+    class AuthGraphProvider(JsonGraphifyProvider):
+        def verify_capabilities(self, required: set[str]) -> bool:
+            return True
+
+        def query(self, goal: str, graph_path: Path, *, token_budget: int | None = None):
+            return GraphifyQueryResult("success", (), (), "auth", paths=("src/auth.py",))
+
+    monkeypatch.setattr(
+        "sacas.graphify.get_graphify_provider",
+        lambda *_args, **_kwargs: AuthGraphProvider(graph, tmp_path),
+    )
+    installation = discover_manifest(tmp_path)
+    assert installation is not None
+    assert refresh_context(installation) is True
+
+    refreshed = load_active_context(task_dir)
+    assert refreshed is not None
+    matching_files = [file for file in refreshed.files if file.path == "src/auth.py"]
+    assert len(matching_files) == 1
+    assert matching_files[0].source == "graphify"
+    matching_events = [event for event in refreshed.events if event.target == "src/auth.py"]
+    assert len(matching_events) == 1
+    assert matching_events[0].source == "graphify"
+    assert matching_events[0].id == "evt-refresh-000"
+
+
+def test_merge_events_preserves_history_deduplicates_semantics_and_allocates_refresh_ids() -> None:
+    """Refresh events never reuse init or digest IDs, even when those IDs collide."""
+    from sacas.active_context import AdmissionEvent
+    from sacas.refresh import _merge_events
+
+    preserved = AdmissionEvent(
+        "evt-init-000", "src/explicit.py", "admit", "explicit", "chosen", "initial_route",
+    )
+    existing_refresh = AdmissionEvent(
+        "evt-refresh-000", "src/old.py", "admit", "heuristic", "old", "initial_route",
+    )
+    duplicate_of_preserved = AdmissionEvent(
+        "evt-init-999", "src/explicit.py", "admit", "explicit", "chosen", "initial_route",
+    )
+    first_new = AdmissionEvent(
+        "evt-init-001", "src/one.py", "admit", "graphify", "new one", "refresh",
+    )
+    second_new = AdmissionEvent(
+        "evt-deadbeef", "src/two.py", "admit", "graphify", "new two", "refresh",
+    )
+
+    merged = _merge_events(
+        (preserved, existing_refresh),
+        (duplicate_of_preserved, first_new, second_new),
+        retain_sources={"explicit", "heuristic"},
+    )
+
+    assert [event.id for event in merged] == [
+        "evt-init-000", "evt-refresh-000", "evt-refresh-001", "evt-refresh-002",
+    ]
+    assert [event.target for event in merged] == [
+        "src/explicit.py", "src/old.py", "src/one.py", "src/two.py",
+    ]
+
+
+def test_graph_no_match_uses_lexical_fallback_when_seeded_explicit_files_exist(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Graph fallback is based on new Graphify admissions, not retained file count."""
+    from sacas.active_context import ActiveFileContext
+    from sacas.graphify import GraphifyQueryResult, JsonGraphifyProvider
+    from sacas.init import initialize
+    from sacas.tasks import route_goal
+
+    initialized = initialize(tmp_path, graphify_mode="existing")
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "auth.py").write_text("def auth(): pass\n", encoding="utf-8")
+    (tmp_path / "src" / "retained.py").write_text("def retained(): pass\n", encoding="utf-8")
+    graph = tmp_path / "graphify-out" / "graph.json"
+    graph.parent.mkdir()
+    graph.write_text('{"nodes": [], "edges": []}', encoding="utf-8")
+
+    class NoMatchProvider(JsonGraphifyProvider):
+        def verify_capabilities(self, required: set[str]) -> bool:
+            return True
+
+        def query(self, goal: str, graph_path: Path, *, token_budget: int | None = None):
+            return GraphifyQueryResult("success", (), (), "none", paths=())
+
+    monkeypatch.setattr("sacas.graphify.get_graphify_provider", lambda *_args, **_kwargs: NoMatchProvider(graph, tmp_path))
+    manifest = route_goal(
+        initialized.installation, "Investigate auth",
+        seed_files=(ActiveFileContext(path="src/retained.py", selection={"mode": "full"}, source="explicit", hash=""),),
+    )
+    assert any(file.path == "src/auth.py" and file.source == "heuristic" for file in manifest.files)
+
+
+def test_graph_no_match_uses_lexical_fallback_when_explicit_tests_exist(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An explicit test must not suppress lexical fallback after an empty graph query."""
+    from sacas.active_context import load_active_context
+    from sacas.graphify import GraphifyQueryResult, JsonGraphifyProvider
+    from sacas.init import initialize
+    from sacas.paths import discover_manifest
+    from sacas.tasks import generate_task
+
+    initialized = initialize(tmp_path, graphify_mode="existing")
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "auth.py").write_text("def auth(): pass\n", encoding="utf-8")
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "test_auth.py").write_text("def test_auth(): pass\n", encoding="utf-8")
+    graph = tmp_path / "graphify-out" / "graph.json"
+    graph.parent.mkdir()
+    graph.write_text('{"nodes": [], "edges": []}', encoding="utf-8")
+
+    class NoMatchProvider(JsonGraphifyProvider):
+        def verify_capabilities(self, required: set[str]) -> bool:
+            return True
+
+        def query(self, goal: str, graph_path: Path, *, token_budget: int | None = None):
+            return GraphifyQueryResult("success", (), (), "none", paths=())
+
+    monkeypatch.setattr(
+        "sacas.graphify.get_graphify_provider",
+        lambda *_args, **_kwargs: NoMatchProvider(graph, tmp_path),
+    )
+    installation = discover_manifest(tmp_path)
+    assert installation is not None
+    generate_task(installation, "Investigate auth", tests=("tests/test_auth.py",))
+    manifest = load_active_context(initialized.sacas_root / "tasks" / "current")
+    assert manifest is not None
+    assert any(file.path == "src/auth.py" and file.source == "heuristic" for file in manifest.files)
 
 
 def _configure_custom_graph_output(repository: Path, output: str, mode: str = "existing") -> None:

@@ -51,6 +51,20 @@ def test_active_context_manifest_serialization() -> None:
     assert loaded.files[0].path == "src/auth.py"
     assert loaded.files[0].selection["symbols"][0].range.start_line == 10
 
+
+def test_active_context_serialization_preserves_each_constituent_symbol() -> None:
+    """Persistence must not coalesce overlapping selector identities."""
+    file_context = ActiveFileContext(
+        path="src/auth.py",
+        selection={"mode": "symbols", "symbols": [
+            ActiveSymbolContext("login", SourceRange(1, 3, "parser", 1.0)),
+            ActiveSymbolContext("validate", SourceRange(3, 5, "parser", 1.0)),
+        ]},
+        source="explicit",
+    )
+    persisted = file_context.to_dict()
+    assert [symbol["name"] for symbol in persisted["selection"]["symbols"]] == ["login", "validate"]
+
 def test_legacy_expansions_migration(tmp_path: Path) -> None:
     # Set up legacy expansions.json v2
     legacy_data = {

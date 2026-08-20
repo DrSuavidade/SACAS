@@ -55,7 +55,7 @@ def _normalize_ranges_for_file(
     file_path: str,
     symbols: list[ActiveSymbolContext],
     content_lines: list[str]
-) -> list[tuple[ActiveSymbolContext, tuple[int, int]]]:
+) -> list[tuple[tuple[ActiveSymbolContext, ...], tuple[int, int]]]:
     """Normalize and merge overlapping/adjacent ranges for a single file."""
     # Extract ranges from symbols
     ranges = []
@@ -71,19 +71,16 @@ def _normalize_ranges_for_file(
     # Merge overlapping/adjacent ranges
     merged = merge_ranges(ranges)
     
-    # Map merged ranges back to symbols (use first matching symbol's info)
+    # Retain every constituent symbol in a merged range.  A range is an output
+    # convenience; symbol identity remains provenance input.
     result = []
     for start, end in merged:
-        # Find the first symbol that overlaps with this range
-        matched_sym = None
-        for sym in symbols:
-            if sym.range and sym.range.start_line and sym.range.end_line:
-                if not (sym.range.end_line < start or sym.range.start_line > end):
-                    matched_sym = sym
-                    break
-        if matched_sym is None:
-            matched_sym = symbols[0]
-        result.append((matched_sym, (start, end)))
+        members = tuple(
+            sym for sym in symbols
+            if sym.range and not (sym.range.end_line < start or sym.range.start_line > end)
+        )
+        if members:
+            result.append((members, (start, end)))
     
     return result
 
@@ -113,12 +110,12 @@ def _build_file_selections(
                     sym_objects.append(s)
             
             if sym_objects:
-                normalized = normalize_selections(tuple(sym_objects))
-                # Now merge ranges for this file
-                merged = _normalize_ranges_for_file(f.path, list(normalized), content_lines)
+                # Merge ranges for payload size, but do not normalize symbols:
+                # normalization combines names and loses selector provenance.
+                merged = _normalize_ranges_for_file(f.path, sym_objects, content_lines)
                 if merged:
                     # Check each merged range for staleness
-                    for sym, rng in merged:
+                    for symbols_for_range, rng in merged:
                         start, end = rng
                         # Check if range is still valid
                         is_stale = False
@@ -127,17 +124,17 @@ def _build_file_selections(
                         else:
                             # Check if content at range still matches expected symbol name
                             fragment = "\n".join(content_lines[start-1:end])
-                            if sym.name and sym.name not in fragment:
+                            if any(sym.name and sym.name not in fragment for sym in symbols_for_range):
                                 is_stale = True
                         
                         if is_stale:
                             # Stale selector - mark for re-resolution or fail
                             file_selections.setdefault(f.path, []).append(
-                                (sym, rng, f, "stale_selector")
+                                (symbols_for_range, rng, f, "stale_selector")
                             )
                         else:
                             file_selections.setdefault(f.path, []).append(
-                                (sym, rng, f)
+                                (symbols_for_range, rng, f)
                             )
                 else:
                     # No valid ranges - full file fallback
@@ -189,28 +186,28 @@ def _compile_fragments(
             
             # Unpack selection (supports both old and new format)
             if len(item) == 4:
-                sym, line_range, file_ctx, stale_reason = item
+                symbols_for_range, line_range, file_ctx, stale_reason = item
             else:
-                sym, line_range, file_ctx = item
+                symbols_for_range, line_range, file_ctx = item
                 stale_reason = None
             
-            # Collect all admission event IDs for this source
-            admission_ids = []
-            for event in manifest.events:
-                if event.target == source_path:
-                    admission_ids.append(event.id)
+            # A file-target admission applies to every fragment; a selector
+            # admission applies only when its constituent symbol is present.
+            symbol_names = tuple(sorted(sym.name for sym in symbols_for_range)) if line_range is not None else ()
+            admitted_targets = {source_path, *(f"{source_path}::{name}" for name in symbol_names)}
+            admission_ids = tuple(sorted({event.id for event in manifest.events if event.target in admitted_targets}))
             
             if line_range is not None:
                 # Symbol/range fragment
                 start, end = line_range
                 fragment = "\n".join(content_lines[start-1:end])
-                selector = f"{source_path}::{sym.name}" if sym else source_path
+                selector = f"{source_path}::{','.join(symbol_names)}" if symbol_names else source_path
                 fallback_reason = stale_reason
             else:
                 # Full file fragment
                 fragment = content
                 selector = source_path
-                fallback_reason = stale_reason if stale_reason else ("unresolved_symbol" if (sym is not None) else "full_file_mode")
+                fallback_reason = stale_reason if stale_reason else ("unresolved_symbol" if (symbols_for_range is not None) else "full_file_mode")
             
             content_hash = hashlib.sha256(fragment.encode()).hexdigest()[:16]
             tok_count = estimate_tokens(fragment)
@@ -233,7 +230,7 @@ def _compile_fragments(
                 content_hash=content_hash,
                 reason=file_ctx.reason,
                 estimated_tokens=tok_count,
-                admission_event_ids=tuple(admission_ids),
+                admission_event_ids=admission_ids,
                 role=file_ctx.role,
                 ranking_score=ranking,
                 confidence=confidence,
