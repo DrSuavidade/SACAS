@@ -12,6 +12,7 @@ from sacas.paths import Installation
 from sacas.tasks import (
     is_file_protected,
     invalidate_runtime_context_pack,
+    lexical_query_hash,
     parse_protected_boundaries,
     regenerate_task_markdown,
 )
@@ -925,7 +926,9 @@ def generate_candidates_for_manifest(
                 "source": "heuristic",
                 "confidence": "high" if score >= 8 else "medium",
                 "relation": "keyword_match",
-                "estimated_tokens": cand_cost
+                "estimated_tokens": cand_cost,
+                "query_hash": lexical_query_hash(manifest.goal),
+                "matched": list(matched),
             })
             
     # candidates.json is derived task-bound state. Copy the canonical graph

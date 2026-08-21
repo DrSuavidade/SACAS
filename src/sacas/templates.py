@@ -43,16 +43,16 @@ MANUAL path/to/protected-area/ | reason for the boundary
 """
 
 
-def claude_md_document() -> str:
+def claude_md_document(sacas_root: str = "Structure") -> str:
     """Layer 0: Workspace identity and navigation (ICM CLAUDE.md)."""
-    return """# Workspace Identity
+    return f"""# Workspace Identity
 
 This is a SACAS workspace using Interpretable Context Methodology (ICM).
 
 ## Structure
 
 ```
-Structure/
+{sacas_root}/
 ├── CLAUDE.md              # Layer 0: This file — workspace identity & navigation
 ├── CONTEXT.md             # Layer 1: Workspace routing & shared resources
 ├── stages/                # Layer 2: Numbered stage folders (01_xxx, 02_xxx, ...)

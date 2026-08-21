@@ -42,11 +42,13 @@ def run_context_simulation(installation: Installation) -> dict[str, Any]:
     graphify_ver = GraphifyAdapter.get_installed_version() or "N/A"
 
     # List all files in repo
+    from sacas.paths import sacas_generated_exclusions
+
     repo_files = [
         entry.path
         for entry in iter_repo_text_files(
             root,
-            excluded_roots=("Structure", "graphify-out", ".worktrees"),
+            excluded_roots=sacas_generated_exclusions(root, sacas_root),
         )
     ][:50]
 

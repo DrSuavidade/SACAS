@@ -88,6 +88,42 @@ def _load_from_locator(repository_root: Path, locator_path: Path) -> Installatio
     return _load_if_owned(repository_root, manifest_path)
 
 
+def sacas_root_posix(repository_root: Path, sacas_root: Path) -> str:
+    """Return the repository-relative POSIX name of a SACAS installation root."""
+    root_resolved = Path(repository_root).resolve()
+    candidate = Path(sacas_root)
+    try:
+        return candidate.resolve().relative_to(root_resolved).as_posix()
+    except ValueError as error:
+        raise ValueError("sacas_root must be inside the repository") from error
+
+
+def sacas_child_repo_path(repository_root: Path, sacas_root: Path, child: str | Path = "") -> str:
+    """Convert ``sacas_root + child`` into a repository-relative POSIX path."""
+    prefix = sacas_root_posix(repository_root, sacas_root)
+    child_text = str(child).replace("\\", "/").strip("/")
+    if child_text in ("", "."):
+        return prefix
+    return f"{prefix}/{child_text}" if prefix != "." else child_text
+
+
+def sacas_generated_exclusions(repository_root: Path, sacas_root: Path) -> tuple[str, ...]:
+    """Repository-relative roots SACAS generates and must never route against."""
+    return (sacas_root_posix(repository_root, sacas_root), "graphify-out", ".worktrees")
+
+
+def normalize_sacas_document_path(sacas_prefix: str, path: str) -> str:
+    """Normalize a user-supplied SACAS document path beneath the installation root.
+
+    Paths already expressed under the installation's root are preserved;
+    everything else is treated as a child of that root.
+    """
+    cleaned = path.replace("\\", "/").strip("/")
+    if cleaned == sacas_prefix or cleaned.startswith(f"{sacas_prefix}/"):
+        return cleaned
+    return f"{sacas_prefix}/{cleaned}" if sacas_prefix != "." else cleaned
+
+
 def resolve_repo_path(repository_root: Path, user_path: str | Path) -> str:
     """Resolve and normalize a user path inside the repository.
 

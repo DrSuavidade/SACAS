@@ -29,10 +29,12 @@ class FallbackIndex:
 
     def update(self) -> None:
         """Scan repository and update changed/new files in the index."""
+        from sacas.paths import sacas_generated_exclusions
+
         current_paths = set()
         for source in iter_repo_text_files(
             self.repository_root,
-            excluded_roots=("Structure", "graphify-out", ".worktrees"),
+            excluded_roots=sacas_generated_exclusions(self.repository_root, self.sacas_root),
         ):
             rel_str = source.path
             current_paths.add(rel_str)

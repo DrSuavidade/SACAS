@@ -111,6 +111,57 @@ def extract_symbol_range(content: str, start_line: int, file_path: str) -> tuple
         return (start_line, end_idx + 1)
 
 
+def _normalize_heading(h: str) -> str:
+    # Strip Markdown heading chars and normalize
+    h_clean = h.lstrip("#").strip().lower()
+    # Convert spaces/specials to slugs
+    h_clean = re.sub(r"[^a-z0-9\s-]", "", h_clean)
+    return re.sub(r"[\s-]+", "-", h_clean).strip("-")
+
+
+def find_markdown_section_range(content: str, heading_path: list[str]) -> tuple[int, int] | None:
+    """Locate the 1-based inclusive line range of a hierarchical markdown section.
+
+    Returns ``None`` when the heading path cannot be fully matched.
+    """
+    if not heading_path:
+        return None
+
+    lines = content.splitlines()
+    target_slugs = [_normalize_heading(h) for h in heading_path]
+    matched_indices: list[int] = []
+
+    start_line_idx = -1
+    matched_level = -1
+
+    for idx, line in enumerate(lines):
+        if line.startswith("#"):
+            match = re.match(r"^(#+)\s+(.+)$", line)
+            if not match:
+                continue
+            level = len(match.group(1))
+            heading_text = match.group(2).strip()
+            heading_slug = _normalize_heading(heading_text)
+
+            next_idx_to_match = len(matched_indices)
+            if next_idx_to_match < len(target_slugs):
+                if heading_slug == target_slugs[next_idx_to_match]:
+                    if not matched_indices or level > matched_level:
+                        matched_indices.append(idx)
+                        matched_level = level
+                        if len(matched_indices) == len(target_slugs):
+                            start_line_idx = idx
+                            continue
+
+            if start_line_idx != -1 and level <= matched_level:
+                return (start_line_idx + 1, idx)
+
+    if start_line_idx != -1:
+        return (start_line_idx + 1, len(lines))
+
+    return None
+
+
 def extract_markdown_section(
     content: str,
     heading_path: list[str],
@@ -122,56 +173,48 @@ def extract_markdown_section(
     Legacy callers retain the whole-document fallback. Compilers can request
     ``strict`` selection so a stale heading never silently broadens context.
     """
-    if not heading_path:
+    found = find_markdown_section_range(content, heading_path)
+    if found is None:
+        if strict and heading_path:
+            raise LookupError(f"markdown heading path not found: {' > '.join(heading_path)}")
         return content
 
-    lines = content.splitlines()
-    
-    def normalize_heading(h: str) -> str:
-        # Strip Markdown heading chars and normalize
-        h_clean = h.lstrip("#").strip().lower()
-        # Convert spaces/specials to slugs
-        h_clean = re.sub(r"[^a-z0-9\s-]", "", h_clean)
-        return re.sub(r"[\s-]+", "-", h_clean).strip("-")
+    start, end = found
+    return "\n".join(content.splitlines()[start - 1:end])
 
-    target_slugs = [normalize_heading(h) for h in heading_path]
-    current_level = 0
-    matched_indices = [] # Indices in target_slugs we have matched
-    
-    start_line_idx = -1
-    matched_level = -1
 
-    for idx, line in enumerate(lines):
-        if line.startswith("#"):
-            match = re.match(r"^(#+)\s+(.+)$", line)
-            if not match:
-                continue
-            level = len(match.group(1))
-            heading_text = match.group(2).strip()
-            heading_slug = normalize_heading(heading_text)
-            
-            # Check if this heading matches the next target slug in the path
-            next_idx_to_match = len(matched_indices)
-            if next_idx_to_match < len(target_slugs):
-                if heading_slug == target_slugs[next_idx_to_match]:
-                    # Must be a child (larger level) of the previously matched heading
-                    if not matched_indices or level > matched_level:
-                        matched_indices.append(idx)
-                        matched_level = level
-                        if len(matched_indices) == len(target_slugs):
-                            start_line_idx = idx
-                            continue
+def resolve_section_ranges(
+    repository_root: Path,
+    path: str,
+    selection: dict,
+    *,
+    content: str | None = None,
+) -> dict:
+    """Fill missing 1-based ``start``/``end`` lines into a sections-mode selection.
 
-            # If we are already fully matched, any heading of same or higher level ends our section
-            if start_line_idx != -1 and level <= matched_level:
-                return "\n".join(lines[start_line_idx:idx])
+    Sections whose heading path cannot be located raise ``LookupError`` so a
+    broken reference fails loudly instead of silently shrinking context.
+    """
+    if selection.get("mode") != "sections":
+        return selection
 
-    if start_line_idx != -1:
-        return "\n".join(lines[start_line_idx:])
-        
-    if strict:
-        raise LookupError(f"markdown heading path not found: {' > '.join(heading_path)}")
-    return content
+    if content is None:
+        content = read_repo_text(repository_root, path)
+
+    resolved_sections = []
+    for sec in selection.get("sections", []):
+        heading_path = sec.get("heading_path", [])
+        resolved = dict(sec)
+        if "start" not in resolved or "end" not in resolved:
+            found = find_markdown_section_range(content, list(heading_path))
+            if found is None:
+                raise LookupError(
+                    f"markdown heading path not found in {path}: {' > '.join(map(str, heading_path))}"
+                )
+            resolved["start"], resolved["end"] = found
+        resolved_sections.append(resolved)
+
+    return {"mode": "sections", "sections": resolved_sections}
 
 
 import ast

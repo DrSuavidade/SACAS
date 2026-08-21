@@ -109,7 +109,7 @@ def build_parser() -> argparse.ArgumentParser:
     histbench_parser.add_argument("--root", default=".", help="Repository root (default: current directory).")
     histbench_parser.add_argument("--max-commits", type=int, default=200, help="Maximum commits to analyze (default: 200).")
     histbench_parser.add_argument("--generate-only", action="store_true", help="Only generate benchmark files, don't run.")
-    histbench_parser.add_argument("--output-dir", help="Output directory for generated benchmarks (default: Structure/benchmarks/historical).")
+    histbench_parser.add_argument("--output-dir", help="Output directory for generated benchmarks (default: <sacas-root>/benchmarks/historical).")
     histbench_parser.add_argument("--format", choices=("text", "json"), default="text", help="Output format.")
 
     # Pipeline commands (ICM multi-stage workflows)
@@ -312,7 +312,7 @@ def expand_context_command(
     )
     from sacas.tasks import regenerate_task_markdown
     from sacas.io import read_repo_source_bytes, read_repo_text
-    from sacas.regions import SymbolRangeResolver, extract_markdown_section
+    from sacas.regions import SymbolRangeResolver, extract_markdown_section, resolve_section_ranges
     import hashlib
     
     task_dir = installation.sacas_root / "tasks" / "current"
@@ -367,12 +367,14 @@ def expand_context_command(
                 if not anchor:
                     raise ValueError(f"Reference '{requested}' has an empty heading")
                 heading_path = [anchor.replace("-", " ")]
-                extract_markdown_section(
-                    read_repo_text(installation.repository_root, normalized), heading_path, strict=True,
+                content = read_repo_text(installation.repository_root, normalized)
+                extract_markdown_section(content, heading_path, strict=True)
+                selection: dict[str, object] = resolve_section_ranges(
+                    installation.repository_root,
+                    normalized,
+                    {"mode": "sections", "sections": [{"heading_path": heading_path}]},
+                    content=content,
                 )
-                selection: dict[str, object] = {
-                    "mode": "sections", "sections": [{"heading_path": heading_path}],
-                }
             else:
                 selection = {"mode": "full"}
             explicit_refs.append((normalized, selection, digest))
@@ -449,6 +451,7 @@ def expand_context_command(
                     ev = [f"candidate_{cand.get('source', 'graphify')}"]
                     if cand.get("relation"):
                         ev.append(f"{cand['relation']}_relation")
+                    is_heuristic = cand.get("source") == "heuristic"
                     
                     new_file_ctx = ActiveFileContext(
                         path=path,
@@ -495,6 +498,9 @@ def expand_context_command(
                             graph_edge_target_id=cand.get("graph_edge_target_id", ""),
                             graph_edge_kind=cand.get("graph_edge_kind", ""),
                             graph_confidence=conf_float,
+                            lexical_query_hash=cand.get("query_hash", "") if is_heuristic else "",
+                            lexical_matched_terms=tuple(cand.get("matched", ())) if is_heuristic else (),
+                            lexical_score=float(cand["score"]) if is_heuristic and isinstance(cand.get("score"), (int, float)) else 0.0,
                         ))
                     else:
                         print(f"Skipping candidate {path} due to token budget constraint ({breakdown.used} > {manifest.budget.limit})")

@@ -853,24 +853,30 @@ def enforce_cursor_negation_patterns(installation: Installation, manifest: Activ
     cursor_ignore_path = installation.repository_root / ".cursorignore"
 
     # Build negation lines
+    from sacas.paths import sacas_root_posix
+
+    root_name = sacas_root_posix(installation.repository_root, installation.sacas_root)
+    control_negations = [
+        f"!{root_name}/",
+        f"!{root_name}/tasks/",
+        f"!{root_name}/tasks/current/",
+        f"!{root_name}/tasks/current/**",
+        f"!{root_name}/ROUTER.md",
+        f"!{root_name}/map/",
+        f"!{root_name}/map/SYSTEM.md",
+        f"!{root_name}/stages/",
+        f"!{root_name}/stages/**",
+        f"!{root_name}/_config/",
+        f"!{root_name}/_config/**",
+        "",
+    ]
     lines = [
         "# SACAS Cursor Selective Context negation patterns",
         "# Ignore all files by default",
         "*",
         "",
         "# Negate SACAS control documents and folders",
-        "!Structure/",
-        "!Structure/tasks/",
-        "!Structure/tasks/current/",
-        "!Structure/tasks/current/**",
-        "!Structure/ROUTER.md",
-        "!Structure/map/",
-        "!Structure/map/SYSTEM.md",
-        "!Structure/stages/",
-        "!Structure/stages/**",
-        "!Structure/_config/",
-        "!Structure/_config/**",
-        "",
+        *control_negations,
         "# Negate active context files, rules, and references",
     ]
 

@@ -12,7 +12,12 @@ from sacas.effects import calculate_task_effects
 from sacas.graphify import read_graphify_manifest
 from sacas.io import stable_json, write_text_atomic, read_repo_source_bytes, read_repo_text
 from sacas.models import Manifest
-from sacas.paths import Installation
+from sacas.paths import (
+    Installation,
+    normalize_sacas_document_path,
+    sacas_child_repo_path,
+    sacas_root_posix,
+)
 
 
 EXPLICIT_CONTEXT_REASON = "Explicitly specified by user"
@@ -22,6 +27,7 @@ def is_explicit_rule_or_reference(reason: str | None) -> bool:
     """Return whether a rule/reference originated from explicit user input."""
     return reason == EXPLICIT_CONTEXT_REASON
 from sacas.regions import render_generated_region, replace_generated_region
+from sacas.regions import resolve_section_ranges
 from sacas.state import (
     generate_pickup_markdown,
     parse_state_checkboxes,
@@ -124,6 +130,14 @@ def extract_keywords(goal: str) -> list[str]:
     return list(dict.fromkeys(filtered))
 
 
+def lexical_query_hash(goal: str) -> str:
+    """Stable hash of the normalized lexical routing query."""
+    normalized = " ".join(goal.lower().split())
+    if not normalized:
+        return ""
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
 
 def score_file_against_goal(filepath: str, file_content: str, keywords: list[str]) -> tuple[int, list[str]]:
     import re
@@ -177,10 +191,12 @@ def run_fallback_routing(root: Path, sacas_root: Path, goal: str, boundaries: tu
     if not keywords:
         return []
 
+    query_hash = lexical_query_hash(goal)
+
     from sacas.search import FallbackIndex
     index = FallbackIndex(root, sacas_root)
     index.update()
-    
+
     candidates = index.search(goal)
 
     results = []
@@ -200,7 +216,10 @@ def run_fallback_routing(root: Path, sacas_root: Path, goal: str, boundaries: tu
             "relation": "keyword_match",
             "trigger": "task_goal",
             "git_revision": commit,
-            "hash": f_hash
+            "hash": f_hash,
+            "query_hash": query_hash,
+            "matched": list(matched),
+            "score": score,
         })
     return results
 
@@ -215,25 +234,22 @@ def route_rules_and_references(
     import re
     from sacas.tasks import extract_keywords
     keywords = extract_keywords(goal)
-    
+    sacas_prefix = sacas_root_posix(repository_root, sacas_root)
+
     rules_list = []
     refs_list = []
-    
+
     # 1. Rules
     if explicit_rules:
         for r in explicit_rules:
-            r_clean = r.replace("\\", "/")
-            if not r_clean.startswith("Structure/"):
-                r_rel = "Structure/" + r_clean
-            else:
-                r_rel = r_clean
+            r_rel = normalize_sacas_document_path(sacas_prefix, r)
             rules_list.append(ActiveRuleContext(path=r_rel, hash="", reason=EXPLICIT_CONTEXT_REASON))
     else:
         # Heuristic rules routing
         rules_dir = sacas_root / "rules"
         if rules_dir.is_dir():
             for p in rules_dir.rglob("*.md"):
-                rel_path = "Structure/" + p.relative_to(sacas_root).as_posix()
+                rel_path = sacas_child_repo_path(repository_root, sacas_root, p.relative_to(sacas_root))
                 filename = p.name.lower()
                 # Default: always load boundaries.md if it exists, otherwise check keywords
                 if filename == "boundaries.md" or any(kw in filename for kw in keywords):
@@ -252,14 +268,15 @@ def route_rules_and_references(
                 path_part, section_anchor = r.split("#", 1)
                 
             path_part_clean = path_part.replace("\\", "/")
-            if not path_part_clean.startswith("Structure/"):
-                r_rel = "Structure/" + path_part_clean
-            else:
-                r_rel = path_part_clean
+            r_rel = normalize_sacas_document_path(sacas_prefix, path_part_clean)
                 
             if section_anchor:
                 heading_path = [section_anchor.replace("-", " ").title()]
-                sel = {"mode": "sections", "sections": [{"heading_path": heading_path}]}
+                sel = resolve_section_ranges(
+                    repository_root,
+                    r_rel,
+                    {"mode": "sections", "sections": [{"heading_path": heading_path}]},
+                )
             else:
                 sel = {"mode": "full"}
                 
@@ -269,7 +286,7 @@ def route_rules_and_references(
         refs_dir = sacas_root / "references"
         if refs_dir.is_dir():
             for p in refs_dir.rglob("*.md"):
-                rel_path = "Structure/" + p.relative_to(sacas_root).as_posix()
+                rel_path = sacas_child_repo_path(repository_root, sacas_root, p.relative_to(sacas_root))
                 filename = p.name.lower()
                 
                 # Check keyword match in filename
@@ -286,7 +303,12 @@ def route_rules_and_references(
                                         matched_headings.append(heading_text)
                         
                         if matched_headings and len(matched_headings) < 3:
-                            sel = {"mode": "sections", "sections": [{"heading_path": [h]} for h in matched_headings]}
+                            sel = resolve_section_ranges(
+                                repository_root,
+                                p.relative_to(repository_root).as_posix(),
+                                {"mode": "sections", "sections": [{"heading_path": [h]} for h in matched_headings]},
+                                content=content,
+                            )
                             reason = f"Heuristic reference section match for: {', '.join(matched_headings)}"
                         else:
                             sel = {"mode": "full"}
@@ -669,7 +691,7 @@ def route_goal(
                     direction="forward",
                     lexical_query_hash=item.get("query_hash", ""),
                     lexical_matched_terms=tuple(item.get("matched", [])),
-                    lexical_score=conf_map.get(item["confidence"], 0.5),
+                    lexical_score=float(item.get("score", 0.0)),
                 ))
 
     # Construct final manifest without policy yet

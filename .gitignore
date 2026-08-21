@@ -25,3 +25,7 @@ Structure/.sacas/
 __pycache__/
 *.pyc
 
+# Generated build output (e.g. .NET fixtures)
+bin/
+obj/
+

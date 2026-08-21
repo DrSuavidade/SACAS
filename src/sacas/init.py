@@ -116,7 +116,7 @@ def initialize(repository_root: Path | str, *, sacas_root: str = "Structure", gr
         # opt-in; repository-root adapters remain core artifacts below.
         claude_path = resolved_root / "CLAUDE.md"
         if not claude_path.exists():
-            write_text_atomic(claude_path, claude_md_document())
+            write_text_atomic(claude_path, claude_md_document(configured_root))
             changed = True
 
         context_path = resolved_root / "CONTEXT.md"

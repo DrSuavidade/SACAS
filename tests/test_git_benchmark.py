@@ -306,14 +306,43 @@ def test_historical_tasks_weak_gold_label(temp_git_repo: Path):
         assert task.metadata["source"] == "git_history"
 
 
-def test_generate_and_run_historical_benchmarks_integration(temp_git_repo: Path):
-    """Integration test for generate + run (requires SACAS installation)."""
-    # This test is skipped if no SACAS installation in the temp repo
-    # Just verify the function exists and can be called
-    from sacas.git_benchmark import generate_and_run_historical_benchmarks
-    # We can't easily test this without a full SACAS installation
-    # The function signature is tested by existence
-    assert callable(generate_and_run_historical_benchmarks)
+def test_histbench_full_cli_workflow(temp_git_repo: Path, capsys: pytest.CaptureFixture[str]):
+    """Public CLI workflow: init -> histbench -> non-empty metrics, no swallowed errors."""
+    from sacas.cli import main
+
+    # Real SACAS installation over real commit history
+    assert main(["init", "--root", str(temp_git_repo), "--graphify", "off"]) == 0
+
+    exit_code = main([
+        "histbench",
+        "--root", str(temp_git_repo),
+        "--max-commits", "10",
+        "--format", "json",
+    ])
+    assert exit_code == 0
+
+    out = capsys.readouterr().out
+    results = json.loads(out[out.index("["):])
+
+    assert isinstance(results, list) and len(results) >= 3
+    for result in results:
+        assert "error" not in result, result
+        assert result["task_id"].startswith("hist-")
+        assert result["goal"]
+        assert len(result["parent_commit"]) == 40
+        assert isinstance(result["retrieved_files"], list)
+        eval_result = result["eval"]
+        assert set(eval_result) == {"precision", "recall"}
+        assert 0.0 <= eval_result["precision"] <= 1.0
+        assert 0.0 <= eval_result["recall"] <= 1.0
+
+    # Weak-gold sanity: the auth fix task retrieves src/auth.py through real routing
+    auth_tasks = [
+        result for result in results
+        if "src/auth.py" in result["expected_files"]
+    ]
+    assert auth_tasks, "expected at least one task touching src/auth.py"
+    assert any("src/auth.py" in result["retrieved_files"] for result in auth_tasks)
 
 
 def test_histbench_command_returns_nonzero_when_a_result_has_an_error(

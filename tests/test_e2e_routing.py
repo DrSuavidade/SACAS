@@ -151,3 +151,139 @@ def test_e2e_routing_fallback_on_incompatible_graphify(tmp_path: Path) -> None:
     auth_item = next(item for item in manifest.files if item.path == "src/auth.py")
     assert auth_item.source == "heuristic"
     assert auth_item.relation == "keyword_match"
+
+
+def test_e2e_custom_sacas_root_lifecycle(tmp_path: Path) -> None:
+    """Full lifecycle with a non-default SACAS root must never assume Structure/."""
+    repo = tmp_path / "custom-root-repo"
+    repo.mkdir()
+
+    src_dir = repo / "src"
+    src_dir.mkdir()
+    (repo / "src" / "auth.py").write_text(
+        "class AuthProvider:\n    def authenticate(self):\n        pass\n",
+        encoding="utf-8",
+    )
+
+    exit_code = main(["init", "--root", str(repo), "--sacas-root", ".context", "--graphify", "off"])
+    assert exit_code == 0
+
+    installation = discover_manifest(repo)
+    assert installation is not None
+    assert installation.sacas_root == (repo / ".context").resolve()
+    assert (repo / ".context" / "rules" / "boundaries.md").is_file()
+
+    rules_dir = repo / ".context" / "rules"
+    rules_dir.mkdir(parents=True, exist_ok=True)
+    (rules_dir / "auth_rules.md").write_text("# Auth rules\n\nAlways hash passwords.\n", encoding="utf-8")
+
+    refs_dir = repo / ".context" / "references"
+    refs_dir.mkdir(parents=True, exist_ok=True)
+    (refs_dir / "auth_flow.md").write_text("# Auth flow\n\nAuthentication starts in the provider.\n", encoding="utf-8")
+
+    # Task generation: heuristic fallback routing + heuristic rule/reference routing
+    exit_code = main(["task", "fix auth session handling", "--root", str(repo)])
+    assert exit_code == 0
+
+    task_dir = installation.sacas_root / "tasks" / "current"
+    manifest = load_active_context(task_dir)
+    assert manifest is not None
+
+    file_paths = [item.path for item in manifest.files]
+    assert "src/auth.py" in file_paths
+
+    # Rules and references must be expressed under .context/, not Structure/
+    rule_paths = [item.path for item in manifest.rules]
+    assert ".context/rules/boundaries.md" in rule_paths
+    assert ".context/rules/auth_rules.md" in rule_paths
+
+    ref_paths = [item.path for item in manifest.references]
+    assert ref_paths, "expected at least one reference under .context/"
+    for path in ref_paths:
+        assert path.startswith(".context/"), path
+    assert any("auth_flow.md" in path for path in ref_paths)
+
+    # Expand with an explicit unprefixed rule path
+    (repo / "src" / "session.py").write_text("from src.auth import AuthProvider\n", encoding="utf-8")
+    exit_code = main([
+        "expand", "--root", str(repo),
+        "--file", "src/session.py",
+        "--rule", "rules/auth_rules.md",
+        "--reason", "test expansion",
+    ])
+    assert exit_code == 0
+
+    manifest = load_active_context(task_dir)
+    assert manifest is not None
+    assert "src/session.py" in [item.path for item in manifest.files]
+    assert any(item.path == ".context/rules/auth_rules.md" for item in manifest.rules)
+
+    # Refresh must keep canonical state readable under the custom root
+    exit_code = main(["refresh", "--root", str(repo)])
+    assert exit_code == 0
+
+    manifest = load_active_context(task_dir)
+    assert manifest is not None
+    refreshed_rule_paths = [item.path for item in manifest.rules]
+    assert ".context/rules/auth_rules.md" in refreshed_rule_paths
+    assert not any(path.startswith("Structure/") for path in (
+        [item.path for item in manifest.files]
+        + refreshed_rule_paths
+        + [item.path for item in manifest.references]
+    ))
+
+    # Validation and provenance queries succeed against the custom root
+    exit_code = main(["validate", "--root", str(repo)])
+    assert exit_code == 0
+
+    exit_code = main(["why", "src/auth.py", "--root", str(repo)])
+    assert exit_code == 0
+
+
+def test_e2e_lexical_provenance_chain(tmp_path: Path) -> None:
+    """Fallback routing must preserve query evidence end-to-end under graphify_mode=off."""
+    from sacas.provenance import query_why_file
+    from sacas.tasks import lexical_query_hash
+
+    repo = tmp_path / "lexical-prov-repo"
+    repo.mkdir()
+
+    src_dir = repo / "src"
+    src_dir.mkdir()
+    (repo / "src" / "auth.py").write_text(
+        "class AuthProvider:\n    def authenticate(self):\n        pass\n",
+        encoding="utf-8",
+    )
+
+    exit_code = main(["init", "--root", str(repo), "--graphify", "off"])
+    assert exit_code == 0
+
+    goal = "fix auth session handling"
+    exit_code = main(["task", goal, "--root", str(repo)])
+    assert exit_code == 0
+
+    installation = discover_manifest(repo)
+    assert installation is not None
+    task_dir = installation.sacas_root / "tasks" / "current"
+
+    manifest = load_active_context(task_dir)
+    assert manifest is not None
+
+    auth_item = next(item for item in manifest.files if item.path == "src/auth.py")
+    assert auth_item.source == "heuristic"
+    assert auth_item.relation == "keyword_match"
+
+    # The admission event records the exact query evidence
+    auth_events = [e for e in manifest.events if e.target == "src/auth.py" and e.source == "heuristic"]
+    assert auth_events, "expected a heuristic admission event for src/auth.py"
+    event = auth_events[0]
+    assert event.lexical_query_hash == lexical_query_hash(goal)
+    assert "auth" in event.lexical_matched_terms
+    assert event.lexical_score > 0
+
+    # The why chain exposes Task -> lexical query -> admission -> fragment -> file
+    chain = query_why_file(installation, "src/auth.py")
+    text = "\n".join(chain)
+    assert "Lexical query:" in text
+    assert event.lexical_query_hash[:16] in text
+    assert "auth" in text

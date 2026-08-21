@@ -280,7 +280,13 @@ def run_historical_benchmarks(installation: Installation, benchmark_dir: Path) -
                 if not worktree_install:
                     # Initialize minimal SACAS in worktree if not present
                     try:
-                        initialize(worktree, sacas_root="Structure", graphify_mode="off")
+                        from sacas.paths import sacas_root_posix
+
+                        initialize(
+                            worktree,
+                            sacas_root=sacas_root_posix(repo_root, installation.sacas_root),
+                            graphify_mode="off",
+                        )
                         worktree_install = discover_manifest(worktree)
                     except Exception:
                         raise RuntimeError("Failed to initialize SACAS in worktree")

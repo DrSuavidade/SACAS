@@ -5,7 +5,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 from sacas.active_context import ActiveContextManifest
-from sacas.paths import Installation
+from sacas.paths import Installation, sacas_generated_exclusions
 from sacas.budget import calculate_context_size, calculate_manifest_tokens
 from sacas.tasks import route_goal, run_fallback_routing, extract_keywords
 from sacas.refresh import generate_candidates_for_manifest
@@ -17,7 +17,7 @@ def _get_repo_entries(installation: Installation) -> list[RepositoryTextFile]:
     """Get all repository files excluding SACAS/Graphify directories."""
     return list(iter_repo_text_files(
         installation.repository_root,
-        excluded_roots=("Structure", "graphify-out", ".worktrees"),
+        excluded_roots=sacas_generated_exclusions(installation.repository_root, installation.sacas_root),
     ))
 
 
