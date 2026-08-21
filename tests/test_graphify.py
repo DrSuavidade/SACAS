@@ -394,3 +394,82 @@ def test_cli_map_rejects_output_paths_outside_repository(tmp_path: Path, output:
 
     with pytest.raises(ValueError, match="relative path inside the repository"):
         main(["map", "--root", str(tmp_path), "--output", output])
+
+
+def _realistic_graph_fixture(destination: Path) -> Path:
+    """A snapshot shaped like real Graphify CLI output: links + source_file."""
+    import json
+
+    output = destination / "graphify-out"
+    output.mkdir(parents=True)
+    graph = {
+        "directed": True,
+        "multigraph": False,
+        "graph": {},
+        "nodes": [
+            {
+                "id": "auth_provider_authprovider",
+                "label": "AuthProvider",
+                "file_type": "code",
+                "source_file": "src/auth.py",
+                "source_location": "L3",
+                "_origin": "ast",
+                "community": 0,
+            },
+            {
+                "id": "session_manager",
+                "label": "SessionManager",
+                "file_type": "code",
+                "source_file": "src/session.py",
+                "source_location": "L7",
+                "_origin": "ast",
+                "community": 0,
+            },
+        ],
+        "links": [
+            {
+                "relation": "calls",
+                "context": "call",
+                "confidence_score": 1.0,
+                "source_file": "src/session.py",
+                "weight": 1.0,
+                "_origin": "ast",
+                "source": "session_manager",
+                "target": "auth_provider_authprovider",
+            }
+        ],
+    }
+    (output / "graph.json").write_text(json.dumps(graph), encoding="utf-8")
+    return output
+
+
+def test_collect_graphify_parses_real_graphify_snapshot_shape(tmp_path: Path) -> None:
+    """Real snapshots carry paths in source_file and relations under links."""
+    from sacas.graphify import collect_graphify
+
+    _realistic_graph_fixture(tmp_path)
+    evidence = collect_graphify(tmp_path, mode="existing")
+
+    by_id = {node_id: path for node_id, path, _label, _line in evidence.nodes}
+    assert by_id["auth_provider_authprovider"] == "src/auth.py"
+    assert by_id["session_manager"] == "src/session.py"
+    lines = {node_id: line for node_id, _path, _label, line in evidence.nodes}
+    assert lines["auth_provider_authprovider"] == 3
+    assert evidence.edges == (("session_manager", "auth_provider_authprovider", "calls"),)
+    assert evidence.communities == (("0", ("src/auth.py", "src/session.py")),)
+
+
+def test_adapter_query_resolves_real_snapshot_paths_and_lines(tmp_path: Path) -> None:
+    from sacas.graphify import JsonGraphifyProvider
+
+    graph_path = _realistic_graph_fixture(tmp_path) / "graph.json"
+    provider = JsonGraphifyProvider(graph_path)
+
+    result = provider.query("fix session.py handling", graph_path)
+    assert result is not None
+    assert result.paths == ("src/session.py",)
+    session_node = next(n for n in result.nodes if n.id == "session_manager")
+    assert session_node.path == "src/session.py"
+    assert session_node.line == 7
+    assert result.edges[0].relation == "calls"
+    assert provider.neighbors("src/session.py") == [("src/session.py", "src/auth.py", "calls")]

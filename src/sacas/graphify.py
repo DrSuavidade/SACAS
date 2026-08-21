@@ -172,7 +172,7 @@ def collect_graphify(
             warning=("Graphify graph.json is absent" if error.code == "absent" else "Graphify graph.json is unreadable"),
         )
     nodes = _nodes(graph.get("nodes"))
-    edges = _edges(graph.get("edges"))
+    edges = _edges(_graph_links(graph))
     status = "stale" if _has_newer_source(root_path, graph_path, output, sacas_root) else "fresh"
     return GraphifyEvidence(
         output=output,
@@ -299,21 +299,45 @@ def _normalize_evidence_nodes(raw: object) -> tuple[tuple[str, str, str | None, 
     return tuple(sorted(unique.values(), key=lambda node: (node[0], node[1], node[2] or "", node[3] or 0)))
 
 
+def _node_source_path(node: dict) -> str | None:
+    """Resolve a Graphify node's repository file path.
+
+    Real Graphify snapshots carry the file under ``source_file``; synthetic
+    fixtures and older snapshots may use ``path``.
+    """
+    for key in ("path", "source_file"):
+        value = node.get(key)
+        if isinstance(value, str) and value:
+            return value
+    return None
+
+
+def _node_line(node: dict) -> int | None:
+    line = node.get("line")
+    if isinstance(line, int) and line >= 1:
+        return line
+    location = node.get("source_location")
+    if isinstance(location, str) and location.startswith("L"):
+        try:
+            value = int(location[1:])
+        except ValueError:
+            return None
+        return value if value >= 1 else None
+    return None
+
+
 def _nodes(raw: object) -> tuple[tuple[str, str, str | None, int | None], ...]:
     if not isinstance(raw, list):
         return ()
     found: list[tuple[str, str, str | None, int | None]] = []
     for node in raw:
         if isinstance(node, dict) and isinstance(node.get("id"), str):
-            path = node.get("path", node["id"])
+            path = _node_source_path(node)
             if isinstance(path, str):
                 label = node.get("label")
                 if not isinstance(label, str):
                     label = None
-                line = node.get("line")
-                if not isinstance(line, int) or line < 1:
-                    line = None
-                found.append((node["id"], path, label, line))
+                found.append((node["id"], path, label, _node_line(node)))
     return _normalize_evidence_nodes(found)
 
 
@@ -325,10 +349,38 @@ def _edges(raw: object) -> tuple[tuple[str, str, str], ...]:
         if not isinstance(edge, dict):
             continue
         source, target = edge.get("source"), edge.get("target")
-        kind = edge.get("type", edge.get("relationship", "related"))
+        kind = (
+            edge.get("relation")
+            or edge.get("type")
+            or edge.get("relationship")
+            or "related"
+        )
         if all(isinstance(item, str) for item in (source, target, kind)):
             found.append((source, target, kind))
     return tuple(sorted(set(found)))
+
+
+def _graph_links(graph: dict) -> list | None:
+    """Return the edge list from a Graphify snapshot.
+
+    Graphify writes relations under ``links``; ``edges`` remains accepted
+    for older snapshots and test fixtures.
+    """
+    links = graph.get("links")
+    if isinstance(links, list):
+        return links
+    edges = graph.get("edges")
+    return edges if isinstance(edges, list) else None
+
+
+def _node_community(node: dict) -> str | None:
+    """Resolve a node's community label; real snapshots use integers."""
+    community = node.get("community")
+    if isinstance(community, bool):
+        return None
+    if isinstance(community, int):
+        return str(community)
+    return community if isinstance(community, str) and community else None
 
 
 def _communities(raw: object) -> tuple[tuple[str, tuple[str, ...]], ...]:
@@ -337,8 +389,9 @@ def _communities(raw: object) -> tuple[tuple[str, tuple[str, ...]], ...]:
         for node in raw:
             if not isinstance(node, dict):
                 continue
-            community, path = node.get("community"), node.get("path", node.get("id"))
-            if isinstance(community, str) and isinstance(path, str):
+            path = _node_source_path(node)
+            community = _node_community(node)
+            if community and isinstance(path, str):
                 grouped.setdefault(community, set()).add(path)
     return tuple((name, tuple(sorted(paths))) for name, paths in sorted(grouped.items()))
 
@@ -780,12 +833,43 @@ class JsonGraphifyProvider(GraphifyProvider):
 
     @classmethod
     def _node_path(cls, node: dict[str, Any]) -> str:
-        path = cls._optional_str(node.get("path"))
-        return path or node["id"]
+        for key in ("path", "source_file"):
+            value = cls._optional_str(node.get(key))
+            if value:
+                return value
+        return node["id"]
+
+    @staticmethod
+    def _node_line(node: dict[str, Any]) -> int | None:
+        line = node.get("line")
+        if isinstance(line, int) and line >= 1:
+            return line
+        location = node.get("source_location")
+        if isinstance(location, str) and location.startswith("L"):
+            try:
+                value = int(location[1:])
+            except ValueError:
+                return None
+            return value if value >= 1 else None
+        return None
+
+    @staticmethod
+    def _node_community(node: dict[str, Any]) -> str | None:
+        community = node.get("community")
+        if isinstance(community, bool):
+            return None
+        if isinstance(community, int):
+            return str(community)
+        return community if isinstance(community, str) and community else None
 
     @classmethod
     def _edge_relation(cls, edge: dict[str, Any]) -> str:
-        return cls._optional_str(edge.get("relation")) or cls._optional_str(edge.get("type")) or "calls"
+        return (
+            cls._optional_str(edge.get("relation"))
+            or cls._optional_str(edge.get("type"))
+            or cls._optional_str(edge.get("relationship"))
+            or "related"
+        )
 
     def query(self, goal: str, graph_path: Path, *, token_budget: int | None = None) -> GraphifyQueryResult | None:
         if not self.graph_path.is_file():
@@ -802,22 +886,16 @@ class JsonGraphifyProvider(GraphifyProvider):
                 p = self._node_path(node)
                 if any(part.lower() in goal.lower() for part in p.split("/")):
                     paths.append(p)
-                line_val = None
-                if node.get("line") is not None:
-                    try:
-                        line_val = int(node["line"])
-                    except (TypeError, ValueError):
-                        pass
                 nodes_list.append(GraphQueryNode(
                     id=node["id"],
                     label=self._optional_str(node.get("label")),
                     path=p,
-                    line=line_val,
+                    line=self._node_line(node),
                     node_type=self._optional_str(node.get("type")) or self._optional_str(node.get("node_type")),
-                    community=self._optional_str(node.get("community")),
+                    community=self._node_community(node),
                 ))
             edges_list = []
-            for edge in data.get("edges", []):
+            for edge in _graph_links(data) or []:
                 if not isinstance(edge, dict):
                     return None
                 edges_list.append(GraphQueryEdge(
@@ -852,12 +930,16 @@ class JsonGraphifyProvider(GraphifyProvider):
             if data is None:
                 return []
             result = []
-            for edge in data.get("edges", []):
+            id_to_path = {}
+            for node in data.get("nodes", []):
+                if isinstance(node, dict) and isinstance(node.get("id"), str):
+                    id_to_path[node["id"]] = self._node_path(node)
+            for edge in _graph_links(data) or []:
                 if not isinstance(edge, dict):
                     return []
-                source = edge.get("source")
-                target = edge.get("target")
-                kind = self._optional_str(edge.get("type")) or self._optional_str(edge.get("relationship")) or "related"
+                source = id_to_path.get(edge.get("source"), edge.get("source"))
+                target = id_to_path.get(edge.get("target"), edge.get("target"))
+                kind = self._edge_relation(edge)
                 if source == path or target == path:
                     result.append((source, target, kind))
             return result
@@ -875,7 +957,7 @@ class JsonGraphifyProvider(GraphifyProvider):
             for node in data.get("nodes", []):
                 if not isinstance(node, dict):
                     return ()
-                comm = self._optional_str(node.get("community"))
+                comm = self._node_community(node)
                 path = self._node_path(node)
                 if comm:
                     grouped.setdefault(comm, set()).add(path)

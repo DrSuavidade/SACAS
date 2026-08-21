@@ -57,12 +57,12 @@ def test_json_graphify_provider_omits_invalid_optional_fields(tmp_path: Path) ->
     assert result.nodes[0].label is None
     assert result.nodes[0].line is None
     assert result.nodes[0].node_type is None
-    assert result.nodes[0].community is None
-    assert result.edges[0].relation == "calls"
+    assert result.nodes[0].community == "3"  # real snapshots use integer communities
+    assert result.edges[0].relation == "related"
     assert result.edges[0].confidence is None
     assert result.edges[0].provenance is None
     assert provider.neighbors("node_a") == [("node_a", "node_b", "related")]
-    assert provider.communities() == ()
+    assert provider.communities() == (("3", ("node_a",)),)  # integer communities are real data
 
 
 def test_json_graphify_provider_treats_an_external_graph_symlink_as_unavailable(tmp_path: Path) -> None:
