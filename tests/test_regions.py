@@ -269,3 +269,45 @@ def test_extract_markdown_section() -> None:
     sec2 = extract_markdown_section(content, ["Sub3", "Configuration"])
     assert "Sub3 config details" in sec2
     assert "Config details" not in sec2
+
+
+def test_markdown_section_range_rejects_cross_parent_hierarchy() -> None:
+    """A child heading under a sibling parent must never complete a hierarchy."""
+    from sacas.regions import extract_markdown_section, find_markdown_section_range
+
+    content = (
+        "# Authentication\n"
+        "## Overview\n"
+        "Auth overview\n"
+        "# Payments\n"
+        "## Configuration\n"
+        "Payments config\n"
+    )
+
+    # Authentication > Configuration does not exist: Overview closes nothing,
+    # but Payments (level 1) closes the Authentication ancestor before any
+    # Configuration heading appears.
+    assert find_markdown_section_range(content, ["Authentication", "Configuration"]) is None
+    section = extract_markdown_section(content, ["Authentication", "Configuration"])
+    assert section == content
+
+    # The real sections still resolve with exact ranges
+    assert find_markdown_section_range(content, ["Authentication", "Overview"]) == (2, 3)
+    assert find_markdown_section_range(content, ["Payments", "Configuration"]) == (5, 6)
+
+    # A later valid occurrence after an abandoned partial match still resolves
+    resumed = (
+        "# Auth\n"
+        "# Payments\n"
+        "## Config\n"
+        "Payments config\n"
+    )
+    assert find_markdown_section_range(resumed, ["Auth", "Config"]) is None
+    other = (
+        "# Guide\n"
+        "## Setup\n"
+        "# Recipes\n"
+        "## Configuration\n"
+        "Recipes config\n"
+    )
+    assert find_markdown_section_range(other, ["Guide", "Configuration"]) is None

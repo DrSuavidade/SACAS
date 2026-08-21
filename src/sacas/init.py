@@ -51,11 +51,6 @@ def initialize(repository_root: Path | str, *, sacas_root: str = "Structure", gr
     repository_root = Path(repository_root).resolve()
     resolved_root = resolve_sacas_root(repository_root, sacas_root)
     configured_root = sacas_root.replace("\\", "/")
-    if workflow and resolved_root == repository_root:
-        raise ValueError(
-            "workflow initialization cannot use the repository root because its "
-            "workspace CLAUDE.md collides with the repository-root Claude adapter."
-        )
     existing_installation = discover_manifest(repository_root)
     if existing_installation is not None and existing_installation.sacas_root != resolved_root:
         raise ValueError(
@@ -106,7 +101,7 @@ def initialize(repository_root: Path | str, *, sacas_root: str = "Structure", gr
     # Manifest
     if not manifest_path.exists():
         changed |= _write_if_changed(manifest_path, stable_json(manifest.to_dict()))
-    if configured_root not in (".", DEFAULT_SACAS_ROOT):
+    if configured_root != DEFAULT_SACAS_ROOT:
         locator = {"manifest": manifest_path.relative_to(repository_root).as_posix()}
         changed |= _write_if_changed(repository_root / LOCATOR_RELATIVE_PATH, stable_json(locator))
 

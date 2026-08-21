@@ -151,10 +151,19 @@ def find_markdown_section_range(content: str, heading_path: list[str]) -> tuple[
                         matched_level = level
                         if len(matched_indices) == len(target_slugs):
                             start_line_idx = idx
-                            continue
+                        # A matched heading never closes or resets its own hierarchy.
+                        continue
 
+            # A fully matched section ends at the first same-or-higher heading.
             if start_line_idx != -1 and level <= matched_level:
                 return (start_line_idx + 1, idx)
+
+            # An incomplete hierarchy whose ancestor closed before the child
+            # appeared must reset; otherwise a sibling branch's deeper heading
+            # is wrongly accepted as a cross-parent match.
+            if start_line_idx == -1 and matched_indices and level <= matched_level:
+                matched_indices = []
+                matched_level = -1
 
     if start_line_idx != -1:
         return (start_line_idx + 1, len(lines))

@@ -65,3 +65,29 @@ def test_component_based_boundaries() -> None:
     # Prefix but not component match
     assert is_file_protected("src/authentication/provider.py", boundaries) is None
     assert is_file_protected("src/author/book.py", boundaries) is None
+
+def test_normalize_sacas_document_path_rejects_root_escape(tmp_path: Path) -> None:
+    from sacas.paths import normalize_sacas_document_path
+
+    repo = tmp_path / "repo"
+    (repo / ".context" / "rules").mkdir(parents=True)
+    (repo / "src").mkdir()
+    (repo / "src" / "auth.py").write_text("x", encoding="utf-8")
+
+    assert (
+        normalize_sacas_document_path(repo, repo / ".context", "rules/auth_rules.md")
+        == ".context/rules/auth_rules.md"
+    )
+    assert (
+        normalize_sacas_document_path(repo, repo / ".context", ".context/rules/auth_rules.md")
+        == ".context/rules/auth_rules.md"
+    )
+
+    with pytest.raises(ValueError, match="inside the SACAS root"):
+        normalize_sacas_document_path(repo, repo / ".context", "../src/auth.py")
+
+    with pytest.raises(ValueError, match="inside the SACAS root"):
+        normalize_sacas_document_path(repo, repo / ".context", "rules/../../src/auth.py")
+
+    with pytest.raises(ValueError, match="Invalid SACAS document path"):
+        normalize_sacas_document_path(repo, repo / ".context", "/etc/passwd")

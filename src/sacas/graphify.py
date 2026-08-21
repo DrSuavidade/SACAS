@@ -135,6 +135,11 @@ def collect_graphify(
     sacas_root = repository_relative_path(root_path, sacas_root)
     if output == ".":
         raise ValueError("Graphify output must not be the repository root")
+    if sacas_root == ".":
+        raise ValueError(
+            "sacas_root must be a proper child of the repository; "
+            "installing at the repository root is not supported"
+        )
     if mode == "off":
         return _empty(root_path, output, status="disabled", provenance="disabled")
     if mode not in {"existing", *_RUNNABLE_MODES}:
@@ -341,14 +346,14 @@ def _communities(raw: object) -> tuple[tuple[str, tuple[str, ...]], ...]:
 def _has_newer_source(root: Path, graph_path: Path, output: str, sacas_root: str) -> bool:
     graph_time = graph_path.stat().st_mtime_ns
     ignored = {".git", ".sacas", "__pycache__"}
-    generated_roots = (Path(output),) if sacas_root == "." else (Path(output), Path(sacas_root))
+    generated_roots = (Path(output), Path(sacas_root))
     for path in root.rglob("*"):
         if not path.is_file():
             continue
         relative = path.relative_to(root)
         if any(part in ignored for part in relative.parts) or any(
             relative.is_relative_to(generated_root) for generated_root in generated_roots
-        ) or (sacas_root == "." and _is_root_sacas_generated(relative)):
+        ):
             continue
         try:
             if path.stat().st_mtime_ns > graph_time:
@@ -356,24 +361,6 @@ def _has_newer_source(root: Path, graph_path: Path, output: str, sacas_root: str
         except OSError:
             continue
     return False
-
-
-def _is_root_sacas_generated(relative: Path) -> bool:
-    """Recognize generated root-level SACAS state without hiding source files."""
-    generated_files = {
-        "ROUTER.md",
-        "map/SYSTEM.md",
-        "AGENTS.md",
-        "CLAUDE.md",
-        "GEMINI.md",
-        ".aiignore",
-        ".claudeignore",
-        ".cursorignore",
-        ".geminiignore",
-        ".cursor/rules/sacas.mdc",
-        ".github/copilot-instructions.md",
-    }
-    return relative.as_posix() in generated_files or relative.is_relative_to(Path("tasks/current"))
 
 
 @dataclass(frozen=True)

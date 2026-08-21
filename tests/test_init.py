@@ -49,7 +49,7 @@ def test_workflow_init_creates_workspace_artifacts(tmp_path: Path) -> None:
 def test_workflow_init_refuses_repository_root_placement_before_writing(tmp_path: Path) -> None:
     from sacas.init import initialize
 
-    with pytest.raises(ValueError, match="workflow.*repository root"):
+    with pytest.raises(ValueError, match="proper child"):
         initialize(tmp_path, sacas_root=".", workflow=True)
 
     assert not any(tmp_path.iterdir())
@@ -81,17 +81,15 @@ def test_init_supports_a_custom_relative_root(tmp_path: Path) -> None:
     assert discovered.manifest.sacas_root == ".project/sacas"
 
 
-def test_init_allows_intentional_repository_root_placement(tmp_path: Path) -> None:
+def test_init_refuses_repository_root_placement(tmp_path: Path) -> None:
     from sacas.init import initialize
     from sacas.paths import discover_manifest
 
-    initialize(tmp_path, sacas_root=".")
-    discovered = discover_manifest(tmp_path)
+    with pytest.raises(ValueError, match="proper child"):
+        initialize(tmp_path, sacas_root=".")
 
-    assert (tmp_path / ".sacas" / "manifest.json").is_file()
-    assert discovered is not None
-    assert discovered.sacas_root == tmp_path
-    assert discovered.manifest.sacas_root == "."
+    assert not (tmp_path / ".sacas" / "manifest.json").exists()
+    assert discover_manifest(tmp_path) is None
 
 
 def test_init_preserves_existing_human_router_and_manual_content(tmp_path: Path) -> None:

@@ -25,13 +25,23 @@ class Installation:
 
 
 def resolve_sacas_root(repository_root: Path, configured_root: str) -> Path:
-    """Resolve a SACAS root while rejecting paths that escape the repository."""
+    """Resolve a SACAS root while rejecting paths that escape or claim the repository.
+
+    A SACAS installation must live in a proper child directory of the
+    repository so generic names like ``rules/`` or ``tasks/`` never collide
+    with pre-existing project folders at the repository root.
+    """
     root = repository_root.resolve()
     candidate = (root / configured_root).resolve()
     try:
-        candidate.relative_to(root)
+        relative = candidate.relative_to(root)
     except ValueError as error:
         raise ValueError("sacas_root must be inside the repository") from error
+    if relative == Path("."):
+        raise ValueError(
+            "sacas_root must be a proper child of the repository; "
+            "installing at the repository root is not supported"
+        )
     return candidate
 
 
@@ -112,16 +122,40 @@ def sacas_generated_exclusions(repository_root: Path, sacas_root: Path) -> tuple
     return (sacas_root_posix(repository_root, sacas_root), "graphify-out", ".worktrees")
 
 
-def normalize_sacas_document_path(sacas_prefix: str, path: str) -> str:
+def normalize_sacas_document_path(repository_root: Path, sacas_root: Path, path: str) -> str:
     """Normalize a user-supplied SACAS document path beneath the installation root.
 
     Paths already expressed under the installation's root are preserved;
-    everything else is treated as a child of that root.
+    everything else is treated as a child of that root. The resolved path
+    must remain inside the SACAS installation, so ``..`` components cannot
+    move a rule or reference into ordinary repository sources.
     """
+    prefix = sacas_root_posix(repository_root, sacas_root)
     cleaned = path.replace("\\", "/").strip("/")
-    if cleaned == sacas_prefix or cleaned.startswith(f"{sacas_prefix}/"):
-        return cleaned
-    return f"{sacas_prefix}/{cleaned}" if sacas_prefix != "." else cleaned
+    from pathlib import PureWindowsPath
+
+    if (
+        not cleaned
+        or path.startswith("/") 
+        or Path(path).is_absolute()
+        or PureWindowsPath(path).is_absolute()
+        or (len(path) > 1 and path[1] == ":")
+    ):
+        raise ValueError(f"Invalid SACAS document path: {path}")
+    if cleaned == prefix or cleaned.startswith(f"{prefix}/"):
+        candidate = cleaned
+    else:
+        candidate = f"{prefix}/{cleaned}"
+
+    repo_resolved = Path(repository_root).resolve()
+    try:
+        relative = (repo_resolved / candidate).resolve().relative_to(repo_resolved)
+        relative.relative_to(Path(prefix))
+    except ValueError as error:
+        raise ValueError(
+            f"SACAS document path must remain inside the SACAS root: {path}"
+        ) from error
+    return relative.as_posix()
 
 
 def resolve_repo_path(repository_root: Path, user_path: str | Path) -> str:

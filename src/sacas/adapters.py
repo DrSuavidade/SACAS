@@ -135,8 +135,6 @@ def _root_relative_directory(value: str) -> str:
 
 def _sacas_metadata_ignore(sacas_root: str) -> str:
     normalized = sacas_root.replace("\\", "/").strip("/")
-    if normalized in {"", "."}:
-        return "/.sacas/"
-    if normalized == ".." or normalized.startswith("../"):
-        raise ValueError("sacas_root must be relative to the repository")
+    if not normalized or normalized in {".", ".."} or normalized.startswith("../"):
+        raise ValueError("sacas_root must be a proper child of the repository")
     return "/" + normalized + "/.sacas/"

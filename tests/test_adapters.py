@@ -124,7 +124,6 @@ def test_platform_ignore_is_bounded_preserves_manual_content_and_ignores_root_gr
     [
         ("Structure", "/Structure/.sacas/"),
         (".project/sacas", "/.project/sacas/.sacas/"),
-        (".", "/.sacas/"),
     ],
 )
 def test_platform_ignore_uses_the_configured_sacas_root(
@@ -137,6 +136,14 @@ def test_platform_ignore_uses_the_configured_sacas_root(
     rendered = (tmp_path / ".aiignore").read_text(encoding="utf-8")
     assert expected_ignore in rendered
     assert "/graphify-out/" in rendered
+
+
+@pytest.mark.parametrize("sacas_root", [".", "", "..", "../elsewhere"])
+def test_platform_ignore_refuses_roots_outside_the_repository(tmp_path: Path, sacas_root: str) -> None:
+    from sacas.adapters import generate_adapter_ignore
+
+    with pytest.raises(ValueError, match="proper child"):
+        generate_adapter_ignore(tmp_path, sacas_root, "codex")
 
 
 def test_copilot_has_no_nonstandard_repository_ignore_file(tmp_path: Path) -> None:

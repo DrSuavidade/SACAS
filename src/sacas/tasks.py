@@ -16,7 +16,6 @@ from sacas.paths import (
     Installation,
     normalize_sacas_document_path,
     sacas_child_repo_path,
-    sacas_root_posix,
 )
 
 
@@ -234,7 +233,6 @@ def route_rules_and_references(
     import re
     from sacas.tasks import extract_keywords
     keywords = extract_keywords(goal)
-    sacas_prefix = sacas_root_posix(repository_root, sacas_root)
 
     rules_list = []
     refs_list = []
@@ -242,7 +240,7 @@ def route_rules_and_references(
     # 1. Rules
     if explicit_rules:
         for r in explicit_rules:
-            r_rel = normalize_sacas_document_path(sacas_prefix, r)
+            r_rel = normalize_sacas_document_path(repository_root, sacas_root, r)
             rules_list.append(ActiveRuleContext(path=r_rel, hash="", reason=EXPLICIT_CONTEXT_REASON))
     else:
         # Heuristic rules routing
@@ -268,7 +266,7 @@ def route_rules_and_references(
                 path_part, section_anchor = r.split("#", 1)
                 
             path_part_clean = path_part.replace("\\", "/")
-            r_rel = normalize_sacas_document_path(sacas_prefix, path_part_clean)
+            r_rel = normalize_sacas_document_path(repository_root, sacas_root, path_part_clean)
                 
             if section_anchor:
                 heading_path = [section_anchor.replace("-", " ").title()]
