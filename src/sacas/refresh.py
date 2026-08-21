@@ -7,15 +7,16 @@ import json
 from dataclasses import replace
 from pathlib import Path
 from sacas.graphify import GraphSnapshotError, raw_graph_snapshot_hash, read_graphify_manifest
-from sacas.io import stable_json, write_text_atomic, read_repo_source_bytes
+from sacas.io import read_repo_source_bytes
 from sacas.paths import Installation
 from sacas.tasks import (
     is_file_protected,
+    invalidate_runtime_context_pack,
     parse_protected_boundaries,
     regenerate_task_markdown,
 )
-from sacas.active_context import AdmissionEvent, ActiveSymbolContext, load_active_context, load_task_state, save_active_context, ActiveFileContext
-from sacas.task_contract import TaskContract, load_task_contract, task_contract_hash
+from sacas.active_context import AdmissionEvent, ActiveSymbolContext, load_active_context, load_task_state, ActiveFileContext
+from sacas.task_contract import TaskContract, load_task_contract, save_task_contract, task_contract_hash
 
 
 def _compute_graph_snapshot_hash(installation: Installation) -> str:
@@ -200,8 +201,31 @@ def refresh_context(
     # task.json is canonical when a refresh reroutes; load_task_state deliberately
     # withholds it on an ID mismatch, so read it directly for convergence.
     canonical_contract = contract or load_task_contract(task_dir)
+    migrated_legacy_contract = False
+    if canonical_contract is None or not canonical_contract.task_id:
+        # Pre-contract task directories are still refreshable.  Materialize a
+        # canonical contract from the only durable task identity available,
+        # then publish the refreshed manifest and pack against that contract.
+        # This is deliberately a one-time migration rather than a publisher
+        # fallback: every subsequent read observes the same canonical pair.
+        canonical_contract = TaskContract(
+            schema_version=1,
+            task_id=manifest.task_id or task_id,
+            goal=manifest.goal,
+            category=manifest.category,
+            criteria=(),
+            constraints=(),
+            verification=(),
+        )
+        save_task_contract(task_dir, canonical_contract)
+        manifest = replace(
+            manifest,
+            task_id=canonical_contract.task_id,
+            task_contract_hash=task_contract_hash(canonical_contract),
+        )
+        migrated_legacy_contract = True
 
-    changed = False
+    changed = migrated_legacy_contract
     # Read every admitted layer before writing anything.  A selective refresh
     # cannot safely publish if a non-selected admission is stale.
     # File admissions, rules, and references are all canonical inputs to the
@@ -226,6 +250,19 @@ def refresh_context(
         if reference.hash != current_hashes[reference.path]
     }
     stale_paths = stale_file_paths | stale_rule_paths | stale_reference_paths
+
+    # The runtime pack is a cached projection of canonical state.  Once any
+    # input used to produce it is stale, remove it before rerouting or before
+    # reporting a selective-refresh refusal.
+    current_graph_hash = _compute_graph_snapshot_hash(installation)
+    graph_changed = _is_graph_changed(manifest, current_graph_hash)
+    task_changed = (
+        canonical_contract is not None
+        and manifest.task_contract_hash != task_contract_hash(canonical_contract)
+    )
+    if stale_paths or graph_changed or task_changed:
+        invalidate_runtime_context_pack(installation)
+
     unselected_stale = stale_paths.difference(selective_files)
     if selective_files and unselected_stale:
         stale = ", ".join(sorted(unselected_stale))
@@ -276,19 +313,7 @@ def refresh_context(
             installation, manifest, stale_paths.difference(missing_paths)
         )
 
-    # 2. Check for invalidation triggers
-    current_graph_hash = _compute_graph_snapshot_hash(installation)
-    graph_changed = _is_graph_changed(manifest, current_graph_hash)
-    task_changed = (
-        canonical_contract is not None
-        and manifest.task_contract_hash != task_contract_hash(canonical_contract)
-    )
-
-    # Selection validation above completed before this durable write.
-    if changed:
-        save_active_context(task_dir, manifest)
-
-    # Determine what needs re-routing
+    # 2. Determine what needs re-routing
     needs_reroute = False
     reroute_files = set()
     reroute_symbols = set()
@@ -338,26 +363,22 @@ def refresh_context(
             ),
             graph_snapshot_hash=current_graph_hash,
         )
-        save_active_context(task_dir, manifest)
-
-    # 5. Scope expansion analysis to output candidates.json (only if NOT selective refresh)
+    # 5. Scope expansion analysis stays in memory until the publication boundary.
+    candidates_data: dict[str, object] | None = None
     if not selective_files:
         candidates_list = generate_candidates_for_manifest(installation, manifest)
         candidates_data = {
             "task_id": manifest.task_id,
             "candidates": candidates_list
         }
-        write_text_atomic(task_dir / "candidates.json", stable_json(candidates_data))
 
     # 6. Always regenerate markdown documents
-    manifest, contract = load_task_state(task_dir)
-    if manifest is None:
-        raise ValueError("Active task metadata (active_context.json) is missing or unreadable.")
     regenerate_task_markdown(
         installation=installation,
         task_dir=task_dir,
         manifest=manifest,
-        contract=contract,
+        contract=canonical_contract,
+        candidates_data=candidates_data,
     )
 
     return changed
@@ -644,7 +665,6 @@ def _re_route_files(
         policy=None   # will be recalculated
     )
     
-    save_active_context(task_dir, merged_manifest)
     return merged_manifest
 
 

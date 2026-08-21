@@ -67,6 +67,20 @@ class ActiveFileContext:
     hash: str = ""
     role: str = "source"
 
+    def __post_init__(self) -> None:
+        """Canonicalize confidence labels emitted by pre-Fix6 context state.
+
+        Older active-context state stored confidence as high/medium/low.  The
+        context pack intentionally accepts numeric ranking metadata only, so
+        compatibility conversion belongs at the context-model boundary.
+        """
+        if isinstance(self.confidence, str):
+            normalized = {"high": 1.0, "medium": 0.7, "low": 0.4}.get(
+                self.confidence.lower()
+            )
+            if normalized is not None:
+                object.__setattr__(self, "confidence", normalized)
+
     def confidence_label(self) -> str:
         """Render confidence as high/medium/low for human-readable output."""
         if self.confidence >= 0.7:

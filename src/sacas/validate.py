@@ -166,6 +166,16 @@ def run_diagnostics(root: Path) -> dict[str, Any]:
         from sacas.task_contract import load_task_contract, task_contract_hash
         contract = load_task_contract(task_dir)
 
+        try:
+            from sacas.compiler import load_validated_context_pack
+            load_validated_context_pack(installation)
+        except (OSError, ValueError) as err:
+            diagnostics.append({
+                "severity": "FAIL",
+                "check": "invalid_context_pack",
+                "message": f"Runtime context pack is missing or does not match canonical state: {err}",
+            })
+
         if active_manifest is not None:
             try:
                 # Validate task/context IDs agree
@@ -233,6 +243,16 @@ def run_diagnostics(root: Path) -> dict[str, Any]:
                                             "check": "invalid_range",
                                             "message": f"Invalid line range {start}-{end} for symbol {name} in {f.path}"
                                         })
+
+                for artifact in (*active_manifest.rules, *active_manifest.references):
+                    try:
+                        curr_hash = hashlib.sha256(
+                            read_repo_source_bytes(installation.repository_root, artifact.path)
+                        ).hexdigest()
+                        if curr_hash != artifact.hash:
+                            stale_files.append(artifact.path)
+                    except (ValueError, FileNotFoundError, OSError):
+                        missing_files.append(artifact.path)
 
                 if missing_files:
                     diagnostics.append({

@@ -397,8 +397,10 @@ def test_refresh_preserves_unchanged_files(fake_installation: FakeInstallation):
     # Run refresh - no changes
     changed = refresh_context(fake_installation)
     
-    # Should not detect changes
-    assert changed == False
+    # A legacy manifest is upgraded to a canonical task contract on its first
+    # refresh, which is itself a durable state change.
+    assert changed is True
+    assert (task_dir / "task.json").is_file()
     
     # Reload and verify both files preserved with same hashes
     from sacas.active_context import load_active_context

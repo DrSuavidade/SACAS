@@ -8,7 +8,7 @@ from typing import Any
 
 from sacas.active_context import ActiveContextManifest, AdmissionEvent, ActiveFileContext
 from sacas.paths import Installation
-from sacas.compiler import read_context_pack
+from sacas.compiler import load_validated_context_pack
 
 
 @dataclass(frozen=True)
@@ -40,7 +40,7 @@ def trace_file_to_goal(installation: Installation, target_path: str, manifest: A
     try:
         pack_path = installation.sacas_root / ".sacas" / "runtime" / "context.pack.jsonl"
         if pack_path.is_file():
-            _header, pack_fragments = read_context_pack(pack_path)
+            _header, pack_fragments = load_validated_context_pack(installation)
             for frag in pack_fragments:
                 if frag.source == target_path:
                     fragments.append(frag)

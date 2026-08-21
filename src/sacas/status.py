@@ -38,22 +38,43 @@ def get_status_report(installation: Installation) -> dict[str, Any]:
             "estimated_size": 0
         }
 
+    try:
+        from sacas.compiler import load_validated_context_pack
+        load_validated_context_pack(installation)
+    except (OSError, ValueError):
+        return {
+            "current_task_id": task_id,
+            "status": "invalid_context_pack",
+            "stale_files": [],
+            "initial_files": [],
+            "expanded_files": [],
+            "context_budget": installation.manifest.context_budget,
+            "estimated_size": 0,
+        }
+
     stale_files: list[str] = []
     initial_files: list[str] = []
     expanded_files: list[str] = []
 
-    for f in manifest.files:
-        if f.trigger == "initial_route":
-            initial_files.append(f.path)
+    canonical_artifacts = [
+        (f.path, f.hash, f.trigger == "initial_route")
+        for f in manifest.all_files
+    ]
+    canonical_artifacts.extend((rule.path, rule.hash, False) for rule in manifest.rules)
+    canonical_artifacts.extend((reference.path, reference.hash, False) for reference in manifest.references)
+
+    for path, expected_hash, is_initial in canonical_artifacts:
+        if is_initial:
+            initial_files.append(path)
         else:
-            expanded_files.append(f.path)
+            expanded_files.append(path)
 
         try:
-                curr_hash = hashlib.sha256(read_repo_source_bytes(installation.repository_root, f.path)).hexdigest()
-                if curr_hash != f.hash:
-                    stale_files.append(f.path)
+                curr_hash = hashlib.sha256(read_repo_source_bytes(installation.repository_root, path)).hexdigest()
+                if curr_hash != expected_hash:
+                    stale_files.append(path)
         except (ValueError, FileNotFoundError, OSError):
-            stale_files.append(f.path)
+            stale_files.append(path)
 
     status = "stale" if stale_files else "fresh"
     from sacas.budget import calculate_manifest_tokens, estimate_tokens
@@ -99,6 +120,10 @@ def print_status_report(installation: Installation, format_type: str = "text") -
 
     if report["status"] == "no_active_task":
         print("No active SACAS task.")
+        return
+
+    if report["status"] == "invalid_context_pack":
+        print("Task context pack is invalid or stale; run `sacas refresh`.")
         return
 
     print(f"Task ID: {report['current_task_id']}")

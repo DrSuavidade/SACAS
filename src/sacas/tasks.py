@@ -40,7 +40,12 @@ from sacas.active_context import (
     save_active_context,
     load_active_context,
 )
-from sacas.compiler import compile_and_write_context_pack
+from sacas.compiler import (
+    compile_context_pack,
+    validate_context_pack_records,
+    validate_context_pack_against_state,
+    write_context_pack,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -788,9 +793,6 @@ def generate_task(
         task_contract_hash=contract_hash
     )
 
-    # Save active_context.json
-    save_active_context(task_dir, manifest)
-    
     from sacas.enforce import get_enforcement_provider
     provider = get_enforcement_provider(installation, manifest)
     provider.enforce(installation, manifest)
@@ -811,6 +813,7 @@ def regenerate_task_markdown(
     task_dir: Path,
     manifest: ActiveContextManifest,
     contract: TaskContract | None = None,
+    candidates_data: dict[str, object] | None = None,
 ) -> None:
     """Regenerate TASK.md, STATE.md, PICKUP.md, and CONTEXT.md deterministically."""
     if contract is None:
@@ -1022,13 +1025,53 @@ def regenerate_task_markdown(
 
     from dataclasses import replace
     updated_manifest = replace(manifest, budget=budget_state)
-    save_active_context(task_dir, updated_manifest)
+    views = {
+        task_md_path: task_md_content,
+        state_md_path: state_md_content,
+        task_dir / "PICKUP.md": pickup_content,
+        task_dir / "CONTEXT.md": context_md_final,
+    }
+    if candidates_data is not None:
+        views[task_dir / "candidates.json"] = stable_json(candidates_data)
+    publish_task_artifacts(
+        installation,
+        task_dir,
+        updated_manifest,
+        views,
+    )
 
-    # Compile context pack for agent consumption
-    compile_and_write_context_pack(installation, updated_manifest)
 
-    # Write views atomically to disk
-    write_text_atomic(task_md_path, task_md_content)
-    write_text_atomic(state_md_path, state_md_content)
-    write_text_atomic(task_dir / "PICKUP.md", pickup_content)
-    write_text_atomic(task_dir / "CONTEXT.md", context_md_final)
+def publish_task_artifacts(
+    installation: Installation,
+    task_dir: Path,
+    manifest: ActiveContextManifest,
+    views: dict[Path, str],
+) -> Path:
+    """Publish one coherent task generation in dependency order.
+
+    Everything is rendered before this boundary.  The runtime pack is written
+    first, the canonical manifest second, and human views last; readers reject
+    a crash-window pack whose header does not match canonical state.
+    """
+    from sacas.task_contract import load_task_contract
+
+    header, fragments = compile_context_pack(installation, manifest)
+    validate_context_pack_records(header, fragments)
+    contract = load_task_contract(task_dir)
+    if contract is None:
+        raise ValueError("canonical task contract is unavailable")
+    validate_context_pack_against_state(header, fragments, manifest, contract)
+    pack_path = write_context_pack(installation, header, fragments)
+    save_active_context(task_dir, manifest)
+    for path, content in views.items():
+        write_text_atomic(path, content)
+    return pack_path
+
+
+def invalidate_runtime_context_pack(installation: Installation) -> None:
+    """Remove an obsolete runtime pack before changing canonical task identity."""
+    pack_path = installation.sacas_root / ".sacas" / "runtime" / "context.pack.jsonl"
+    try:
+        pack_path.unlink()
+    except FileNotFoundError:
+        pass

@@ -111,8 +111,17 @@ def extract_symbol_range(content: str, start_line: int, file_path: str) -> tuple
         return (start_line, end_idx + 1)
 
 
-def extract_markdown_section(content: str, heading_path: list[str]) -> str:
-    """Extract a specific markdown section defined by a hierarchical heading path."""
+def extract_markdown_section(
+    content: str,
+    heading_path: list[str],
+    *,
+    strict: bool = False,
+) -> str:
+    """Extract a specific markdown section defined by a hierarchical heading path.
+
+    Legacy callers retain the whole-document fallback. Compilers can request
+    ``strict`` selection so a stale heading never silently broadens context.
+    """
     if not heading_path:
         return content
 
@@ -160,6 +169,8 @@ def extract_markdown_section(content: str, heading_path: list[str]) -> str:
     if start_line_idx != -1:
         return "\n".join(lines[start_line_idx:])
         
+    if strict:
+        raise LookupError(f"markdown heading path not found: {' > '.join(heading_path)}")
     return content
 
 

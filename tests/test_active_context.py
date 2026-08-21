@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+
+import pytest
 from sacas.active_context import (
     ActiveContextManifest,
     ActiveFileContext,
@@ -64,6 +66,25 @@ def test_active_context_serialization_preserves_each_constituent_symbol() -> Non
     )
     persisted = file_context.to_dict()
     assert [symbol["name"] for symbol in persisted["selection"]["symbols"]] == ["login", "validate"]
+
+
+@pytest.mark.parametrize(
+    ("legacy_label", "expected_confidence"),
+    (("high", 1.0), ("medium", 0.7), ("low", 0.4)),
+)
+def test_active_file_context_normalizes_legacy_confidence_labels_at_model_boundary(
+    legacy_label: str, expected_confidence: float,
+) -> None:
+    """Legacy/manual labels become canonical numeric values before compilation."""
+    context = ActiveFileContext(
+        path="src/example.py",
+        selection={"mode": "full"},
+        source="explicit",
+        confidence=legacy_label,
+    )
+
+    assert context.confidence == expected_confidence
+    assert context.to_dict()["confidence"] == expected_confidence
 
 def test_legacy_expansions_migration(tmp_path: Path) -> None:
     # Set up legacy expansions.json v2

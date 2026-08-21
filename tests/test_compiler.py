@@ -290,6 +290,31 @@ def test_compiler_references_compile(installation: FakeInstallation):
         md_path.unlink(missing_ok=True)
 
 
+def test_compiler_rejects_missing_reference_section(installation: FakeInstallation):
+    """A section selector is an executable claim, not a full-document fallback."""
+    md_path = installation.repository_root / "README.md"
+    md_path.write_text("# Title\n\n## Present\n\nContent\n", encoding="utf-8")
+    manifest = ActiveContextManifest(
+        task_id="test-missing-reference-section",
+        task_contract_hash="sha256:refs",
+        git_revision="refs",
+        references=(
+            ActiveReferenceContext(
+                path="README.md",
+                selection={"mode": "sections", "sections": [{"heading_path": ["Absent"]}]},
+                hash="",
+                reason="Reference section",
+            ),
+        ),
+        goal="refs test",
+        category="documentation",
+    )
+
+    from sacas.compiler import ContextCompilationError
+    with pytest.raises(ContextCompilationError, match="stale_selector"):
+        compile_context_pack(installation, manifest)
+
+
 def test_compiler_empty_context_pack(installation: FakeInstallation):
     """WP2: Empty context pack should work."""
     manifest = ActiveContextManifest(
@@ -311,7 +336,7 @@ def test_compiler_empty_context_pack(installation: FakeInstallation):
 
 
 def test_compiler_missing_source_file(installation: FakeInstallation):
-    """WP2: Missing source file should be skipped gracefully."""
+    """A missing canonical source rejects compilation."""
     manifest = ActiveContextManifest(
         task_id="test-missing",
         task_contract_hash="sha256:missing",
@@ -339,10 +364,9 @@ def test_compiler_missing_source_file(installation: FakeInstallation):
         category="investigate",
     )
 
-    header, fragments = compile_context_pack(installation, manifest)
-    # Should skip missing file
-    assert fragments == []
-    assert header.fragment_count == 0
+    from sacas.compiler import ContextCompilationError
+    with pytest.raises(ContextCompilationError, match="source_unavailable"):
+        compile_context_pack(installation, manifest)
 
 
 def test_compiler_deleted_source_file(installation: FakeInstallation):
@@ -385,9 +409,9 @@ def test_compiler_deleted_source_file(installation: FakeInstallation):
     # Delete file
     temp_file.unlink()
 
-    # Should skip deleted file
-    header, fragments = compile_context_pack(installation, manifest)
-    assert fragments == []
+    from sacas.compiler import ContextCompilationError
+    with pytest.raises(ContextCompilationError, match="source_unavailable"):
+        compile_context_pack(installation, manifest)
 
 
 def test_compiler_write_context_pack(installation: FakeInstallation, manifest_with_symbol: ActiveContextManifest):
@@ -443,10 +467,9 @@ def test_compiler_secure_path_enforcement(installation: FakeInstallation):
         category="security",
     )
 
-    header, fragments = compile_context_pack(installation, manifest)
-    # Should not crash - either skip or handle gracefully
-    assert isinstance(fragments, list)
-    assert header.fragment_count == 0
+    from sacas.compiler import ContextCompilationError
+    with pytest.raises(ContextCompilationError, match="source_unsafe"):
+        compile_context_pack(installation, manifest)
 
 
 def test_compiler_overlapping_ranges_merge(installation: FakeInstallation):
@@ -531,8 +554,8 @@ def test_compiler_adjacent_ranges_merge(installation: FakeInstallation):
     assert fragments[0].lines == (10, 30)
 
 
-def test_compiler_duplicate_full_file_dedupe(installation: FakeInstallation):
-    """WP2.4: Duplicate full-file fallbacks must dedupe."""
+def test_compiler_unresolved_selector_fails_closed(installation: FakeInstallation):
+    """An unresolved symbol must not become a broad full-file fallback."""
     manifest = ActiveContextManifest(
         task_id="test-dup-full",
         task_contract_hash="sha256:dupfull",
@@ -563,10 +586,9 @@ def test_compiler_duplicate_full_file_dedupe(installation: FakeInstallation):
         category="investigate",
     )
 
-    header, fragments = compile_context_pack(installation, manifest)
-    # Should deduplicate by (source, normalized_range) - full file = None
-    assert len(fragments) == 1
-    assert fragments[0].lines is None
+    from sacas.compiler import ContextCompilationError
+    with pytest.raises(ContextCompilationError, match="stale_selector"):
+        compile_context_pack(installation, manifest)
 
 
 def test_compiler_stale_selector_detection(installation: FakeInstallation):
@@ -640,12 +662,10 @@ def test_compiler_stale_selector_detection(installation: FakeInstallation):
         # Now change the file so foo moves
         (repo / "src" / "test.py").write_text("# comment\n\ndef foo():\n    pass\n", encoding="utf-8")
         
-        # Re-compile - should detect stale selector (range 1-1 now points to comment, not foo)
-        header2, fragments2 = compile_context_pack(fake_inst, manifest)
-        # The stale detection should trigger - range 1-1 no longer contains "foo"
-        assert len(fragments2) >= 1
-        # At minimum, the fallback_reason should be set to "stale_selector"
-        # if the range is still valid but content doesn't match
+        # Re-compile - stale selectors require refresh before publication.
+        from sacas.compiler import ContextCompilationError
+        with pytest.raises(ContextCompilationError, match="stale_selector"):
+            compile_context_pack(fake_inst, manifest)
 
 
 def test_compiler_identical_state_byte_identical(installation: FakeInstallation, manifest_with_symbol: ActiveContextManifest):
@@ -707,6 +727,70 @@ def test_compiler_read_context_pack(installation: FakeInstallation, manifest_wit
     assert read_fragments[0].id == fragments[0].id
     assert read_fragments[0].content == fragments[0].content
     assert read_fragments[0].content_hash == fragments[0].content_hash
+
+
+@pytest.mark.parametrize("integer_field", ("schema_version", "fragment_count", "estimated_tokens"))
+def test_validate_context_pack_records_rejects_boolean_header_integer_fields(integer_field: str) -> None:
+    """Boolean values must not pass JSONL integer-field validation."""
+    from dataclasses import replace
+    from sacas.compiler import validate_context_pack_records
+
+    header = ContextPackHeader(
+        task_id="task",
+        task_contract_hash="contract",
+        git_revision="revision",
+        graph_snapshot_hash="",
+    )
+
+    with pytest.raises(ValueError, match="invalid context pack header schema|invalid fragment count|invalid token estimate"):
+        validate_context_pack_records(replace(header, **{integer_field: True}), [])
+
+
+def test_validate_context_pack_records_rejects_boolean_fragment_token_count() -> None:
+    """Boolean values must not pass fragment token-count validation either."""
+    from sacas.compiler import validate_context_pack_records
+
+    content = "value = 1\n"
+    fragment = ContextPackFragment(
+        id="ctx-001",
+        source="src/example.py",
+        selector="src/example.py",
+        content=content,
+        content_hash=hashlib.sha256(content.encode("utf-8")).hexdigest()[:16],
+        role="source",
+        estimated_tokens=True,
+    )
+    header = ContextPackHeader(
+        task_id="task",
+        task_contract_hash="contract",
+        git_revision="revision",
+        graph_snapshot_hash="",
+        fragment_count=1,
+    )
+
+    with pytest.raises(ValueError, match="invalid token estimate"):
+        validate_context_pack_records(header, [fragment])
+
+
+@pytest.mark.parametrize(
+    "payload",
+    (
+        "not json\n",
+        "[]\n",
+        '{"type":"pack","schema_version":1,"task_id":7}\n',
+        '{"type":"pack","schema_version":1,"task_id":"task","task_contract_hash":"hash","git_revision":"rev","graph_snapshot_hash":"","estimated_tokens":0,"fragment_count":0}\n[]\n',
+        '{"type":"pack","schema_version":1,"task_id":"task","task_contract_hash":"hash","git_revision":"rev","graph_snapshot_hash":"","estimated_tokens":0,"fragment_count":0}\n{"type":"note"}\n',
+    ),
+)
+def test_read_context_pack_rejects_malformed_jsonl_records(tmp_path: Path, payload: str) -> None:
+    """Every serialized record must be a schema-valid mapping of its declared type."""
+    from sacas.compiler import read_context_pack
+
+    pack_path = tmp_path / "context.pack.jsonl"
+    pack_path.write_text(payload, encoding="utf-8")
+
+    with pytest.raises(ValueError):
+        read_context_pack(pack_path)
 
 
 def test_regions_normalize_selections():
@@ -785,7 +869,7 @@ def test_compiler_admission_event_ids_collected(installation: FakeInstallation):
     assert "evt-001" in fragments[0].admission_event_ids
 
 
-def test_compiler_merged_symbol_fragment_keeps_each_symbol_event(installation: FakeInstallation):
+def test_compiler_stale_merged_symbol_selector_fails_closed(installation: FakeInstallation):
     """One merged range must retain its constituent selectors' provenance."""
     from sacas.active_context import AdmissionEvent, ActiveSymbolContext, SourceRange
     manifest = ActiveContextManifest(
@@ -801,13 +885,12 @@ def test_compiler_merged_symbol_fragment_keeps_each_symbol_event(installation: F
             AdmissionEvent("evt-validate", "src/auth.py::validate", "admit", "explicit", "validate", "initial"),
         ),
     )
-    _, fragments = compile_context_pack(installation, manifest)
-    assert len(fragments) == 1
-    assert fragments[0].selector == "src/auth.py::login,validate"
-    assert fragments[0].admission_event_ids == ("evt-login", "evt-validate")
+    from sacas.compiler import ContextCompilationError
+    with pytest.raises(ContextCompilationError, match="stale_selector"):
+        compile_context_pack(installation, manifest)
 
 
-def test_compiler_merged_selector_is_sorted_independent_of_manifest_symbol_order(installation: FakeInstallation):
+def test_compiler_stale_merged_selector_is_detected_independent_of_order(installation: FakeInstallation):
     """The serialized selector remains canonical when persisted symbol order differs."""
     from sacas.active_context import AdmissionEvent, ActiveSymbolContext, SourceRange
     manifest = ActiveContextManifest(
@@ -823,8 +906,9 @@ def test_compiler_merged_selector_is_sorted_independent_of_manifest_symbol_order
             AdmissionEvent("evt-validate", "src/auth.py::validate", "admit", "explicit", "validate", "initial"),
         ),
     )
-    _, fragments = compile_context_pack(installation, manifest)
-    assert fragments[0].selector == "src/auth.py::login,validate"
+    from sacas.compiler import ContextCompilationError
+    with pytest.raises(ContextCompilationError, match="stale_selector"):
+        compile_context_pack(installation, manifest)
 
 
 def test_compiler_ranking_confidence_separate(installation: FakeInstallation):
@@ -876,3 +960,357 @@ def test_compiler_baseline_snapshot(installation: FakeInstallation, manifest_wit
     assert "content_hash" in content
     assert "type" in content
     assert "pack" in content
+
+
+def test_compiler_fails_closed_when_an_admitted_source_is_unavailable(
+    installation: FakeInstallation,
+) -> None:
+    """A canonical admission must never disappear from a compiled payload."""
+    from sacas.compiler import ContextCompilationError
+
+    manifest = ActiveContextManifest(
+        task_id="missing-source", task_contract_hash="contract", git_revision="rev",
+        files=(ActiveFileContext(
+            path="src/does-not-exist.py", selection={"mode": "full"}, source="explicit",
+        ),),
+    )
+
+    with pytest.raises(ContextCompilationError, match="source_unavailable"):
+        compile_context_pack(installation, manifest)
+
+
+def test_compiler_fails_closed_for_a_stale_symbol_selector(
+    installation: FakeInstallation,
+) -> None:
+    """An out-of-date selected range must be refreshed, never silently widened."""
+    from sacas.compiler import ContextCompilationError
+
+    manifest = ActiveContextManifest(
+        task_id="stale-selector", task_contract_hash="contract", git_revision="rev",
+        files=(ActiveFileContext(
+            path="src/auth.py",
+            selection={"mode": "symbols", "symbols": [
+                ActiveSymbolContext("missing_symbol", SourceRange(1, 1, "parser", 1.0)),
+            ]},
+            source="explicit",
+        ),),
+    )
+
+    with pytest.raises(ContextCompilationError, match="stale_selector"):
+        compile_context_pack(installation, manifest)
+
+
+@pytest.mark.parametrize(
+    ("filename", "payload_size", "expected_code"),
+    [
+        ("binary.bin", 0, "source_binary"),
+        ("too-large.py", 1_000_001, "source_oversized"),
+    ],
+)
+def test_compiler_classifies_unsafe_source_content(
+    installation: FakeInstallation, filename: str, payload_size: int, expected_code: str,
+) -> None:
+    """Unsafe admitted content is a typed compilation failure, never a skip."""
+    from sacas.compiler import ContextCompilationError
+
+    path = f"src/{filename}"
+    payload = b"\x00not-source" if payload_size == 0 else b"x" * payload_size
+    (installation.repository_root / path).write_bytes(payload)
+    manifest = ActiveContextManifest(
+        task_id="unsafe", task_contract_hash="contract", git_revision="rev",
+        files=(ActiveFileContext(path=path, selection={"mode": "full"}, source="explicit"),),
+    )
+
+    with pytest.raises(ContextCompilationError, match=expected_code):
+        compile_context_pack(installation, manifest)
+
+
+def test_validated_pack_rejects_a_contract_hash_mismatch(tmp_path: Path) -> None:
+    """Pack consumers require the pack and the current canonical contract to agree."""
+    from sacas.compiler import compile_and_write_context_pack, load_validated_context_pack
+    from sacas.init import initialize
+    from sacas.task_contract import TaskContract, save_task_contract
+    from sacas.active_context import save_active_context
+
+    initialized = initialize(tmp_path, graphify_mode="off")
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "one.py").write_text("value = 1\n", encoding="utf-8")
+    task_dir = initialized.installation.sacas_root / "tasks" / "current"
+    task_dir.mkdir(parents=True, exist_ok=True)
+    manifest = ActiveContextManifest(
+        task_id="task", task_contract_hash="wrong", git_revision="rev",
+        files=(ActiveFileContext(path="src/one.py", selection={"mode": "full"}, source="explicit"),),
+    )
+    save_active_context(task_dir, manifest)
+    save_task_contract(task_dir, TaskContract(1, "task", "goal", "investigate", (), (), ()))
+    compile_and_write_context_pack(initialized.installation, manifest)
+
+    with pytest.raises(ValueError, match="contract hash"):
+        load_validated_context_pack(initialized.installation)
+
+
+def test_publisher_leaves_pre_manifest_crash_pack_rejected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """If publication stops before canonical state, readers reject the new pack."""
+    from dataclasses import replace
+    from sacas.compiler import load_validated_context_pack
+    from sacas.init import initialize
+    from sacas.tasks import generate_task, publish_task_artifacts
+    import sacas.tasks as tasks_module
+
+    initialized = initialize(tmp_path, graphify_mode="off")
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "one.py").write_text("value = 1\n", encoding="utf-8")
+    generate_task(initialized.installation, "Original", files=("src/one.py",))
+    task_dir = initialized.sacas_root / "tasks" / "current"
+    from sacas.active_context import load_active_context
+    original = load_active_context(task_dir)
+    assert original is not None
+    newer = replace(
+        original,
+        git_revision="source-refresh-revision",
+        graph_snapshot_hash="graph-refresh-hash",
+    )
+
+    def fail_before_manifest(*args: object, **kwargs: object) -> None:
+        raise OSError("simulated pre-manifest crash")
+
+    monkeypatch.setattr(tasks_module, "save_active_context", fail_before_manifest)
+    with pytest.raises(OSError, match="pre-manifest"):
+        publish_task_artifacts(initialized.installation, task_dir, newer, {})
+
+    with pytest.raises(ValueError, match="identity"):
+        load_validated_context_pack(initialized.installation)
+
+
+def test_validated_pack_rejects_header_source_or_graph_identity_mutation(tmp_path: Path) -> None:
+    """A pack header cannot claim a source or graph state absent from its manifest."""
+    from dataclasses import replace
+    from sacas.compiler import (
+        compile_and_write_context_pack,
+        load_validated_context_pack,
+        read_context_pack,
+        write_context_pack,
+    )
+    from sacas.init import initialize
+    from sacas.tasks import generate_task
+    from sacas.active_context import load_active_context
+
+    initialized = initialize(tmp_path, graphify_mode="off")
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "one.py").write_text("value = 1\n", encoding="utf-8")
+    generate_task(initialized.installation, "Original", files=("src/one.py",))
+    task_dir = initialized.sacas_root / "tasks" / "current"
+    manifest = load_active_context(task_dir)
+    assert manifest is not None
+    compile_and_write_context_pack(initialized.installation, manifest)
+    header, fragments = read_context_pack(
+        initialized.sacas_root / ".sacas" / "runtime" / "context.pack.jsonl"
+    )
+    write_context_pack(
+        initialized.installation,
+        replace(header, git_revision="mutated-revision", graph_snapshot_hash="mutated-graph"),
+        fragments,
+    )
+
+    with pytest.raises(ValueError, match="identity"):
+        load_validated_context_pack(initialized.installation)
+
+
+@pytest.mark.parametrize(
+    "omitted_source, expected_kind",
+    [
+        ("src/app.py", "file"),
+        ("tests/test_app.py", "test"),
+        ("Structure/rules/task.md", "rule"),
+        ("Structure/references/task.md", "reference"),
+    ],
+)
+def test_validated_pack_rejects_dropped_canonical_fragment_after_header_recount(
+    tmp_path: Path, omitted_source: str, expected_kind: str,
+) -> None:
+    """Runtime consumers reject a self-consistent pack missing canonical coverage."""
+    from dataclasses import replace
+    from sacas.active_context import save_active_context
+    from sacas.compiler import (
+        compile_and_write_context_pack,
+        load_validated_context_pack,
+        read_context_pack,
+        write_context_pack,
+    )
+    from sacas.init import initialize
+    from sacas.task_contract import TaskContract, save_task_contract, task_contract_hash
+
+    initialized = initialize(tmp_path, graphify_mode="off")
+    (tmp_path / "src").mkdir()
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "src" / "app.py").write_text("value = 1\n", encoding="utf-8")
+    (tmp_path / "tests" / "test_app.py").write_text("def test_value():\n    assert 1\n", encoding="utf-8")
+    (initialized.sacas_root / "rules" / "task.md").write_text("# Rule\n", encoding="utf-8")
+    (initialized.sacas_root / "references" / "task.md").write_text("# Reference\n", encoding="utf-8")
+    task_dir = initialized.sacas_root / "tasks" / "current"
+    contract = TaskContract(1, "coverage", "coverage", "investigate", (), (), ())
+    save_task_contract(task_dir, contract)
+    manifest = ActiveContextManifest(
+        task_id="coverage",
+        task_contract_hash=task_contract_hash(contract),
+        git_revision="rev",
+        files=(
+            ActiveFileContext(path="src/app.py", selection={"mode": "full"}, source="explicit"),
+            ActiveFileContext(
+                path="tests/test_app.py", selection={"mode": "full"}, source="explicit", role="test",
+            ),
+        ),
+        tests=("tests/test_app.py",),
+        rules=(ActiveRuleContext("Structure/rules/task.md", "", "required rule"),),
+        references=(ActiveReferenceContext("Structure/references/task.md", {"mode": "full"}, "", "required reference"),),
+    )
+    save_active_context(task_dir, manifest)
+    compile_and_write_context_pack(initialized.installation, manifest)
+    header, fragments = read_context_pack(
+        initialized.sacas_root / ".sacas" / "runtime" / "context.pack.jsonl"
+    )
+    tampered = [fragment for fragment in fragments if fragment.source != omitted_source]
+    write_context_pack(initialized.installation, replace(header, fragment_count=len(tampered)), tampered)
+
+    with pytest.raises(ValueError, match=rf"canonical {expected_kind} coverage"):
+        load_validated_context_pack(initialized.installation)
+
+
+def test_validated_pack_rejects_source_fragment_with_a_non_source_role(tmp_path: Path) -> None:
+    """A matching path cannot satisfy source admission under the wrong pack role."""
+    from dataclasses import replace
+    from sacas.active_context import load_active_context
+    from sacas.compiler import (
+        compile_and_write_context_pack,
+        load_validated_context_pack,
+        read_context_pack,
+        write_context_pack,
+    )
+    from sacas.init import initialize
+    from sacas.tasks import generate_task
+
+    initialized = initialize(tmp_path, graphify_mode="off")
+    source = tmp_path / "src" / "app.py"
+    source.parent.mkdir()
+    source.write_text("value = 1\n", encoding="utf-8")
+    generate_task(initialized.installation, "Role coverage", files=("src/app.py",))
+    task_dir = initialized.sacas_root / "tasks" / "current"
+    manifest = load_active_context(task_dir)
+    assert manifest is not None
+    compile_and_write_context_pack(initialized.installation, manifest)
+    pack_path = initialized.sacas_root / ".sacas" / "runtime" / "context.pack.jsonl"
+    header, fragments = read_context_pack(pack_path)
+    tampered = [
+        replace(fragment, role="rule") if fragment.source == "src/app.py" else fragment
+        for fragment in fragments
+    ]
+    write_context_pack(initialized.installation, header, tampered)
+
+    with pytest.raises(ValueError, match="canonical file coverage"):
+        load_validated_context_pack(initialized.installation)
+
+
+def test_publisher_validates_in_memory_fragment_coverage_before_writing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Publisher rejects an incomplete compiler result before it can replace the runtime pack."""
+    from dataclasses import replace
+    from sacas.active_context import load_active_context
+    from sacas.compiler import ContextPackHeader
+    from sacas.init import initialize
+    from sacas.tasks import generate_task, publish_task_artifacts
+    import sacas.tasks as tasks_module
+
+    initialized = initialize(tmp_path, graphify_mode="off")
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "one.py").write_text("value = 1\n", encoding="utf-8")
+    generate_task(initialized.installation, "Original", files=("src/one.py",))
+    task_dir = initialized.sacas_root / "tasks" / "current"
+    manifest = load_active_context(task_dir)
+    assert manifest is not None
+
+    def incomplete_pack(*args: object, **kwargs: object) -> tuple[ContextPackHeader, list[ContextPackFragment]]:
+        return ContextPackHeader(
+            task_id=manifest.task_id,
+            task_contract_hash=manifest.task_contract_hash,
+            git_revision=manifest.git_revision,
+            graph_snapshot_hash=manifest.graph_snapshot_hash,
+            fragment_count=0,
+        ), []
+
+    def must_not_write(*args: object, **kwargs: object) -> Path:
+        raise AssertionError("publisher wrote an invalid in-memory pack")
+
+    monkeypatch.setattr(tasks_module, "compile_context_pack", incomplete_pack)
+    monkeypatch.setattr(tasks_module, "write_context_pack", must_not_write)
+    with pytest.raises(ValueError, match="canonical file coverage"):
+        publish_task_artifacts(initialized.installation, task_dir, manifest, {})
+
+
+def test_publisher_rejects_tampered_in_memory_pack_before_writing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The publisher validates compiler records before any runtime write occurs."""
+    from dataclasses import replace
+    from sacas.active_context import load_active_context
+    from sacas.init import initialize
+    from sacas.tasks import generate_task, publish_task_artifacts
+    import sacas.tasks as tasks_module
+
+    initialized = initialize(tmp_path, graphify_mode="off")
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "one.py").write_text("value = 1\n", encoding="utf-8")
+    generate_task(initialized.installation, "Original", files=("src/one.py",))
+    task_dir = initialized.sacas_root / "tasks" / "current"
+    manifest = load_active_context(task_dir)
+    assert manifest is not None
+    original_compile = tasks_module.compile_context_pack
+
+    def tampered_pack(*args: object, **kwargs: object) -> tuple[ContextPackHeader, list[ContextPackFragment]]:
+        header, fragments = original_compile(*args, **kwargs)
+        return header, [replace(fragments[0], content_hash="not-a-valid-hash"), *fragments[1:]]
+
+    def must_not_write(*args: object, **kwargs: object) -> Path:
+        raise AssertionError("publisher wrote a tampered in-memory pack")
+
+    monkeypatch.setattr(tasks_module, "compile_context_pack", tampered_pack)
+    monkeypatch.setattr(tasks_module, "write_context_pack", must_not_write)
+    with pytest.raises(ValueError, match="content hash mismatch"):
+        publish_task_artifacts(initialized.installation, task_dir, manifest, {})
+
+
+def test_publisher_keeps_pack_and_manifest_coherent_after_view_write_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A post-manifest crash may skip views but leaves a reader-valid canonical pack."""
+    from dataclasses import replace
+    from sacas.compiler import load_validated_context_pack
+    from sacas.init import initialize
+    from sacas.tasks import generate_task, publish_task_artifacts
+    import sacas.tasks as tasks_module
+    from sacas.active_context import load_active_context
+
+    initialized = initialize(tmp_path, graphify_mode="off")
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "one.py").write_text("value = 1\n", encoding="utf-8")
+    generate_task(initialized.installation, "Original", files=("src/one.py",))
+    task_dir = initialized.sacas_root / "tasks" / "current"
+    original = load_active_context(task_dir)
+    assert original is not None
+    newer = replace(original, git_revision="post-manifest-revision")
+
+    def fail_view_write(path: Path, content: str) -> None:
+        if path.name == "TASK.md":
+            raise OSError("simulated post-manifest crash")
+        raise AssertionError(f"unexpected view write: {path}")
+
+    monkeypatch.setattr(tasks_module, "write_text_atomic", fail_view_write)
+    with pytest.raises(OSError, match="post-manifest"):
+        publish_task_artifacts(
+            initialized.installation, task_dir, newer, {task_dir / "TASK.md": "new view\n"},
+        )
+
+    header, _ = load_validated_context_pack(initialized.installation)
+    assert header.git_revision == "post-manifest-revision"

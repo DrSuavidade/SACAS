@@ -10,6 +10,7 @@ from sacas.active_context import save_active_context
 from sacas.models import Manifest
 from sacas.io import write_json_atomic
 from sacas.graphify import GraphifyEvidence, write_graphify_manifest
+from sacas.task_contract import TaskContract, save_task_contract
 
 def test_directional_routing(tmp_path: Path) -> None:
     # 1. Initialize
@@ -126,6 +127,18 @@ def test_directional_routing(tmp_path: Path) -> None:
         rules=(),
         references=(),
         events=()
+    )
+    save_task_contract(
+        task_dir,
+        TaskContract(
+            schema_version=1,
+            task_id="t_feature",
+            goal="Add api feature",
+            category="feature",
+            criteria=(),
+            constraints=(),
+            verification=(),
+        ),
     )
     save_active_context(task_dir, manifest_feature)
 

@@ -294,7 +294,6 @@ def expand_context_command(
     from sacas.active_context import (
         load_active_context,
         load_task_state,
-        save_active_context,
         ActiveFileContext,
         ActiveSymbolContext,
         ActiveRuleContext,
@@ -303,7 +302,6 @@ def expand_context_command(
         ActiveContextManifest,
     )
     from sacas.tasks import regenerate_task_markdown
-    from sacas.compiler import compile_and_write_context_pack
     import hashlib
     
     task_dir = installation.sacas_root / "tasks" / "current"
@@ -514,8 +512,6 @@ def expand_context_command(
         references=tuple(new_refs),
         events=tuple(new_events),
     )
-    save_active_context(task_dir, updated_manifest)
-    
     from sacas.enforce import get_enforcement_provider
     provider = get_enforcement_provider(installation, updated_manifest)
     provider.enforce(installation, updated_manifest)

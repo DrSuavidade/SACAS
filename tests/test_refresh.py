@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import hashlib
+from dataclasses import replace
 from pathlib import Path
 import pytest
 
@@ -89,6 +90,50 @@ def test_refresh_and_status_behavior(tmp_path: Path) -> None:
     report = get_status_report(fresh_inst)
     assert report["status"] == "stale"
     assert "src/app.py" in report["stale_files"]
+
+
+def test_status_checks_reference_and_working_file_layers(tmp_path: Path) -> None:
+    """Status must not call a pack fresh while any admitted file layer changed."""
+    from sacas.active_context import ActiveFileContext, load_active_context
+    from sacas.init import initialize
+    from sacas.paths import discover_manifest
+    from sacas.status import get_status_report
+    from sacas.tasks import generate_task, publish_task_artifacts
+
+    initialized = initialize(tmp_path, graphify_mode="off")
+    source = tmp_path / "src" / "source.py"
+    reference = tmp_path / "src" / "reference.py"
+    working = tmp_path / "src" / "working.py"
+    source.parent.mkdir()
+    source.write_text("source = 1\n", encoding="utf-8")
+    reference.write_text("reference = 1\n", encoding="utf-8")
+    working.write_text("working = 1\n", encoding="utf-8")
+    generate_task(initialized.installation, "Layer status", files=("src/source.py",))
+    task_dir = initialized.sacas_root / "tasks" / "current"
+    manifest = load_active_context(task_dir)
+    assert manifest is not None
+    updated = replace(
+        manifest,
+        reference_files=(
+            ActiveFileContext(
+                path="src/reference.py", selection={"mode": "full"}, source="explicit",
+                hash=hashlib.sha256(reference.read_bytes()).hexdigest(),
+            ),
+        ),
+        working_files=(
+            ActiveFileContext(
+                path="src/working.py", selection={"mode": "full"}, source="explicit",
+                hash=hashlib.sha256(working.read_bytes()).hexdigest(),
+            ),
+        ),
+    )
+    publish_task_artifacts(initialized.installation, task_dir, updated, {})
+    reference.write_text("reference = 2\n", encoding="utf-8")
+    working.write_text("working = 2\n", encoding="utf-8")
+
+    report = get_status_report(discover_manifest(tmp_path))
+    assert report["status"] == "stale"
+    assert {"src/reference.py", "src/working.py"}.issubset(report["stale_files"])
 
 
 def test_refresh_predictive_budgeting_and_ranking(tmp_path: Path) -> None:
@@ -282,6 +327,80 @@ def test_refresh_converges_contract_fingerprint_and_context_pack_in_one_run(tmp_
     assert refresh_context(discover_manifest(tmp_path)) is False
     assert (task_dir / "active_context.json").read_bytes() == manifest_identity
     assert pack_path.read_bytes() == pack_identity
+
+
+def test_refresh_removes_runtime_pack_before_rerouting_an_invalidated_task(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A reroute never observes the pack that was built from stale identity."""
+    from sacas.init import initialize
+    from sacas.paths import discover_manifest
+    from sacas.refresh import refresh_context
+    from sacas.task_contract import TaskContract, save_task_contract
+    from sacas.tasks import generate_task
+
+    initialized = initialize(tmp_path, graphify_mode="off")
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "one.py").write_text("value = 1\n", encoding="utf-8")
+    generate_task(initialized.installation, "Original", files=("src/one.py",))
+    pack_path = initialized.sacas_root / ".sacas" / "runtime" / "context.pack.jsonl"
+    assert pack_path.is_file()
+
+    task_dir = initialized.sacas_root / "tasks" / "current"
+    save_task_contract(task_dir, TaskContract(1, "new-task", "Replacement", "investigate", (), (), ()))
+
+    import sacas.refresh as refresh_module
+    original_reroute = refresh_module._re_route_files
+
+    def observe_invalidated_pack(*args: object, **kwargs: object):
+        assert not pack_path.exists()
+        return original_reroute(*args, **kwargs)
+
+    monkeypatch.setattr(refresh_module, "_re_route_files", observe_invalidated_pack)
+    installation = discover_manifest(tmp_path)
+    assert installation is not None
+    assert refresh_context(installation) is True
+
+
+def test_refresh_compile_failure_keeps_canonical_manifest_and_removes_pack(tmp_path: Path) -> None:
+    """Failed compilation publishes neither a source rehash nor a stale runtime pack."""
+    from sacas.init import initialize
+    from sacas.paths import discover_manifest
+    from sacas.refresh import refresh_context
+    from sacas.tasks import generate_task
+    from sacas.active_context import ActiveRuleContext, load_active_context, save_active_context
+
+    initialized = initialize(tmp_path, graphify_mode="off")
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "one.py").write_text("value = 1\n", encoding="utf-8")
+    generate_task(initialized.installation, "Keep canonical", files=("src/one.py",))
+    task_dir = initialized.sacas_root / "tasks" / "current"
+    rule = initialized.sacas_root / "rules" / "custom.md"
+    rule.write_text("safe rule\n", encoding="utf-8")
+    manifest = load_active_context(task_dir)
+    assert manifest is not None
+    save_active_context(
+        task_dir,
+        replace(
+            manifest,
+            rules=(ActiveRuleContext(
+                path="Structure/rules/custom.md",
+                hash=hashlib.sha256(rule.read_bytes()).hexdigest(),
+                reason="required rule",
+            ),),
+        ),
+    )
+    manifest_path = task_dir / "active_context.json"
+    before = manifest_path.read_bytes()
+    rule.write_bytes(b"\x00unsafe")
+
+    installation = discover_manifest(tmp_path)
+    assert installation is not None
+    with pytest.raises(ValueError, match="rule_binary"):
+        refresh_context(installation)
+
+    assert manifest_path.read_bytes() == before
+    assert not (initialized.sacas_root / ".sacas" / "runtime" / "context.pack.jsonl").exists()
 
 
 def test_selective_refresh_refuses_when_an_unselected_context_layer_is_stale(tmp_path: Path) -> None:

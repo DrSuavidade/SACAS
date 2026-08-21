@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass, asdict, field
 from pathlib import Path
 from typing import Any
@@ -17,6 +18,39 @@ from sacas.active_context import ActiveSymbolContext, SourceRange
 
 
 PACK_SCHEMA_VERSION = 1
+
+
+class ContextCompilationError(ValueError):
+    """The canonical active context cannot be represented safely in a pack."""
+
+    def __init__(self, code: str, path: str, detail: str = "") -> None:
+        self.code = code
+        self.path = path
+        message = f"{code}: {path}"
+        if detail:
+            message = f"{message}: {detail}"
+        super().__init__(message)
+
+
+def _read_admitted_source(installation: Installation, path: str, *, kind: str = "source") -> str:
+    """Read an admitted text artifact and expose a stable failure category."""
+    try:
+        return read_repo_text(installation.repository_root, path)
+    except FileNotFoundError as error:
+        raise ContextCompilationError(f"{kind}_unavailable", path, str(error)) from error
+    except OSError as error:
+        raise ContextCompilationError(f"{kind}_unavailable", path, str(error)) from error
+    except ValueError as error:
+        message = str(error).lower()
+        if "binary" in message or "utf-8" in message:
+            code = f"{kind}_binary"
+        elif "exceeds size" in message:
+            code = f"{kind}_oversized"
+        elif any(marker in message for marker in ("secret", "ignored", "escapes", "absolute", ".sacasignore")):
+            code = f"{kind}_unsafe"
+        else:
+            code = f"{kind}_invalid"
+        raise ContextCompilationError(code, path, str(error)) from error
 
 
 @dataclass(frozen=True)
@@ -93,10 +127,7 @@ def _build_file_selections(
     file_selections: dict[str, list] = {}
     
     for f in manifest.all_files:
-        try:
-            content = read_repo_text(installation.repository_root, f.path)
-        except (ValueError, FileNotFoundError, OSError):
-            continue
+        content = _read_admitted_source(installation, f.path)
         
         content_lines = content.splitlines()
         
@@ -124,7 +155,17 @@ def _build_file_selections(
                         else:
                             # Check if content at range still matches expected symbol name
                             fragment = "\n".join(content_lines[start-1:end])
-                            if any(sym.name and sym.name not in fragment for sym in symbols_for_range):
+                            # Graph snapshots can name a file-level node while
+                            # still supplying a valid source range.  Parser and
+                            # explicit selectors, by contrast, are executable
+                            # claims and must retain their named anchor.
+                            if any(
+                                sym.name
+                                and sym.range is not None
+                                and sym.range.source in {"parser", "explicit"}
+                                and sym.name.rsplit(".", 1)[-1] not in fragment
+                                for sym in symbols_for_range
+                            ):
                                 is_stale = True
                         
                         if is_stale:
@@ -137,10 +178,7 @@ def _build_file_selections(
                                 (symbols_for_range, rng, f)
                             )
                 else:
-                    # No valid ranges - full file fallback
-                    file_selections.setdefault(f.path, []).append(
-                        (None, None, f, "no_valid_ranges")
-                    )
+                    raise ContextCompilationError("stale_selector", f.path, "no valid selected ranges")
             else:
                 file_selections.setdefault(f.path, []).append(
                     (None, None, f)
@@ -170,10 +208,7 @@ def _compile_fragments(
         selections = file_selections[source_path]
         
         # Read file content once
-        try:
-            content = read_repo_text(installation.repository_root, source_path)
-        except (ValueError, FileNotFoundError, OSError):
-            continue
+        content = _read_admitted_source(installation, source_path)
         
         content_lines = content.splitlines()
         
@@ -197,6 +232,9 @@ def _compile_fragments(
             admitted_targets = {source_path, *(f"{source_path}::{name}" for name in symbol_names)}
             admission_ids = tuple(sorted({event.id for event in manifest.events if event.target in admitted_targets}))
             
+            if stale_reason:
+                raise ContextCompilationError("stale_selector", source_path, stale_reason)
+
             if line_range is not None:
                 # Symbol/range fragment
                 start, end = line_range
@@ -310,7 +348,7 @@ def _compile_rules_and_references(
     # Rules
     for r in manifest.rules:
         try:
-            content = read_repo_text(installation.repository_root, r.path)
+            content = _read_admitted_source(installation, r.path, kind="rule")
             fragment_hash = hashlib.sha256(content.encode()).hexdigest()[:16]
             tok_count = estimate_tokens(content)
             ctx_counter += 1
@@ -329,21 +367,27 @@ def _compile_rules_and_references(
                 confidence=1.0,
                 fallback_reason=None
             ))
-        except (ValueError, FileNotFoundError, OSError) as e:
-            # Rules are mandatory - fail compilation if they can't be read
-            raise RuntimeError(f"Failed to read mandatory rule '{r.path}': {e}") from e
+        except ContextCompilationError:
+            raise
     
     # References
     for ref in manifest.references:
         try:
-            content = read_repo_text(installation.repository_root, ref.path)
+            content = _read_admitted_source(installation, ref.path, kind="reference")
             if ref.selection.get("mode") == "sections":
                 from sacas.regions import extract_markdown_section
                 sections_content = []
                 for sec in ref.selection.get("sections", []):
                     heading_path = sec.get("heading_path", []) if isinstance(sec, dict) else getattr(sec, "heading_path", [])
                     if heading_path:
-                        sections_content.append(extract_markdown_section(content, heading_path))
+                        try:
+                            sections_content.append(
+                                extract_markdown_section(content, heading_path, strict=True)
+                            )
+                        except LookupError as error:
+                            raise ContextCompilationError(
+                                "stale_selector", ref.path, str(error)
+                            ) from error
                 fragment = "\n".join(sections_content)
                 sec_names = ", ".join(" > ".join(sec.get("heading_path", [])) for sec in ref.selection.get("sections", []))
                 selector = f"{ref.path} (Sections: {sec_names})"
@@ -368,9 +412,8 @@ def _compile_rules_and_references(
                 confidence=1.0,
                 fallback_reason=None
             ))
-        except (ValueError, FileNotFoundError, OSError) as e:
-            # References are mandatory - fail compilation if they can't be read
-            raise RuntimeError(f"Failed to read mandatory reference '{ref.path}': {e}") from e
+        except ContextCompilationError:
+            raise
     
     return fragments, ctx_counter
 
@@ -380,6 +423,11 @@ def compile_context_pack(
     manifest: ActiveContextManifest
 ) -> tuple[ContextPackHeader, list[ContextPackFragment]]:
     """Compile active context manifest into ordered context pack with header and fragments."""
+    admitted_test_paths = {file.path for file in manifest.all_files if file.role == "test"}
+    missing_tests = sorted(set(manifest.tests).difference(admitted_test_paths))
+    if missing_tests:
+        raise ContextCompilationError("test_coverage_incomplete", missing_tests[0])
+
     # Build normalized, deduplicated file selections
     file_selections = _build_file_selections(installation, manifest)
     
@@ -403,6 +451,7 @@ def compile_context_pack(
         fragment_count=len(fragments)
     )
     
+    validate_context_pack_records(header, fragments)
     return header, fragments
 
 
@@ -418,9 +467,9 @@ def write_context_pack(
     pack_path = runtime_dir / "context.pack.jsonl"
 
     # Build content first
-    lines = [json.dumps(asdict(header))]
+    lines = [json.dumps(asdict(header), ensure_ascii=False, sort_keys=True, separators=(",", ":"))]
     for fragment in fragments:
-        lines.append(json.dumps(asdict(fragment)))
+        lines.append(json.dumps(asdict(fragment), ensure_ascii=False, sort_keys=True, separators=(",", ":")))
     content = "\n".join(lines) + "\n"
     
     # Atomic write
@@ -429,19 +478,207 @@ def write_context_pack(
     return pack_path
 
 
+def validate_context_pack_records(
+    header: ContextPackHeader,
+    fragments: list[ContextPackFragment],
+) -> None:
+    """Validate an in-memory context-pack record set before it is persisted.
+
+    ``read_context_pack`` validates the serialized representation, but a
+    publisher must not rely on a round-trip through disk to reject a compiler
+    result.  Keeping this check pure also makes the publication boundary
+    independently testable.
+    """
+    if (
+        header.type != "pack"
+        or isinstance(header.schema_version, bool)
+        or header.schema_version != PACK_SCHEMA_VERSION
+    ):
+        raise ValueError("invalid context pack header schema")
+    for field_name in ("task_id", "task_contract_hash", "git_revision", "graph_snapshot_hash"):
+        value = getattr(header, field_name)
+        if not isinstance(value, str):
+            raise ValueError(f"context pack header has invalid {field_name}")
+    if not header.task_id:
+        raise ValueError("context pack header has no task ID")
+    if not header.task_contract_hash:
+        raise ValueError("context pack header has no task contract hash")
+    if (
+        not isinstance(header.fragment_count, int)
+        or isinstance(header.fragment_count, bool)
+        or header.fragment_count < 0
+    ):
+        raise ValueError("context pack header has invalid fragment count")
+    if header.fragment_count != len(fragments):
+        raise ValueError(
+            f"Fragment count mismatch: header says {header.fragment_count}, found {len(fragments)}"
+        )
+    if (
+        not isinstance(header.estimated_tokens, int)
+        or isinstance(header.estimated_tokens, bool)
+        or header.estimated_tokens < 0
+    ):
+        raise ValueError("context pack header has invalid token estimate")
+
+    seen_ids: set[str] = set()
+    for fragment in fragments:
+        if fragment.type != "fragment":
+            raise ValueError("invalid context pack fragment schema")
+        for field_name in ("id", "source", "selector", "content_hash", "role"):
+            value = getattr(fragment, field_name)
+            if not isinstance(value, str) or not value:
+                raise ValueError(f"context pack fragment has invalid {field_name}")
+        if not isinstance(fragment.content, str) or not isinstance(fragment.reason, str):
+            raise ValueError(f"context pack fragment has invalid text content")
+        if fragment.id in seen_ids:
+            raise ValueError(f"Duplicate fragment ID: {fragment.id}")
+        seen_ids.add(fragment.id)
+        if (
+            not isinstance(fragment.estimated_tokens, int)
+            or isinstance(fragment.estimated_tokens, bool)
+            or fragment.estimated_tokens < 0
+        ):
+            raise ValueError(f"Fragment {fragment.id} has invalid token estimate")
+        if not all(
+            isinstance(score, (int, float)) and not isinstance(score, bool)
+            for score in (fragment.ranking_score, fragment.confidence)
+        ):
+            raise ValueError(f"Fragment {fragment.id} has invalid ranking metadata")
+        if fragment.fallback_reason is not None and not isinstance(fragment.fallback_reason, str):
+            raise ValueError(f"Fragment {fragment.id} has invalid fallback reason")
+        if not isinstance(fragment.admission_event_ids, tuple) or not all(
+            isinstance(event_id, str) for event_id in fragment.admission_event_ids
+        ):
+            raise ValueError(f"Fragment {fragment.id} has invalid admission event IDs")
+        if fragment.lines is not None and (
+            not isinstance(fragment.lines, tuple)
+            or len(fragment.lines) != 2
+            or not all(isinstance(line, int) and line > 0 for line in fragment.lines)
+            or fragment.lines[0] > fragment.lines[1]
+        ):
+            raise ValueError(f"Fragment {fragment.id} has invalid line range")
+        expected_hash = hashlib.sha256(fragment.content.encode("utf-8")).hexdigest()[:16]
+        if fragment.content_hash != expected_hash:
+            raise ValueError(
+                f"Fragment {fragment.id} content hash mismatch: expected {expected_hash}, "
+                f"got {fragment.content_hash}"
+            )
+
+
 def compile_and_write_context_pack(installation: Installation, manifest: ActiveContextManifest) -> Path:
     """Convenience function: compile and write in one call."""
     header, fragments = compile_context_pack(installation, manifest)
     return write_context_pack(installation, header, fragments)
 
 
+def validate_context_pack_against_state(
+    header: ContextPackHeader,
+    fragments: list[ContextPackFragment],
+    manifest: ActiveContextManifest,
+    contract: Any,
+) -> None:
+    """Reject a pack that cannot be attributed to the current canonical state."""
+    from sacas.task_contract import task_contract_hash
+
+    if header.task_id != manifest.task_id or header.task_id != contract.task_id:
+        raise ValueError("context pack task ID does not match canonical task state")
+    expected_hash = task_contract_hash(contract)
+    if header.task_contract_hash != expected_hash or manifest.task_contract_hash != expected_hash:
+        raise ValueError("context pack contract hash does not match canonical task contract")
+    if (
+        header.git_revision != manifest.git_revision
+        or header.graph_snapshot_hash != manifest.graph_snapshot_hash
+    ):
+        raise ValueError("context pack identity does not match canonical manifest")
+
+    fragment_sources_by_role: dict[str, set[str]] = {}
+    for fragment in fragments:
+        fragment_sources_by_role.setdefault(fragment.role, set()).add(fragment.source)
+    rule_fragment_sources = {
+        fragment.source for fragment in fragments if fragment.role == "rule"
+    }
+    reference_fragment_sources = {
+        fragment.source for fragment in fragments if fragment.role == "reference"
+    }
+
+    # Test coverage has priority over generic file coverage: a path named by
+    # `manifest.tests` is an executable-test admission, not merely a source
+    # file which happens to be present in the pack.
+    expected_test_paths = set(manifest.tests)
+    expected_test_paths.update(
+        file_context.path
+        for file_context in manifest.all_files
+        if file_context.role == "test"
+    )
+    missing_test_paths = sorted(expected_test_paths.difference(fragment_sources_by_role.get("test", set())))
+    if missing_test_paths:
+        raise ValueError(
+            f"context pack missing canonical test coverage: {missing_test_paths[0]}"
+        )
+
+    expected_file_paths_by_role: dict[str, set[str]] = {}
+    for file_context in manifest.all_files:
+        if file_context.role != "test" and file_context.path not in expected_test_paths:
+            expected_file_paths_by_role.setdefault(file_context.role, set()).add(file_context.path)
+    missing_file_paths = sorted(
+        path
+        for role, paths in expected_file_paths_by_role.items()
+        for path in paths.difference(fragment_sources_by_role.get(role, set()))
+    )
+    if missing_file_paths:
+        raise ValueError(
+            f"context pack missing canonical file coverage: {missing_file_paths[0]}"
+        )
+
+    missing_rule_paths = sorted(
+        {rule.path for rule in manifest.rules}.difference(fragment_sources_by_role.get("rule", set()))
+    )
+    if missing_rule_paths:
+        raise ValueError(
+            f"context pack missing canonical rule coverage: {missing_rule_paths[0]}"
+        )
+
+    missing_reference_paths = sorted(
+        {reference.path for reference in manifest.references}.difference(fragment_sources_by_role.get("reference", set()))
+    )
+    if missing_reference_paths:
+        raise ValueError(
+            "context pack missing canonical reference coverage: "
+            f"{missing_reference_paths[0]}"
+        )
+
+
+def load_validated_context_pack(installation: Installation) -> tuple[ContextPackHeader, list[ContextPackFragment]]:
+    """Load the runtime pack only after binding it to current task.json/context state."""
+    from sacas.active_context import load_task_state
+
+    task_dir = installation.sacas_root / "tasks" / "current"
+    manifest, contract = load_task_state(task_dir)
+    if manifest is None or contract is None:
+        raise ValueError("canonical task state is unavailable")
+    pack_path = installation.sacas_root / ".sacas" / "runtime" / "context.pack.jsonl"
+    header, fragments = read_context_pack(pack_path)
+    validate_context_pack_against_state(header, fragments, manifest, contract)
+    return header, fragments
+
+
 def read_context_pack(pack_path: Path) -> tuple[ContextPackHeader, list[ContextPackFragment]]:
     """Read context pack from JSONL file with validation."""
-    lines = pack_path.read_text(encoding="utf-8").strip().split("\n")
-    if not lines:
+    content = pack_path.read_text(encoding="utf-8")
+    if not content.strip():
         raise ValueError("Empty context pack")
-    
-    header_data = json.loads(lines[0])
+    lines = content.splitlines()
+
+    def parse_record(line: str, line_num: int) -> dict[str, Any]:
+        try:
+            record = json.loads(line)
+        except (TypeError, json.JSONDecodeError) as error:
+            raise ValueError(f"Invalid context pack JSON at line {line_num}") from error
+        if not isinstance(record, Mapping):
+            raise ValueError(f"Invalid context pack record at line {line_num}: expected object")
+        return dict(record)
+
+    header_data = parse_record(lines[0], 1)
     if header_data.get("type") != "pack":
         raise ValueError("Invalid context pack: missing header")
     
@@ -450,14 +687,17 @@ def read_context_pack(pack_path: Path) -> tuple[ContextPackHeader, list[ContextP
     if schema_version != 1:
         raise ValueError(f"Unsupported context pack schema version: {schema_version}")
     
-    header = ContextPackHeader(**header_data)
+    try:
+        header = ContextPackHeader(**header_data)
+    except (TypeError, ValueError) as error:
+        raise ValueError("Invalid context pack header") from error
     fragments = []
     seen_ids = set()
     
     for line_num, line in enumerate(lines[1:], start=2):
-        frag_data = json.loads(line)
+        frag_data = parse_record(line, line_num)
         if frag_data.get("type") != "fragment":
-            continue
+            raise ValueError(f"Invalid context pack record at line {line_num}: expected fragment")
         
         # Validate required fields
         required_fields = ["id", "source", "selector", "lines", "content", "content_hash", "reason", "estimated_tokens", "admission_event_ids", "role", "ranking_score", "confidence", "fallback_reason"]
@@ -467,12 +707,16 @@ def read_context_pack(pack_path: Path) -> tuple[ContextPackHeader, list[ContextP
         
         # Validate fragment ID uniqueness
         frag_id = frag_data["id"]
+        if not isinstance(frag_id, str):
+            raise ValueError(f"Invalid fragment at line {line_num}: id must be a string")
         if frag_id in seen_ids:
             raise ValueError(f"Duplicate fragment ID at line {line_num}: {frag_id}")
         seen_ids.add(frag_id)
         
         # Validate content hash matches content
         content = frag_data["content"]
+        if not isinstance(content, str):
+            raise ValueError(f"Invalid fragment at line {line_num}: content must be a string")
         import hashlib
         expected_hash = hashlib.sha256(content.encode()).hexdigest()[:16]
         if frag_data["content_hash"] != expected_hash:
@@ -489,10 +733,14 @@ def read_context_pack(pack_path: Path) -> tuple[ContextPackHeader, list[ContextP
         if "lines" in frag_data and isinstance(frag_data["lines"], list):
             frag_data["lines"] = tuple(frag_data["lines"])
         
-        fragments.append(ContextPackFragment(**frag_data))
+        try:
+            fragments.append(ContextPackFragment(**frag_data))
+        except (TypeError, ValueError) as error:
+            raise ValueError(f"Invalid fragment at line {line_num}") from error
     
     # Final validation: fragment count matches header
     if len(fragments) != header.fragment_count:
         raise ValueError(f"Fragment count mismatch: header says {header.fragment_count}, found {len(fragments)}")
     
+    validate_context_pack_records(header, fragments)
     return header, fragments

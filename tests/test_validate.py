@@ -133,3 +133,61 @@ def test_validate_detects_empty_scope(tmp_path: Path) -> None:
     assert any(item["check"] == "empty_scope" for item in report["diagnostics"])
 
 
+def test_corrupt_context_pack_is_reported_by_status_and_validate(tmp_path: Path) -> None:
+    """Runtime consumers report malformed JSONL rather than leaking parser exceptions."""
+    from sacas.cli import main
+    from sacas.init import initialize
+    from sacas.paths import discover_manifest
+    from sacas.status import get_status_report
+    from sacas.validate import run_diagnostics
+
+    initialized = initialize(tmp_path, graphify_mode="off")
+    source = tmp_path / "src" / "app.py"
+    source.parent.mkdir()
+    source.write_text("value = 1\n", encoding="utf-8")
+    assert main(["task", "Corrupt pack", "--root", str(tmp_path), "--files", "src/app.py"]) == 0
+    pack_path = initialized.sacas_root / ".sacas" / "runtime" / "context.pack.jsonl"
+    pack_path.write_text("[]\n", encoding="utf-8")
+
+    report = get_status_report(discover_manifest(tmp_path))
+    diagnostics = run_diagnostics(tmp_path)
+
+    assert report["status"] == "invalid_context_pack"
+    assert any(item["check"] == "invalid_context_pack" for item in diagnostics["diagnostics"])
+
+
+def test_validate_marks_changed_canonical_rules_and_references_stale(tmp_path: Path) -> None:
+    """Rules and references are canonical admissions, not optional display material."""
+    from sacas.init import initialize
+    from sacas.paths import discover_manifest
+    from sacas.status import get_status_report
+    from sacas.tasks import generate_task
+    from sacas.validate import run_diagnostics
+
+    initialized = initialize(tmp_path, graphify_mode="off")
+    source = tmp_path / "src" / "app.py"
+    source.parent.mkdir()
+    source.write_text("value = 1\n", encoding="utf-8")
+    rule = initialized.sacas_root / "rules" / "task.md"
+    reference = initialized.sacas_root / "references" / "task.md"
+    rule.write_text("# Rule\n", encoding="utf-8")
+    reference.write_text("# Reference\n", encoding="utf-8")
+    generate_task(
+        initialized.installation,
+        "Canonical support artifacts",
+        files=("src/app.py",),
+        rules=("Structure/rules/task.md",),
+        references=("Structure/references/task.md",),
+    )
+    rule.write_text("# Changed rule\n", encoding="utf-8")
+    reference.unlink()
+
+    report = run_diagnostics(tmp_path)
+    status = get_status_report(discover_manifest(tmp_path))
+
+    messages = [item["message"] for item in report["diagnostics"]]
+    assert any("Structure/rules/task.md" in message for message in messages)
+    assert any("Structure/references/task.md" in message for message in messages)
+    assert {"Structure/rules/task.md", "Structure/references/task.md"}.issubset(status["stale_files"])
+
+
