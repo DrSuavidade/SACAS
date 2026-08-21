@@ -7,20 +7,30 @@ context follows the same trust and selector rules as initial routing.
 
 ## Decisions
 
-1. `expand` is an admission boundary. It normalizes every supplied and
-   candidate path with `resolve_repo_path`, validates bytes through the
-   text-source reader, and refuses the whole command before publication when
-   any requested admission is rejected. It must never represent a rejected
-   file with an empty hash.
-2. Candidate records preserve a validated selector when one is available.
-   Graph/node/symbol/line evidence is lowered through `SymbolRangeResolver`
-   before admission. Full-file expansion is only the explicit no-selector
-   case.
+1. `expand` is an all-or-nothing admission boundary. It normalizes every
+   supplied and candidate path with `resolve_repo_path`, validates bytes
+   through the text-source reader, resolves requested symbols and reference
+   headings, and refuses the whole command before publication when any input
+   is rejected. It must never represent a rejected file with an empty hash.
+2. The normalized Graphify evidence schema persists and validates stable node
+   label/line metadata. Candidate generation carries that metadata
+   (`node_label` and `node_line`, or a resolved selector) alongside each
+   Graphify candidate.
+   `expand --all-candidates` lowers that evidence through
+   `SymbolRangeResolver` before admission. Full-file expansion is only the
+   explicit no-selector case.
 3. Canonical state has two distinct read outcomes: absent and corrupt.
-   Missing canonical files are normal; malformed JSON or invalid schema is a
-   typed canonical-state error surfaced by status and validation.
-4. Lean initialization creates only SACAS core artifacts. Legacy workflow
-   scaffolding is emitted only with `--workflow`.
+   Missing canonical files are normal; malformed JSON, unsupported schema, or
+   invalid field/selection types raise a typed canonical-state error. Every
+   canonical-state consumer reports this deterministically; no legacy fallback
+   may mask a corrupt canonical file.
+4. `candidates.json` is task-bound derived input. Expansion requires its task
+   ID to match the active manifest (and its graph hash when present), before
+   considering any candidate admissions.
+5. Lean initialization creates only SACAS core artifacts. `Structure` workflow
+   scaffolding is emitted only with `--workflow`; the repository-root Claude
+   adapter remains a core artifact. Re-running lean initialization never
+   removes existing workflow files or human content.
 
 ## Non-goals
 
@@ -30,6 +40,7 @@ context.pack.jsonl` ownership remains unchanged.
 
 ## Validation
 
-Tests cover escaped/secret/ignored/binary expansion inputs, candidate selector
-preservation, canonical corruption diagnostics, and lean-vs-workflow artifact
-creation. The full test suite and `sacas validate` remain release gates.
+Tests cover mixed valid/rejected expansion transactions, malformed candidate
+payloads, generated Graphify candidate selector preservation, canonical
+corruption through all public consumers, and non-destructive lean-vs-workflow
+initialization. The full test suite and `sacas validate` remain release gates.

@@ -4,7 +4,7 @@
 
 **Goal:** Make expansion, canonical-state loading, and lean initialization obey SACAS's canonical trust and selector invariants.
 
-**Architecture:** Validate every expansion request in memory before constructing a replacement manifest. Lower candidate graph evidence to source selectors through the existing resolver. Treat corruption as distinct from absence, and keep workflow artifacts opt-in.
+**Architecture:** Validate every expansion request in memory before constructing a replacement manifest. Persist Graphify node metadata in candidates, then lower it through the existing resolver. Treat corruption as distinct from absence for every consumer, and keep only `Structure` workflow artifacts opt-in.
 
 **Tech Stack:** Python 3, pytest, existing SACAS IO/path/selector APIs.
 
@@ -18,20 +18,24 @@
 - Modify: `src/sacas/cli.py`
 - Test: `tests/test_cli_commands.py`
 
-- [ ] Write a failing test for rejected escaped, secret, ignored, binary, and invalid symbol expansion inputs.
-- [ ] Run the focused test and confirm current expansion creates an empty-hash admission or otherwise fails the required contract.
-- [ ] Normalize paths with `resolve_repo_path`; securely read every requested admission before mutating the in-memory manifest; reject failures with a nonzero command result.
+- [ ] Write failing mixed-input transaction tests for escaped, secret, ignored, binary, invalid-symbol, invalid-reference-heading, malformed-candidates, and stale-task candidates inputs.
+- [ ] Run the focused tests and confirm current expansion partially admits entries or creates an empty-hash admission.
+- [ ] Normalize paths with `resolve_repo_path`; securely read and resolve every requested admission before mutating the in-memory manifest; reject failures with a nonzero command result and byte-identical canonical state/views.
 - [ ] Re-run focused expansion tests.
 
 ### Task 2: Preserve candidate selectors
 
 **Files:**
 - Modify: `src/sacas/cli.py`
+- Modify: `src/sacas/refresh.py`
+- Modify: `src/sacas/graphify.py`
 - Test: `tests/test_cli_commands.py`
+- Test: `tests/test_refresh.py`
+- Test: `tests/test_graphify.py`
 
-- [ ] Write a failing candidate-expansion test with Graphify symbol/line metadata.
-- [ ] Confirm `--all-candidates` currently produces a full-file selection.
-- [ ] Resolve candidate evidence to `ActiveSymbolContext`; retain full-file selection only for candidates with no selector evidence.
+- [ ] Write a failing test where generated Graphify evidence yields a candidate with node label/line metadata and expansion preserves its range.
+- [ ] Confirm generation currently discards selector metadata and `--all-candidates` produces a full-file selection.
+- [ ] Serialize stable node label/line metadata, then resolve it to `ActiveSymbolContext`; retain full-file selection only for candidates with no selector evidence.
 - [ ] Re-run focused candidate tests.
 
 ## Chunk 2: Canonical state and lean initialization
@@ -43,12 +47,23 @@
 - Modify: `src/sacas/active_context.py`
 - Modify: `src/sacas/status.py`
 - Modify: `src/sacas/validate.py`
+- Modify: `src/sacas/refresh.py`
+- Modify: `src/sacas/cli.py`
+- Modify: `src/sacas/compiler.py`
+- Modify: `src/sacas/provenance.py`
+- Modify: `src/sacas/benchmark.py`
 - Test: `tests/test_active_context.py`
 - Test: `tests/test_validate.py`
+- Test: `tests/test_refresh.py`
+- Test: `tests/test_cli_commands.py`
+- Test: `tests/test_compiler.py`
+- Test: `tests/test_provenance.py`
+- Test: `tests/test_benchmark.py`
 
 - [ ] Write failing tests for malformed `task.json` and `active_context.json` through status and validate.
-- [ ] Confirm they are currently treated as missing state.
-- [ ] Introduce a typed canonical-state exception and convert it to clear diagnostics at user-facing consumers.
+- [ ] Add valid-JSON tests for unsupported schema versions and invalid types/selections, and consumer tests for refresh, expand, compiler, provenance, and benchmark refusal.
+- [ ] Confirm they are currently treated as missing state or raise uncontrolled exceptions.
+- [ ] Introduce a typed canonical-state exception and convert it to clear, nonzero diagnostics at every user-facing consumer without legacy fallback.
 - [ ] Re-run focused state/validation tests.
 
 ### Task 4: Make default initialization lean
@@ -56,9 +71,9 @@
 **Files:**
 - Modify: `src/sacas/init.py`
 - Test: `tests/test_init.py`
-- [ ] Write a failing default-init test asserting no workflow-only artifacts, plus a workflow-mode counterpart.
+- [ ] Write a failing default-init test asserting no `Structure/CLAUDE.md` or `Structure/CONTEXT.md`, plus a workflow-mode counterpart and a non-destructive re-init case.
 - [ ] Confirm the default path creates the legacy artifacts.
-- [ ] Gate those artifacts on `workflow` without changing core router setup.
+- [ ] Gate only `Structure` workflow artifacts on `workflow`, preserve the repository-root Claude adapter, and update the relevant README/help text.
 - [ ] Re-run focused initialization tests.
 
 ## Chunk 3: Release gate
