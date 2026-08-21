@@ -32,11 +32,11 @@ jobs:
       - name: Verify Graphify capabilities
         run: |
           python -c "
-from sacas.graphify import GraphifyAdapter
-adapter = GraphifyAdapter('.', '.')
-version = adapter.get_installed_version()
-print(f'Graphify version: {version}')
-assert adapter.verify_capabilities(required=['extract', 'query']), 'Graphify capabilities check failed'
-print('Graphify capabilities OK')
-"
+          from sacas.graphify import GraphifyAdapter
+          adapter = GraphifyAdapter('.', '.')
+          version = adapter.get_installed_version()
+          print(f'Graphify version: {version}')
+          assert adapter.verify_capabilities(required=['extract', 'query']), 'Graphify capabilities check failed'
+          print('Graphify capabilities OK')
+          "
       - run: python -m pytest -q
