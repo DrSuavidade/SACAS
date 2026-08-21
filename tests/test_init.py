@@ -23,6 +23,52 @@ def test_init_creates_default_structure_root_and_canonical_manifest(tmp_path: Pa
     assert "sacas validate" in (tmp_path / "Structure" / "ROUTER.md").read_text(encoding="utf-8")
 
 
+def test_default_init_omits_workflow_only_workspace_artifacts(tmp_path: Path) -> None:
+    from sacas.init import initialize
+
+    initialize(tmp_path)
+
+    assert (tmp_path / "CLAUDE.md").is_file()  # The repository-root Claude adapter is core.
+    assert not (tmp_path / "Structure" / "CLAUDE.md").exists()
+    assert not (tmp_path / "Structure" / "CONTEXT.md").exists()
+    assert not (tmp_path / "Structure" / "_config").exists()
+    assert not (tmp_path / "Structure" / "stages").exists()
+
+
+def test_workflow_init_creates_workspace_artifacts(tmp_path: Path) -> None:
+    from sacas.init import initialize
+
+    initialize(tmp_path, workflow=True)
+
+    assert (tmp_path / "Structure" / "CLAUDE.md").is_file()
+    assert (tmp_path / "Structure" / "CONTEXT.md").is_file()
+    assert (tmp_path / "Structure" / "_config" / "conventions.md").is_file()
+    assert (tmp_path / "Structure" / "stages" / "01_analyze" / "CONTEXT.md").is_file()
+
+
+def test_workflow_init_refuses_repository_root_placement_before_writing(tmp_path: Path) -> None:
+    from sacas.init import initialize
+
+    with pytest.raises(ValueError, match="workflow.*repository root"):
+        initialize(tmp_path, sacas_root=".", workflow=True)
+
+    assert not any(tmp_path.iterdir())
+
+
+def test_lean_reinit_preserves_existing_workflow_artifacts_and_human_content(tmp_path: Path) -> None:
+    from sacas.init import initialize
+
+    initialize(tmp_path, workflow=True)
+    workflow_context = tmp_path / "Structure" / "CONTEXT.md"
+    workflow_context.write_text("# Human workflow note\n", encoding="utf-8")
+
+    initialize(tmp_path)
+
+    assert workflow_context.read_text(encoding="utf-8") == "# Human workflow note\n"
+    assert (tmp_path / "Structure" / "_config" / "conventions.md").is_file()
+    assert (tmp_path / "Structure" / "stages" / "03_verify" / "CONTEXT.md").is_file()
+
+
 def test_init_supports_a_custom_relative_root(tmp_path: Path) -> None:
     from sacas.init import initialize
     from sacas.paths import discover_manifest

@@ -7,6 +7,18 @@ from sacas.cli import main
 from sacas.init import initialize
 from sacas.active_context import load_active_context
 
+
+def test_lean_init_pipeline_commands_explain_how_to_create_workflow_stages(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert main(["init", "--root", str(tmp_path)]) == 0
+
+    assert main(["pipeline", "list", "--root", str(tmp_path)]) == 1
+    assert "sacas init --workflow" in capsys.readouterr().out
+
+    assert main(["pipeline", "orchestrate", "--root", str(tmp_path)]) == 1
+    assert "sacas init --workflow" in capsys.readouterr().out
+
 def test_expand_why_doctor_cli_commands(tmp_path: Path) -> None:
     # 1. Initialize
     init_result = initialize(tmp_path)

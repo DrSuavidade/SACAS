@@ -51,6 +51,11 @@ def initialize(repository_root: Path | str, *, sacas_root: str = "Structure", gr
     repository_root = Path(repository_root).resolve()
     resolved_root = resolve_sacas_root(repository_root, sacas_root)
     configured_root = sacas_root.replace("\\", "/")
+    if workflow and resolved_root == repository_root:
+        raise ValueError(
+            "workflow initialization cannot use the repository root because its "
+            "workspace CLAUDE.md collides with the repository-root Claude adapter."
+        )
     existing_installation = discover_manifest(repository_root)
     if existing_installation is not None and existing_installation.sacas_root != resolved_root:
         raise ValueError(
@@ -105,19 +110,20 @@ def initialize(repository_root: Path | str, *, sacas_root: str = "Structure", gr
         locator = {"manifest": manifest_path.relative_to(repository_root).as_posix()}
         changed |= _write_if_changed(repository_root / LOCATOR_RELATIVE_PATH, stable_json(locator))
 
-    # Core files (always created)
-    claude_path = resolved_root / "CLAUDE.md"
-    if not claude_path.exists():
-        write_text_atomic(claude_path, claude_md_document())
-        changed = True
-
-    context_path = resolved_root / "CONTEXT.md"
-    if not context_path.exists():
-        write_text_atomic(context_path, workspace_context_document())
-        changed = True
-
     # Optional ICM workflow files
     if workflow:
+        # Layer 0/1: Workflow workspace contracts. These are intentionally
+        # opt-in; repository-root adapters remain core artifacts below.
+        claude_path = resolved_root / "CLAUDE.md"
+        if not claude_path.exists():
+            write_text_atomic(claude_path, claude_md_document())
+            changed = True
+
+        context_path = resolved_root / "CONTEXT.md"
+        if not context_path.exists():
+            write_text_atomic(context_path, workspace_context_document())
+            changed = True
+
         # Layer 2: Stage CONTEXT.md contracts
         stage_configs = [
             (1, "analyze", "Analyze codebase, understand requirements, produce structured analysis"),

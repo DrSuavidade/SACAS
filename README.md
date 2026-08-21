@@ -25,7 +25,7 @@ Initialize a SACAS structure inside a repository directory.
 - `--root <path>`: Repository root directory (default: current directory).
 - `--sacas-root <name>`: Directory name for storing SACAS structures (default: `Structure`).
 - `--graphify <off|existing|code-only|semantic>`: Graphify integration mode (default: `existing`).
-- `--workflow`: Also create ICM workflow stages (`stages/`) and `_config/` directories (optional).
+- `--workflow`: Also create ICM workspace documents (`$SACAS_ROOT/CLAUDE.md`, `$SACAS_ROOT/CONTEXT.md`), stages (`$SACAS_ROOT/stages/`), and `$SACAS_ROOT/_config/` artifacts. The default is lean and does not create these workflow-only files; repository-root agent adapters are still created. `$SACAS_ROOT` defaults to `Structure`.
 
 **Example:**
 ```bash
@@ -285,7 +285,7 @@ user task or the agent's system/developer instructions.
 your-project/
 ├── .aiignore
 ├── .cursorignore
-└── Structure/
+└── $SACAS_ROOT/              # default: Structure
     ├── ROUTER.md              # SACAS router guide
     ├── rules/
     │   └── boundaries.md      # Protected scope boundaries (MANUAL entries only)
@@ -310,7 +310,7 @@ your-project/
 **With `--workflow`:**
 ```
 your-project/
-└── Structure/
+└── $SACAS_ROOT/              # default: Structure
     ├── CLAUDE.md              # Workspace identity
     ├── CONTEXT.md             # Workspace routing
     ├── _config/

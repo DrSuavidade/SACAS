@@ -37,7 +37,11 @@ def build_parser() -> argparse.ArgumentParser:
     init_parser.add_argument("--root", default=".", help="Repository root (default: current directory).")
     init_parser.add_argument("--sacas-root", default="Structure", help="SACAS root relative to repository.")
     init_parser.add_argument("--graphify", choices=("off", "existing", "code-only", "semantic"), default="existing", help="Graphify integration mode.")
-    init_parser.add_argument("--workflow", action="store_true", help="Also create ICM workflow stages and _config directories.")
+    init_parser.add_argument(
+        "--workflow",
+        action="store_true",
+        help="Also create ICM workspace documents, stages, and _config artifacts.",
+    )
 
     map_parser = subcommands.add_parser("map", help="Build a system map from optional Graphify evidence.")
     map_parser.add_argument("--root", default=".", help="Repository root (default: current directory).")
@@ -736,7 +740,7 @@ def pipeline_list_command(installation: Installation) -> int:
     """List available pipeline stages."""
     stages_dir = installation.sacas_root / "stages"
     if not stages_dir.exists():
-        print("No pipeline stages found. Run 'sacas init' to create default stages.")
+        print("No pipeline stages found. Run 'sacas init --workflow' to create workflow stages.")
         return 1
     
     stages = sorted([d.name for d in stages_dir.iterdir() if d.is_dir()])
@@ -845,7 +849,7 @@ def pipeline_orchestrate_command(installation: Installation, start_stage: str, s
     """Walk through pipeline sequentially with review gates."""
     stages_dir = installation.sacas_root / "stages"
     if not stages_dir.exists():
-        print("No pipeline stages found. Run 'sacas init' to create default stages.")
+        print("No pipeline stages found. Run 'sacas init --workflow' to create workflow stages.")
         return 1
     
     stages = sorted([d.name for d in stages_dir.iterdir() if d.is_dir()])
