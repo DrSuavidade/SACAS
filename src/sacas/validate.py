@@ -159,22 +159,31 @@ def run_diagnostics(root: Path) -> dict[str, Any]:
                 "message": "Legacy PROGRESS.md file found. State should be tracked exclusively in STATE.md."
             })
 
-        # Read active_context.json and check task files
+        # Existing canonical files are authoritative: corruption is neither a
+        # missing task nor a cue to inspect legacy state.
         from sacas.active_context import load_active_context
-        active_manifest = load_active_context(task_dir)
-        
-        from sacas.task_contract import load_task_contract, task_contract_hash
-        contract = load_task_contract(task_dir)
-
+        from sacas.task_contract import CanonicalStateError, load_task_contract, task_contract_hash
         try:
-            from sacas.compiler import load_validated_context_pack
-            load_validated_context_pack(installation)
-        except (OSError, ValueError) as err:
+            active_manifest = load_active_context(task_dir)
+            contract = load_task_contract(task_dir)
+        except CanonicalStateError as err:
             diagnostics.append({
                 "severity": "FAIL",
-                "check": "invalid_context_pack",
-                "message": f"Runtime context pack is missing or does not match canonical state: {err}",
+                "check": "canonical_state",
+                "message": f"Canonical task state is corrupt: {err}",
             })
+            active_manifest = None
+            contract = None
+        else:
+            try:
+                from sacas.compiler import load_validated_context_pack
+                load_validated_context_pack(installation)
+            except (OSError, ValueError) as err:
+                diagnostics.append({
+                    "severity": "FAIL",
+                    "check": "invalid_context_pack",
+                    "message": f"Runtime context pack is missing or does not match canonical state: {err}",
+                })
 
         if active_manifest is not None:
             try:

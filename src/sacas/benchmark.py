@@ -155,9 +155,16 @@ def run_benchmark(installation: Installation) -> dict[str, Any]:
     if not task_id:
         return {"active_task": False}
 
-    from sacas.active_context import load_active_context
+    from sacas.active_context import load_task_state
+    from sacas.task_contract import CanonicalStateError
     task_dir = installation.sacas_root / "tasks" / "current"
-    manifest = load_active_context(task_dir)
+    try:
+        manifest, _contract = load_task_state(task_dir)
+    except CanonicalStateError as error:
+        return {
+            "active_task": False,
+            "error": f"Canonical task state is corrupt: {error}",
+        }
     if not manifest:
         return {"active_task": False}
 
@@ -210,9 +217,12 @@ def print_benchmark(installation: Installation, format_type: str = "text") -> in
     report = run_benchmark(installation)
     if format_type == "json":
         print(json.dumps(report, indent=2))
-        return 0
+        return 1 if report.get("error") else 0
 
     if not report.get("active_task"):
+        if report.get("error"):
+            print(report["error"])
+            return 1
         print("No active task found to benchmark routing quality.")
         print("Use 'sacas context-simulation' to simulate context sizes across the repository.")
         return 0

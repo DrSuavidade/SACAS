@@ -25,8 +25,21 @@ def get_status_report(installation: Installation) -> dict[str, Any]:
         }
 
     task_dir = installation.sacas_root / "tasks" / "current"
-    from sacas.active_context import load_active_context
-    manifest = load_active_context(task_dir)
+    from sacas.active_context import load_task_state
+    from sacas.task_contract import CanonicalStateError
+    try:
+        manifest, _contract = load_task_state(task_dir)
+    except CanonicalStateError as error:
+        return {
+            "current_task_id": task_id,
+            "status": "invalid_canonical_state",
+            "error": f"Canonical task state is corrupt: {error}",
+            "stale_files": [],
+            "initial_files": [],
+            "expanded_files": [],
+            "context_budget": installation.manifest.context_budget,
+            "estimated_size": 0,
+        }
     if not manifest:
         return {
             "current_task_id": task_id,
@@ -114,20 +127,24 @@ def get_status_report(installation: Installation) -> dict[str, Any]:
     }
 
 
-def print_status_report(installation: Installation, format_type: str = "text") -> None:
+def print_status_report(installation: Installation, format_type: str = "text") -> int:
     """Print the task and context status report in text or JSON format."""
     report = get_status_report(installation)
     if format_type == "json":
         print(json.dumps(report, indent=2))
-        return
+        return 1 if report["status"] == "invalid_canonical_state" else 0
 
     if report["status"] == "no_active_task":
         print("No active SACAS task.")
-        return
+        return 0
 
     if report["status"] == "invalid_context_pack":
         print("Task context pack is invalid or stale; run `sacas refresh`.")
-        return
+        return 0
+
+    if report["status"] == "invalid_canonical_state":
+        print(report["error"])
+        return 1
 
     print(f"Task ID: {report['current_task_id']}")
     print(f"Status:  {report['status'].upper()}")
@@ -151,3 +168,4 @@ def print_status_report(installation: Installation, format_type: str = "text") -
         print("\nExpanded files:")
         for f in report["expanded_files"]:
             print(f"  - {f}")
+    return 0

@@ -5,6 +5,174 @@ import json
 from pathlib import Path
 from typing import Any, Literal
 from sacas.models import ACTIVE_CONTEXT_SCHEMA_VERSION
+from sacas.task_contract import CanonicalStateError
+
+
+def _require_mapping(data: object, field: str) -> dict[str, Any]:
+    if not isinstance(data, dict):
+        raise ValueError(f"has invalid field '{field}'")
+    return data
+
+
+def _require_list(data: dict[str, Any], field: str) -> list[Any]:
+    value = data.get(field, [])
+    if not isinstance(value, list):
+        raise ValueError(f"has invalid field '{field}'")
+    return value
+
+
+def _require_str(record: dict[str, Any], field: str, error_field: str, *, optional: bool = False) -> None:
+    value = record.get(field)
+    if optional and value is None:
+        return
+    if not isinstance(value, str):
+        raise ValueError(f"has invalid field '{error_field}'")
+
+
+def _require_number(record: dict[str, Any], field: str, error_field: str, *, optional: bool = False) -> None:
+    value = record.get(field)
+    if optional and value is None:
+        return
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        raise ValueError(f"has invalid field '{error_field}'")
+
+
+def _require_int(record: dict[str, Any], field: str, error_field: str) -> int:
+    value = record.get(field)
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise ValueError(f"has invalid field '{error_field}'")
+    return value
+
+
+def _require_string_list(record: dict[str, Any], field: str, error_field: str) -> None:
+    values = _require_list(record, field)
+    if not all(isinstance(value, str) for value in values):
+        raise ValueError(f"has invalid field '{error_field}'")
+
+
+def _validate_source_range(source_range: object, error_field: str) -> None:
+    source_range = _require_mapping(source_range, error_field)
+    start = _require_int(source_range, "start_line", error_field)
+    end = _require_int(source_range, "end_line", error_field)
+    if start < 1 or end < start:
+        raise ValueError(f"has invalid field '{error_field}'")
+    if source_range.get("source") not in {"graphify", "parser", "heuristic", "explicit"}:
+        raise ValueError(f"has invalid field '{error_field}'")
+    _require_number(source_range, "confidence", error_field)
+
+
+def _validate_file_selection(selection: object) -> None:
+    selection = _require_mapping(selection, "selection")
+    mode = selection.get("mode")
+    if mode == "full":
+        return
+    if mode != "symbols":
+        raise ValueError("has invalid field 'selection'")
+    symbols = selection.get("symbols")
+    if not isinstance(symbols, list):
+        raise ValueError("has invalid field 'selection.symbols'")
+    for symbol in symbols:
+        symbol = _require_mapping(symbol, "selection.symbols")
+        if not isinstance(symbol.get("name"), str):
+            raise ValueError("has invalid field 'selection.symbols'")
+        _require_str(symbol, "reason", "selection.symbols", optional=True)
+        source_range = symbol.get("range")
+        if source_range is None:
+            continue
+        _validate_source_range(source_range, "selection.symbols")
+
+
+def _validate_reference_selection(selection: object) -> None:
+    selection = _require_mapping(selection, "references")
+    mode = selection.get("mode")
+    if mode == "full":
+        return
+    if mode != "sections":
+        raise ValueError("has invalid field 'references'")
+    sections = selection.get("sections")
+    if not isinstance(sections, list):
+        raise ValueError("has invalid field 'references'")
+    for section in sections:
+        section = _require_mapping(section, "references")
+        heading_path = section.get("heading_path")
+        if not isinstance(heading_path, list) or not heading_path or not all(isinstance(value, str) for value in heading_path):
+            raise ValueError("has invalid field 'references'")
+        start = _require_int(section, "start", "references")
+        end = _require_int(section, "end", "references")
+        if start < 1 or end < start:
+            raise ValueError("has invalid field 'references'")
+
+
+def _validate_manifest_data(data: object) -> dict[str, Any]:
+    data = _require_mapping(data, "document")
+    if data.get("schema_version") != ACTIVE_CONTEXT_SCHEMA_VERSION:
+        raise ValueError("has unsupported schema version")
+    for field in ("task_id", "task_contract_hash", "git_revision", "graph_snapshot_hash", "goal", "category"):
+        if field in data and not isinstance(data[field], str):
+            raise ValueError(f"has invalid field '{field}'")
+    if not isinstance(data.get("task_id"), str):
+        raise ValueError("has invalid field 'task_id'")
+    for field in ("files", "reference_files", "working_files"):
+        for file_context in _require_list(data, field):
+            file_context = _require_mapping(file_context, field)
+            for required in ("path", "source"):
+                _require_str(file_context, required, field)
+            for defaulted in ("git_revision", "reason", "hash", "role"):
+                if defaulted in file_context:
+                    _require_str(file_context, defaulted, field)
+            for optional in ("relation", "trigger"):
+                if optional in file_context:
+                    _require_str(file_context, optional, field, optional=True)
+            for numeric in ("ranking_score", "confidence"):
+                if numeric in file_context:
+                    _require_number(file_context, numeric, field)
+            if "evidence" in file_context:
+                _require_string_list(file_context, "evidence", field)
+            _validate_file_selection(file_context.get("selection"))
+    for rule in _require_list(data, "rules"):
+        rule = _require_mapping(rule, "rules")
+        for field in ("path", "hash", "reason"):
+            _require_str(rule, field, "rules")
+    for reference in _require_list(data, "references"):
+        reference = _require_mapping(reference, "references")
+        for field in ("path", "hash", "reason"):
+            _require_str(reference, field, "references")
+        _validate_reference_selection(reference.get("selection"))
+    for event in _require_list(data, "events"):
+        event = _require_mapping(event, "events")
+        for field in ("id", "target", "source", "reason", "trigger"):
+            _require_str(event, field, "events")
+        if event.get("action") != "admit":
+            raise ValueError("has invalid field 'events'")
+        for field in ("triggered_by", "relation"):
+            _require_str(event, field, "events", optional=True)
+        if event.get("direction") not in (None, "forward", "reverse"):
+            raise ValueError("has invalid field 'events'")
+        for field in ("ranking_score", "confidence", "graph_confidence", "lexical_score"):
+            if field in event:
+                _require_number(event, field, "events")
+        for field in (
+            "graph_snapshot_hash", "graph_query_id", "graph_node_id", "graph_edge_source_id",
+            "graph_edge_target_id", "graph_edge_kind", "lexical_query_hash",
+        ):
+            if field in event:
+                _require_str(event, field, "events")
+        if "evidence" in event:
+            _require_string_list(event, "evidence", "events")
+        if "lexical_matched_terms" in event:
+            _require_string_list(event, "lexical_matched_terms", "events")
+    if data.get("budget") is not None:
+        budget = _require_mapping(data["budget"], "budget")
+        for field in ("limit", "used", "source_tokens", "rule_tokens", "reference_tokens", "control_tokens"):
+            if _require_int(budget, field, "budget") < 0:
+                raise ValueError("has invalid field 'budget'")
+        _require_str(budget, "tokenizer", "budget")
+    if data.get("policy") is not None:
+        policy = _require_mapping(data["policy"], "policy")
+        for field in ("requested", "effective", "provider", "file_reads", "terminal_reads", "mcp_reads"):
+            _require_str(policy, field, "policy")
+    _require_string_list(data, "tests", "tests")
+    return data
 
 @dataclass(frozen=True)
 class SourceRange:
@@ -366,8 +534,7 @@ class ActiveContextManifest:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ActiveContextManifest:
-        if data.get("schema_version") != ACTIVE_CONTEXT_SCHEMA_VERSION:
-            raise ValueError(f"Unsupported active context version {data.get('schema_version')}")
+        data = _validate_manifest_data(data)
         files = tuple(ActiveFileContext.from_dict(f) for f in data.get("files", []))
         reference_files = tuple(ActiveFileContext.from_dict(f) for f in data.get("reference_files", []))
         working_files = tuple(ActiveFileContext.from_dict(f) for f in data.get("working_files", []))
@@ -410,14 +577,22 @@ def load_active_context(task_dir: Path) -> ActiveContextManifest | None:
     """
     path = task_dir / "active_context.json"
     manifest = None
-    if not path.is_file():
+    if not path.exists():
         manifest = load_legacy_active_context(task_dir)
+    elif not path.is_file():
+        raise CanonicalStateError(path, "is not a regular file")
     else:
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+            raise CanonicalStateError(path, "is malformed") from error
+        try:
             manifest = ActiveContextManifest.from_dict(data)
-        except Exception:
-            pass
+        except (KeyError, TypeError, ValueError) as error:
+            reason = str(error)
+            if reason.startswith("has "):
+                raise CanonicalStateError(path, reason) from error
+            raise CanonicalStateError(path, "is malformed") from error
     if manifest:
         from sacas.task_contract import load_task_contract
         contract = load_task_contract(task_dir)

@@ -15,6 +15,178 @@ from sacas.active_context import (
     load_legacy_active_context,
 )
 
+
+@pytest.mark.parametrize(
+    ("filename", "payload", "expected"),
+    (
+        ("task.json", "{not json", "task.json is malformed"),
+        ("task.json", json.dumps({"schema_version": 99}), "task.json has unsupported schema version"),
+        ("active_context.json", "{not json", "active_context.json is malformed"),
+        (
+            "active_context.json",
+            json.dumps({"schema_version": 1, "task_id": "task", "files": {}}),
+            "active_context.json has invalid field 'files'",
+        ),
+    ),
+)
+def test_canonical_state_loader_distinguishes_corruption_from_absence(
+    tmp_path: Path, filename: str, payload: str, expected: str,
+) -> None:
+    """An existing canonical file is never silently treated as missing state."""
+    from sacas.active_context import CanonicalStateError
+
+    (tmp_path / filename).write_text(payload, encoding="utf-8")
+
+    with pytest.raises(CanonicalStateError, match=expected):
+        load_task_state(tmp_path)
+
+
+@pytest.mark.parametrize("filename", ("task.json", "active_context.json"))
+def test_public_state_consumers_refuse_corrupt_canonical_context(tmp_path: Path, filename: str) -> None:
+    """Inspection consumers give deterministic errors without rewriting state."""
+    from sacas.benchmark import run_benchmark
+    from sacas.cli import main
+    from sacas.init import initialize
+    from sacas.paths import discover_manifest
+    from sacas.provenance import query_why_file
+    from sacas.status import get_status_report
+
+    initialized = initialize(tmp_path, graphify_mode="off")
+    source = tmp_path / "src" / "app.py"
+    source.parent.mkdir()
+    source.write_text("value = 1\n", encoding="utf-8")
+    assert main(["task", "Corrupt state", "--root", str(tmp_path), "--files", "src/app.py"]) == 0
+    task_dir = initialized.sacas_root / "tasks" / "current"
+    corrupt = task_dir / filename
+    corrupt.write_text("{not json", encoding="utf-8")
+    installation = discover_manifest(tmp_path)
+    assert installation is not None
+
+    assert get_status_report(installation)["status"] == "invalid_canonical_state"
+    expected_error = f"Canonical task state is corrupt: {filename} is malformed"
+    assert query_why_file(installation, "src/app.py") == [expected_error]
+    assert run_benchmark(installation) == {
+        "active_task": False,
+        "error": expected_error,
+    }
+    assert main(["expand", "--root", str(tmp_path), "--file", "src/app.py"]) == 1
+    assert main(["status", "--root", str(tmp_path), "--format", "json"]) == 1
+    assert main(["why", "src/app.py", "--root", str(tmp_path)]) == 1
+    assert main(["refresh", "--root", str(tmp_path)]) == 1
+    assert corrupt.read_text(encoding="utf-8") == "{not json"
+
+
+@pytest.mark.parametrize(
+    ("mutate", "expected"),
+    (
+        (lambda state: state["files"][0].__setitem__("path", 1), "files"),
+        (lambda state: state["files"][0].__setitem__("ranking_score", True), "files"),
+        (lambda state: state["files"][0].__setitem__("selection", {"mode": "sections"}), "selection"),
+        (lambda state: state["rules"][0].__setitem__("hash", 1), "rules"),
+        (lambda state: state["references"][0].__setitem__("selection", {"mode": "sections", "sections": "bad"}), "references"),
+        (lambda state: state["events"][0].__setitem__("action", "remove"), "events"),
+        (lambda state: state.__setitem__("budget", {"limit": True}), "budget"),
+        (lambda state: state.__setitem__("policy", {"requested": 1}), "policy"),
+    ),
+)
+def test_canonical_manifest_rejects_malformed_nested_state(
+    tmp_path: Path, mutate: object, expected: str,
+) -> None:
+    """Every canonical nested record has a schema, not merely a JSON shape."""
+    from sacas.cli import main
+    from sacas.init import initialize
+    from sacas.paths import discover_manifest
+    from sacas.status import get_status_report
+    from sacas.task_contract import CanonicalStateError
+
+    initialized = initialize(tmp_path, graphify_mode="off")
+    source = tmp_path / "src" / "app.py"
+    source.parent.mkdir()
+    source.write_text("value = 1\n", encoding="utf-8")
+    rule = initialized.sacas_root / "rules" / "task.md"
+    reference = initialized.sacas_root / "references" / "task.md"
+    rule.write_text("# Rule\n", encoding="utf-8")
+    reference.write_text("# Reference\n", encoding="utf-8")
+    assert main([
+        "task", "Nested schema", "--root", str(tmp_path), "--files", "src/app.py",
+        "--rules", "Structure/rules/task.md", "--references", "Structure/references/task.md",
+    ]) == 0
+    context_path = initialized.sacas_root / "tasks" / "current" / "active_context.json"
+    state = json.loads(context_path.read_text(encoding="utf-8"))
+    mutate(state)
+    context_path.write_text(json.dumps(state), encoding="utf-8")
+
+    with pytest.raises(CanonicalStateError, match=expected):
+        load_active_context(context_path.parent)
+    installation = discover_manifest(tmp_path)
+    assert installation is not None
+    assert get_status_report(installation)["status"] == "invalid_canonical_state"
+
+
+def test_runtime_pack_loader_refuses_invalid_nested_selection_without_writing(tmp_path: Path) -> None:
+    """The runtime entrypoint receives the typed canonical-state refusal too."""
+    from sacas.cli import main
+    from sacas.compiler import load_validated_context_pack
+    from sacas.init import initialize
+    from sacas.task_contract import CanonicalStateError
+
+    initialized = initialize(tmp_path, graphify_mode="off")
+    source = tmp_path / "src" / "app.py"
+    source.parent.mkdir()
+    source.write_text("value = 1\n", encoding="utf-8")
+    assert main(["task", "Invalid runtime state", "--root", str(tmp_path), "--files", "src/app.py"]) == 0
+    task_dir = initialized.sacas_root / "tasks" / "current"
+    context_path = task_dir / "active_context.json"
+    state = json.loads(context_path.read_text(encoding="utf-8"))
+    state["files"][0]["selection"] = {"mode": "symbols", "symbols": [{"name": 1}]}
+    context_path.write_text(json.dumps(state), encoding="utf-8")
+    before_context = context_path.read_bytes()
+    pack_path = initialized.sacas_root / ".sacas" / "runtime" / "context.pack.jsonl"
+    before_pack = pack_path.read_bytes()
+
+    with pytest.raises(CanonicalStateError, match="selection.symbols"):
+        load_validated_context_pack(initialized.installation)
+
+    assert context_path.read_bytes() == before_context
+    assert pack_path.read_bytes() == before_pack
+
+
+def test_canonical_loaders_accept_schema_v1_defaulted_fields(tmp_path: Path) -> None:
+    """Strictness applies to supplied values, not valid schema-v1 omissions."""
+    from sacas.task_contract import TaskContract, load_task_contract
+
+    (tmp_path / "task.json").write_text(json.dumps({
+        "task_id": "legacy-v1", "goal": "Compatibility", "category": "investigate",
+    }), encoding="utf-8")
+    (tmp_path / "active_context.json").write_text(json.dumps({
+        "schema_version": 1, "task_id": "legacy-v1",
+        "files": [{"path": "src/app.py", "selection": {"mode": "full"}, "source": "explicit"}],
+    }), encoding="utf-8")
+
+    assert load_task_contract(tmp_path) == TaskContract(1, "legacy-v1", "Compatibility", "investigate", (), (), ())
+    manifest = load_active_context(tmp_path)
+    assert manifest is not None
+    assert manifest.files[0].git_revision == "unknown"
+
+
+@pytest.mark.parametrize("filename", ("task.json", "active_context.json"))
+def test_canonical_loader_rejects_directory_artifact_without_legacy_fallback(
+    tmp_path: Path, filename: str,
+) -> None:
+    """Canonical paths must be regular files; directories are corruption, not absence."""
+    from sacas.task_contract import CanonicalStateError, load_task_contract
+
+    (tmp_path / filename).mkdir()
+    legacy = tmp_path / "expansions.json"
+    legacy.write_text(json.dumps({"schema_version": 2, "task_id": "legacy", "goal": "Legacy"}), encoding="utf-8")
+
+    with pytest.raises(CanonicalStateError, match=filename):
+        if filename == "task.json":
+            load_task_contract(tmp_path)
+        else:
+            load_active_context(tmp_path)
+    assert legacy.is_file()
+
 def test_active_context_manifest_serialization() -> None:
     manifest = ActiveContextManifest(
         task_id="abc12345",

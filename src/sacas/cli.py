@@ -176,13 +176,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     elif arguments.command == "refresh":
         from sacas.paths import discover_manifest
         from sacas.refresh import refresh_context
+        from sacas.task_contract import CanonicalStateError
 
         root = Path(arguments.root).resolve()
         installation = discover_manifest(root)
         if installation is None:
             raise ValueError("SACAS is not initialized. Run 'sacas init' first.")
 
-        refresh_context(installation, selective_files=tuple(arguments.files))
+        try:
+            refresh_context(installation, selective_files=tuple(arguments.files))
+        except CanonicalStateError as error:
+            print(f"Refresh refused: canonical task state is corrupt: {error}")
+            return 1
     elif arguments.command == "expand":
         from sacas.paths import discover_manifest
         root = Path(arguments.root).resolve()
@@ -224,7 +229,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         if installation is None:
             raise ValueError("SACAS is not initialized. Run 'sacas init' first.")
 
-        print_status_report(installation, format_type=arguments.format)
+        return print_status_report(installation, format_type=arguments.format)
     elif arguments.command == "validate":
         from sacas.validate import perform_validation
         root = Path(arguments.root).resolve()
@@ -307,7 +312,12 @@ def expand_context_command(
     import hashlib
     
     task_dir = installation.sacas_root / "tasks" / "current"
-    manifest, contract = load_task_state(task_dir)
+    from sacas.task_contract import CanonicalStateError
+    try:
+        manifest, contract = load_task_state(task_dir)
+    except CanonicalStateError as error:
+        print(f"Expansion refused: canonical task state is corrupt: {error}")
+        return 1
     if not manifest:
         print("No active SACAS task found.")
         return 1
@@ -591,7 +601,7 @@ def query_why_command(installation: Installation, path: str) -> int:
     lines = query_why_file(installation, path)
     for line in lines:
         print(line)
-    return 0
+    return 1 if lines and lines[0].startswith("Canonical task state is corrupt:") else 0
 
 
 def doctor_command(installation: Installation) -> int:

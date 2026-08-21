@@ -110,7 +110,7 @@ def test_validate_reports_invalid_symbol_range_for_a_readable_file(tmp_path: Pat
 
     report = run_diagnostics(tmp_path)
 
-    assert any(item["check"] == "invalid_range" for item in report["diagnostics"])
+    assert any(item["check"] == "canonical_state" for item in report["diagnostics"])
 
 
 def test_validate_detects_empty_scope(tmp_path: Path) -> None:
@@ -131,6 +131,40 @@ def test_validate_detects_empty_scope(tmp_path: Path) -> None:
     # Let's ensure Graphify mode is off to force fallback (which also yields empty since there are no files in tmp_path!)
     report = run_diagnostics(tmp_path)
     assert any(item["check"] == "empty_scope" for item in report["diagnostics"])
+
+
+@pytest.mark.parametrize(
+    ("filename", "payload"),
+    (
+        ("task.json", "{not json"),
+        ("active_context.json", json.dumps({"schema_version": 999, "task_id": "bad"})),
+    ),
+)
+def test_validate_reports_existing_corrupt_canonical_state(
+    tmp_path: Path, filename: str, payload: str,
+) -> None:
+    """Validation reports canonical corruption explicitly rather than missing state."""
+    from sacas.cli import main
+    from sacas.init import initialize
+    from sacas.validate import run_diagnostics
+
+    initialized = initialize(tmp_path, graphify_mode="off")
+    source = tmp_path / "src" / "app.py"
+    source.parent.mkdir()
+    source.write_text("value = 1\n", encoding="utf-8")
+    assert main(["task", "Corrupt canonical", "--root", str(tmp_path), "--files", "src/app.py"]) == 0
+    task_dir = initialized.sacas_root / "tasks" / "current"
+    target = task_dir / filename
+    other = task_dir / ("active_context.json" if filename == "task.json" else "task.json")
+    before_other = other.read_bytes()
+    target.write_text(payload, encoding="utf-8")
+
+    report = run_diagnostics(tmp_path)
+
+    assert report["status"] == "FAIL"
+    assert any(item["check"] == "canonical_state" and filename in item["message"] for item in report["diagnostics"])
+    assert target.read_text(encoding="utf-8") == payload
+    assert other.read_bytes() == before_other
 
 
 def test_corrupt_context_pack_is_reported_by_status_and_validate(tmp_path: Path) -> None:

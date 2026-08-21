@@ -261,9 +261,13 @@ def render_provenance_chain(node: ProvenanceNode, indent: int = 0) -> list[str]:
 def query_why_file(installation: Installation, target_path: str) -> list[str]:
     """Query why a file is in context and return formatted output."""
     from sacas.active_context import load_task_state
+    from sacas.task_contract import CanonicalStateError
     
     task_dir = installation.sacas_root / "tasks" / "current"
-    manifest, contract = load_task_state(task_dir)
+    try:
+        manifest, contract = load_task_state(task_dir)
+    except CanonicalStateError as error:
+        return [f"Canonical task state is corrupt: {error}"]
     
     if not manifest:
         return ["No active SACAS task found."]

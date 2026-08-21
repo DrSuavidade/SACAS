@@ -34,3 +34,18 @@ def test_context_simulation_command(tmp_path: Path) -> None:
     exit_code = main(["context-simulation", "--root", str(tmp_path), "--format", "json"])
     assert exit_code == 0
 
+
+def test_benchmark_json_returns_nonzero_for_corrupt_canonical_state(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    from sacas.cli import main
+    from sacas.init import initialize
+
+    initialized = initialize(tmp_path, graphify_mode="off")
+    source = tmp_path / "src" / "app.py"
+    source.parent.mkdir()
+    source.write_text("value = 1\n", encoding="utf-8")
+    assert main(["task", "Corrupt benchmark", "--root", str(tmp_path), "--files", "src/app.py"]) == 0
+    (initialized.sacas_root / "tasks" / "current" / "active_context.json").write_text("{bad", encoding="utf-8")
+
+    assert main(["benchmark", "--root", str(tmp_path), "--format", "json"]) == 1
+    assert json.loads(capsys.readouterr().out)["error"].startswith("Canonical task state is corrupt")
+

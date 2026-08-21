@@ -10,6 +10,15 @@ from sacas.io import write_json_atomic
 
 TASK_CONTRACT_SCHEMA_VERSION = 1
 
+
+class CanonicalStateError(ValueError):
+    """An existing canonical state artifact cannot be trusted or decoded."""
+
+    def __init__(self, path: Path, reason: str) -> None:
+        self.path = path
+        self.reason = reason
+        super().__init__(f"{path.name} {reason}")
+
 @dataclass(frozen=True, slots=True)
 class TaskContract:
     schema_version: int
@@ -33,8 +42,20 @@ class TaskContract:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> TaskContract:
+        if not isinstance(data, dict):
+            raise ValueError("must contain a JSON object")
+        schema_version = data.get("schema_version", TASK_CONTRACT_SCHEMA_VERSION)
+        if schema_version != TASK_CONTRACT_SCHEMA_VERSION:
+            raise ValueError("has unsupported schema version")
+        for field in ("task_id", "goal", "category"):
+            if not isinstance(data.get(field), str):
+                raise ValueError(f"has invalid field '{field}'")
+        for field in ("criteria", "constraints", "verification"):
+            value = data.get(field, ())
+            if field in data and (not isinstance(value, list) or not all(isinstance(item, str) for item in value)):
+                raise ValueError(f"has invalid field '{field}'")
         return cls(
-            schema_version=data.get("schema_version", TASK_CONTRACT_SCHEMA_VERSION),
+            schema_version=schema_version,
             task_id=data["task_id"],
             goal=data["goal"],
             category=data["category"],
@@ -50,13 +71,21 @@ def save_task_contract(task_dir: Path, contract: TaskContract) -> None:
 
 def load_task_contract(task_dir: Path) -> TaskContract | None:
     path = task_dir / "task.json"
-    if not path.is_file():
+    if not path.exists():
         return None
+    if not path.is_file():
+        raise CanonicalStateError(path, "is not a regular file")
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise CanonicalStateError(path, "is malformed") from error
+    try:
         return TaskContract.from_dict(data)
-    except Exception:
-        return None
+    except (KeyError, TypeError, ValueError) as error:
+        reason = str(error)
+        if reason.startswith("has "):
+            raise CanonicalStateError(path, reason) from error
+        raise CanonicalStateError(path, "is malformed") from error
 
 
 def task_contract_hash(contract: TaskContract) -> str:
