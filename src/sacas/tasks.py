@@ -1038,6 +1038,7 @@ def regenerate_task_markdown(
         task_dir,
         updated_manifest,
         views,
+        contract=contract,
     )
 
 
@@ -1046,6 +1047,8 @@ def publish_task_artifacts(
     task_dir: Path,
     manifest: ActiveContextManifest,
     views: dict[Path, str],
+    *,
+    contract: TaskContract | None = None,
 ) -> Path:
     """Publish one coherent task generation in dependency order.
 
@@ -1053,15 +1056,19 @@ def publish_task_artifacts(
     first, the canonical manifest second, and human views last; readers reject
     a crash-window pack whose header does not match canonical state.
     """
-    from sacas.task_contract import load_task_contract
+    from sacas.task_contract import load_task_contract, save_task_contract
 
     header, fragments = compile_context_pack(installation, manifest)
     validate_context_pack_records(header, fragments)
-    contract = load_task_contract(task_dir)
-    if contract is None:
+    canonical_contract = contract or load_task_contract(task_dir)
+    if canonical_contract is None:
         raise ValueError("canonical task contract is unavailable")
-    validate_context_pack_against_state(header, fragments, manifest, contract)
+    validate_context_pack_against_state(
+        header, fragments, manifest, canonical_contract, installation,
+    )
     pack_path = write_context_pack(installation, header, fragments)
+    if contract is not None:
+        save_task_contract(task_dir, contract)
     save_active_context(task_dir, manifest)
     for path, content in views.items():
         write_text_atomic(path, content)

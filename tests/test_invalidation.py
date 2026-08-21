@@ -471,8 +471,8 @@ def test_refresh_graph_change_invalidates_graph_files(fake_installation: FakeIns
     assert updated.graph_snapshot_hash != old_graph_hash
 
 
-def test_refresh_deleted_file(fake_installation: FakeInstallation):
-    """Test refresh handles deleted source files."""
+def test_refresh_deleted_file_preserves_the_canonical_admission(fake_installation: FakeInstallation):
+    """A deleted source is a controlled refresh refusal, never an implicit removal."""
     task_dir = fake_installation.sacas_root / "tasks" / "current"
     task_dir.mkdir(parents=True, exist_ok=True)
     
@@ -512,13 +512,11 @@ def test_refresh_deleted_file(fake_installation: FakeInstallation):
     
     # Delete the file
     temp_file.unlink()
+    manifest_path = task_dir / "active_context.json"
+    before = manifest_path.read_bytes()
     
     # Run refresh
-    changed = refresh_context(fake_installation)
+    with pytest.raises(ValueError, match="canonical admission unavailable: src/temp.py"):
+        refresh_context(fake_installation)
     
-    # Should detect deletion and remove the no-longer-admissible source.
-    assert changed == True
-    
-    from sacas.active_context import load_active_context
-    updated = load_active_context(task_dir)
-    assert updated.files == ()
+    assert manifest_path.read_bytes() == before

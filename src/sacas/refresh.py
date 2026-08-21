@@ -15,8 +15,14 @@ from sacas.tasks import (
     parse_protected_boundaries,
     regenerate_task_markdown,
 )
-from sacas.active_context import AdmissionEvent, ActiveSymbolContext, load_active_context, load_task_state, ActiveFileContext
-from sacas.task_contract import TaskContract, load_task_contract, save_task_contract, task_contract_hash
+from sacas.active_context import (
+    AdmissionEvent,
+    ActiveSymbolContext,
+    load_legacy_active_context,
+    load_task_state,
+    ActiveFileContext,
+)
+from sacas.task_contract import TaskContract, load_task_contract, task_contract_hash
 
 
 def _compute_graph_snapshot_hash(installation: Installation) -> str:
@@ -195,7 +201,16 @@ def refresh_context(
         raise ValueError("No active SACAS task to refresh.")
 
     task_dir = installation.sacas_root / "tasks" / "current"
-    manifest, contract = load_task_state(task_dir)
+    # Legacy-only task directories must not use the compatibility migration
+    # loader here: it writes task.json/active_context.json before the secure
+    # admission gate can refuse a missing or binary source.
+    legacy_path = task_dir / "expansions.json"
+    is_legacy_only = not (task_dir / "active_context.json").is_file() and legacy_path.is_file()
+    if is_legacy_only:
+        manifest = load_legacy_active_context(task_dir)
+        contract = load_task_contract(task_dir)
+    else:
+        manifest, contract = load_task_state(task_dir)
     if manifest is None:
         raise ValueError("Active task metadata (active_context.json) is missing or unreadable.")
     # task.json is canonical when a refresh reroutes; load_task_state deliberately
@@ -203,11 +218,11 @@ def refresh_context(
     canonical_contract = contract or load_task_contract(task_dir)
     migrated_legacy_contract = False
     if canonical_contract is None or not canonical_contract.task_id:
-        # Pre-contract task directories are still refreshable.  Materialize a
-        # canonical contract from the only durable task identity available,
-        # then publish the refreshed manifest and pack against that contract.
-        # This is deliberately a one-time migration rather than a publisher
-        # fallback: every subsequent read observes the same canonical pair.
+        # Pre-contract task directories are still refreshable.  Build their
+        # canonical contract in memory and let the normal publication boundary
+        # persist it only after all admitted inputs have passed secure reads.
+        # A refused refresh must leave both task.json and active_context.json
+        # exactly as it found them.
         canonical_contract = TaskContract(
             schema_version=1,
             task_id=manifest.task_id or task_id,
@@ -217,7 +232,6 @@ def refresh_context(
             constraints=(),
             verification=(),
         )
-        save_task_contract(task_dir, canonical_contract)
         manifest = replace(
             manifest,
             task_id=canonical_contract.task_id,
@@ -236,7 +250,21 @@ def refresh_context(
         + [rule.path for rule in manifest.rules]
         + [reference.path for reference in manifest.references]
     ))
-    current_hashes = _compute_source_hashes(installation, tracked_paths)
+    current_hashes: dict[str, str] = {}
+    unreadable_paths: dict[str, tuple[str, Exception]] = {}
+    kinds_by_path = {
+        **{file.path: "source" for file in manifest.all_files},
+        **{rule.path: "rule" for rule in manifest.rules},
+        **{reference.path: "reference" for reference in manifest.references},
+    }
+    for path in tracked_paths:
+        try:
+            current_hashes[path] = hashlib.sha256(
+                read_repo_source_bytes(installation.repository_root, path)
+            ).hexdigest()
+        except (ValueError, FileNotFoundError, OSError) as error:
+            current_hashes[path] = ""
+            unreadable_paths[path] = (kinds_by_path[path], error)
     stale_file_paths = {
         file.path for file in manifest.all_files
         if file.hash != current_hashes[file.path]
@@ -262,6 +290,20 @@ def refresh_context(
     )
     if stale_paths or graph_changed or task_changed:
         invalidate_runtime_context_pack(installation)
+
+    # Canonical admissions are historical facts.  A failed secure read cannot
+    # be repaired by dropping the admission (or its events) from a refresh;
+    # doing so would silently publish a smaller context.  The cache may be
+    # invalidated, but canonical state remains byte-for-byte untouched.
+    if unreadable_paths:
+        path = sorted(unreadable_paths)[0]
+        kind, error = unreadable_paths[path]
+        detail = str(error).lower()
+        if "binary" in detail or "utf-8" in detail:
+            raise ValueError(f"{kind}_binary: {path}: {error}") from error
+        if "exceeds size" in detail:
+            raise ValueError(f"{kind}_oversized: {path}: {error}") from error
+        raise ValueError(f"Refresh refused: canonical admission unavailable: {path}") from error
 
     unselected_stale = stale_paths.difference(selective_files)
     if selective_files and unselected_stale:
@@ -295,22 +337,8 @@ def refresh_context(
                 for reference in manifest.references
             ),
         )
-        missing_paths = {path for path in stale_file_paths if not current_hashes[path]}
-        if missing_paths:
-            def remove_missing(items: tuple[ActiveFileContext, ...]) -> tuple[ActiveFileContext, ...]:
-                return tuple(item for item in items if item.path not in missing_paths)
-            manifest = replace(
-                manifest,
-                files=remove_missing(manifest.files),
-                reference_files=remove_missing(manifest.reference_files),
-                working_files=remove_missing(manifest.working_files),
-                events=tuple(
-                    event for event in manifest.events
-                    if event.target.split("::", 1)[0] not in missing_paths
-                ),
-            )
         manifest = _reresolve_changed_source_selections(
-            installation, manifest, stale_paths.difference(missing_paths)
+            installation, manifest, stale_paths
         )
 
     # 2. Determine what needs re-routing
@@ -380,6 +408,13 @@ def refresh_context(
         contract=canonical_contract,
         candidates_data=candidates_data,
     )
+    if is_legacy_only:
+        # The publisher has successfully made the canonical replacement
+        # durable, so it is now safe to retire the legacy input.
+        try:
+            legacy_path.unlink()
+        except OSError:
+            pass
 
     return changed
 

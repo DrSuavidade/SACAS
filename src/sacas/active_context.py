@@ -403,10 +403,15 @@ class ActiveContextManifest:
         return self.files + self.reference_files + self.working_files
 
 def load_active_context(task_dir: Path) -> ActiveContextManifest | None:
+    """Load canonical state, parsing legacy state without mutating it.
+
+    Only the refresh publication boundary may persist a legacy conversion,
+    after it has securely read every admitted repository input.
+    """
     path = task_dir / "active_context.json"
     manifest = None
     if not path.is_file():
-        manifest = migrate_legacy_active_context(task_dir)
+        manifest = load_legacy_active_context(task_dir)
     else:
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
@@ -437,12 +442,12 @@ def save_active_context(task_dir: Path, manifest: ActiveContextManifest) -> None
     path = task_dir / "active_context.json"
     write_text_atomic(path, stable_json(manifest.to_dict()))
 
-def migrate_legacy_active_context(task_dir: Path) -> ActiveContextManifest | None:
+def load_legacy_active_context(task_dir: Path) -> ActiveContextManifest | None:
+    """Parse a legacy expansions file without creating, replacing, or deleting files."""
     legacy_path = task_dir / "expansions.json"
     if not legacy_path.is_file():
         return None
     try:
-        from sacas.io import write_text_atomic, stable_json
         legacy_data = json.loads(legacy_path.read_text(encoding="utf-8"))
         
         goal = legacy_data.get("goal", "")
@@ -609,7 +614,7 @@ def migrate_legacy_active_context(task_dir: Path) -> ActiveContextManifest | Non
                     direction="forward"
                 ))
                 
-        from sacas.task_contract import TaskContract, save_task_contract, task_contract_hash
+        from sacas.task_contract import TaskContract, task_contract_hash
         contract = TaskContract(
             schema_version=1,
             task_id=task_id,
@@ -619,7 +624,6 @@ def migrate_legacy_active_context(task_dir: Path) -> ActiveContextManifest | Non
             constraints=(),
             verification=()
         )
-        save_task_contract(task_dir, contract)
         h = task_contract_hash(contract)
                  
         manifest = ActiveContextManifest(
@@ -636,15 +640,6 @@ def migrate_legacy_active_context(task_dir: Path) -> ActiveContextManifest | Non
             category=category
         )
         
-        # Save to active_context.json
-        save_active_context(task_dir, manifest)
-        
-        # Clean up legacy expansions.json
-        try:
-            legacy_path.unlink()
-        except OSError:
-            pass
-            
         return manifest
     except Exception:
         return None

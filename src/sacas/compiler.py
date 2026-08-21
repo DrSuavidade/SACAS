@@ -11,7 +11,7 @@ from typing import Any
 
 from sacas.active_context import ActiveContextManifest, ActiveFileContext
 from sacas.budget import estimate_tokens
-from sacas.io import read_repo_text, read_repo_bytes
+from sacas.io import read_repo_text, read_repo_bytes, read_repo_source_bytes
 from sacas.paths import Installation
 from sacas.regions import normalize_selections, merge_ranges
 from sacas.active_context import ActiveSymbolContext, SourceRange
@@ -51,6 +51,45 @@ def _read_admitted_source(installation: Installation, path: str, *, kind: str = 
         else:
             code = f"{kind}_invalid"
         raise ContextCompilationError(code, path, str(error)) from error
+
+
+def _verify_admitted_content_hashes(
+    installation: Installation,
+    manifest: ActiveContextManifest,
+) -> None:
+    """Bind every populated canonical admission hash to secure current bytes.
+
+    Empty hashes remain readable for pre-Fix6 manifests, but any recorded hash
+    is a claim about the exact source that must hold before compilation or
+    publication.  Refresh is the only operation allowed to advance it.
+    """
+    admissions = (
+        *((file.path, file.hash, "source") for file in manifest.all_files),
+        *((rule.path, rule.hash, "rule") for rule in manifest.rules),
+        *((reference.path, reference.hash, "reference") for reference in manifest.references),
+    )
+    for path, expected_hash, kind in admissions:
+        try:
+            actual_hash = hashlib.sha256(
+                read_repo_source_bytes(installation.repository_root, path)
+            ).hexdigest()
+        except FileNotFoundError as error:
+            raise ContextCompilationError(f"{kind}_unavailable", path, str(error)) from error
+        except OSError as error:
+            raise ContextCompilationError(f"{kind}_unavailable", path, str(error)) from error
+        except ValueError as error:
+            message = str(error).lower()
+            if "binary" in message or "utf-8" in message:
+                code = f"{kind}_binary"
+            elif "exceeds size" in message:
+                code = f"{kind}_oversized"
+            elif any(marker in message for marker in ("secret", "ignored", "escapes", "absolute", ".sacasignore")):
+                code = f"{kind}_unsafe"
+            else:
+                code = f"{kind}_invalid"
+            raise ContextCompilationError(code, path, str(error)) from error
+        if expected_hash and actual_hash != expected_hash:
+            raise ContextCompilationError("source_hash_mismatch", path)
 
 
 @dataclass(frozen=True)
@@ -428,6 +467,8 @@ def compile_context_pack(
     if missing_tests:
         raise ContextCompilationError("test_coverage_incomplete", missing_tests[0])
 
+    _verify_admitted_content_hashes(installation, manifest)
+
     # Build normalized, deduplicated file selections
     file_selections = _build_file_selections(installation, manifest)
     
@@ -576,6 +617,7 @@ def validate_context_pack_against_state(
     fragments: list[ContextPackFragment],
     manifest: ActiveContextManifest,
     contract: Any,
+    installation: Installation,
 ) -> None:
     """Reject a pack that cannot be attributed to the current canonical state."""
     from sacas.task_contract import task_contract_hash
@@ -647,6 +689,15 @@ def validate_context_pack_against_state(
             f"{missing_reference_paths[0]}"
         )
 
+    try:
+        expected_header, expected_fragments = compile_context_pack(installation, manifest)
+    except ContextCompilationError as error:
+        if error.code == "source_hash_mismatch":
+            raise ValueError(f"canonical source hash mismatch: {error.path}") from error
+        raise ValueError(f"canonical source is unavailable: {error.path}") from error
+    if header != expected_header or fragments != expected_fragments:
+        raise ValueError("context pack fragments do not match canonical source content")
+
 
 def load_validated_context_pack(installation: Installation) -> tuple[ContextPackHeader, list[ContextPackFragment]]:
     """Load the runtime pack only after binding it to current task.json/context state."""
@@ -658,7 +709,7 @@ def load_validated_context_pack(installation: Installation) -> tuple[ContextPack
         raise ValueError("canonical task state is unavailable")
     pack_path = installation.sacas_root / ".sacas" / "runtime" / "context.pack.jsonl"
     header, fragments = read_context_pack(pack_path)
-    validate_context_pack_against_state(header, fragments, manifest, contract)
+    validate_context_pack_against_state(header, fragments, manifest, contract, installation)
     return header, fragments
 
 

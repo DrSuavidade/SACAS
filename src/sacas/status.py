@@ -38,20 +38,6 @@ def get_status_report(installation: Installation) -> dict[str, Any]:
             "estimated_size": 0
         }
 
-    try:
-        from sacas.compiler import load_validated_context_pack
-        load_validated_context_pack(installation)
-    except (OSError, ValueError):
-        return {
-            "current_task_id": task_id,
-            "status": "invalid_context_pack",
-            "stale_files": [],
-            "initial_files": [],
-            "expanded_files": [],
-            "context_budget": installation.manifest.context_budget,
-            "estimated_size": 0,
-        }
-
     stale_files: list[str] = []
     initial_files: list[str] = []
     expanded_files: list[str] = []
@@ -75,6 +61,23 @@ def get_status_report(installation: Installation) -> dict[str, Any]:
                     stale_files.append(path)
         except (ValueError, FileNotFoundError, OSError):
             stale_files.append(path)
+
+    # A changed canonical input is useful, actionable status.  Only validate
+    # the cached projection when the canonical state itself is current.
+    if not stale_files:
+        try:
+            from sacas.compiler import load_validated_context_pack
+            load_validated_context_pack(installation)
+        except (OSError, ValueError):
+            return {
+                "current_task_id": task_id,
+                "status": "invalid_context_pack",
+                "stale_files": [],
+                "initial_files": [],
+                "expanded_files": [],
+                "context_budget": installation.manifest.context_budget,
+                "estimated_size": 0,
+            }
 
     status = "stale" if stale_files else "fresh"
     from sacas.budget import calculate_manifest_tokens, estimate_tokens

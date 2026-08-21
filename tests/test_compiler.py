@@ -240,7 +240,13 @@ def test_compiler_rules_compile(installation: FakeInstallation):
         git_revision="rules",
         files=(),
         rules=(
-            ActiveRuleContext(path="src/auth.py", hash="abc", reason="Auth rule"),
+            ActiveRuleContext(
+                path="src/auth.py",
+                hash=hashlib.sha256(
+                    (installation.repository_root / "src" / "auth.py").read_bytes()
+                ).hexdigest(),
+                reason="Auth rule",
+            ),
         ),
         references=(),
         events=(),
@@ -977,6 +983,72 @@ def test_compiler_fails_closed_when_an_admitted_source_is_unavailable(
 
     with pytest.raises(ContextCompilationError, match="source_unavailable"):
         compile_context_pack(installation, manifest)
+
+
+def test_compiler_rejects_an_admitted_source_changed_after_its_hash_was_recorded(
+    installation: FakeInstallation,
+) -> None:
+    """Compilation cannot turn a source edit into an unrecorded context pack."""
+    from sacas.compiler import ContextCompilationError
+
+    source = installation.repository_root / "src" / "auth.py"
+    admitted_hash = hashlib.sha256(source.read_bytes()).hexdigest()
+    manifest = ActiveContextManifest(
+        task_id="stale-source", task_contract_hash="contract", git_revision="rev",
+        files=(ActiveFileContext(
+            path="src/auth.py", selection={"mode": "full"}, source="explicit",
+            hash=admitted_hash,
+        ),),
+    )
+    source.write_text("def replacement():\n    return False\n", encoding="utf-8")
+
+    with pytest.raises(ContextCompilationError, match="source_hash_mismatch"):
+        compile_context_pack(installation, manifest)
+
+
+def test_validated_pack_rejects_source_changed_after_publication(tmp_path: Path) -> None:
+    """Runtime consumers bind pack bytes to the still-current admitted source."""
+    from sacas.compiler import load_validated_context_pack
+    from sacas.init import initialize
+    from sacas.tasks import generate_task
+
+    initialized = initialize(tmp_path, graphify_mode="off")
+    source = tmp_path / "src" / "one.py"
+    source.parent.mkdir()
+    source.write_text("value = 1\n", encoding="utf-8")
+    generate_task(initialized.installation, "Publish source", files=("src/one.py",))
+    source.write_text("value = 2\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="canonical source hash mismatch: src/one.py"):
+        load_validated_context_pack(initialized.installation)
+
+
+def test_publisher_rejects_source_changed_after_canonical_admission(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Publication stops before its runtime write when admitted source bytes changed."""
+    from sacas.active_context import load_active_context
+    from sacas.compiler import ContextCompilationError
+    from sacas.init import initialize
+    from sacas.tasks import generate_task, publish_task_artifacts
+    import sacas.tasks as tasks_module
+
+    initialized = initialize(tmp_path, graphify_mode="off")
+    source = tmp_path / "src" / "one.py"
+    source.parent.mkdir()
+    source.write_text("value = 1\n", encoding="utf-8")
+    generate_task(initialized.installation, "Publish source", files=("src/one.py",))
+    task_dir = initialized.sacas_root / "tasks" / "current"
+    manifest = load_active_context(task_dir)
+    assert manifest is not None
+    source.write_text("value = 2\n", encoding="utf-8")
+
+    def must_not_write(*args: object, **kwargs: object) -> Path:
+        raise AssertionError("publisher wrote a pack with stale source bytes")
+
+    monkeypatch.setattr(tasks_module, "write_context_pack", must_not_write)
+    with pytest.raises(ContextCompilationError, match="source_hash_mismatch"):
+        publish_task_artifacts(initialized.installation, task_dir, manifest, {})
 
 
 def test_compiler_fails_closed_for_a_stale_symbol_selector(

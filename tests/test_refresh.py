@@ -403,6 +403,147 @@ def test_refresh_compile_failure_keeps_canonical_manifest_and_removes_pack(tmp_p
     assert not (initialized.sacas_root / ".sacas" / "runtime" / "context.pack.jsonl").exists()
 
 
+def test_refresh_refuses_missing_admitted_source_without_mutating_canonical_state(
+    tmp_path: Path,
+) -> None:
+    """A deleted admission is an error, not permission to erase its history."""
+    from sacas.active_context import load_active_context
+    from sacas.init import initialize
+    from sacas.paths import discover_manifest
+    from sacas.refresh import refresh_context
+    from sacas.tasks import generate_task
+
+    initialized = initialize(tmp_path, graphify_mode="off")
+    source = tmp_path / "src" / "one.py"
+    source.parent.mkdir()
+    source.write_text("value = 1\n", encoding="utf-8")
+    generate_task(initialized.installation, "Keep admissions", files=("src/one.py",))
+    task_dir = initialized.sacas_root / "tasks" / "current"
+    manifest_path = task_dir / "active_context.json"
+    before = manifest_path.read_bytes()
+    assert load_active_context(task_dir) is not None
+    source.unlink()
+
+    installation = discover_manifest(tmp_path)
+    assert installation is not None
+    with pytest.raises(ValueError, match="canonical admission unavailable: src/one.py"):
+        refresh_context(installation)
+
+    assert manifest_path.read_bytes() == before
+    assert not (initialized.sacas_root / ".sacas" / "runtime" / "context.pack.jsonl").exists()
+
+
+def test_legacy_refresh_missing_source_does_not_materialize_contract_or_mutate_context(
+    tmp_path: Path,
+) -> None:
+    """Rejected legacy refreshes must not persist their synthesized contract."""
+    from sacas.init import initialize
+    from sacas.paths import discover_manifest
+    from sacas.refresh import refresh_context
+    from sacas.tasks import generate_task
+
+    initialized = initialize(tmp_path, graphify_mode="off")
+    source = tmp_path / "src" / "legacy.py"
+    source.parent.mkdir()
+    source.write_text("value = 1\n", encoding="utf-8")
+    generate_task(initialized.installation, "Legacy admission", files=("src/legacy.py",))
+
+    task_dir = initialized.sacas_root / "tasks" / "current"
+    context_path = task_dir / "active_context.json"
+    contract_path = task_dir / "task.json"
+    before_context = context_path.read_bytes()
+    contract_path.unlink()
+    source.unlink()
+
+    installation = discover_manifest(tmp_path)
+    assert installation is not None
+    with pytest.raises(ValueError, match="canonical admission unavailable: src/legacy.py"):
+        refresh_context(installation)
+
+    assert not contract_path.exists()
+    assert context_path.read_bytes() == before_context
+    assert not (initialized.sacas_root / ".sacas" / "runtime" / "context.pack.jsonl").exists()
+
+
+def test_true_legacy_refresh_failure_keeps_expansions_and_creates_no_canonical_state(
+    tmp_path: Path,
+) -> None:
+    """A legacy-only task must pass the secure gate before migration writes."""
+    from sacas.init import initialize
+    from sacas.paths import discover_manifest
+    from sacas.refresh import refresh_context
+
+    initialized = initialize(tmp_path, graphify_mode="off")
+    task_dir = initialized.sacas_root / "tasks" / "current"
+    task_dir.mkdir(parents=True, exist_ok=True)
+    expansions_path = task_dir / "expansions.json"
+    expansions_path.write_text(
+        json.dumps({
+            "task_id": "legacy-only",
+            "goal": "Repair a missing legacy source",
+            "initial_files": {"src/missing.py": "legacy-hash"},
+            "expanded_files": {},
+        }),
+        encoding="utf-8",
+    )
+    expansions_before = expansions_path.read_bytes()
+
+    manifest_path = initialized.sacas_root / ".sacas" / "manifest.json"
+    manifest_data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest_data["current_task_id"] = "legacy-only"
+    manifest_path.write_text(json.dumps(manifest_data), encoding="utf-8")
+
+    installation = discover_manifest(tmp_path)
+    assert installation is not None
+    with pytest.raises(ValueError, match="canonical admission unavailable: src/missing.py"):
+        refresh_context(installation)
+
+    assert not (task_dir / "task.json").exists()
+    assert not (task_dir / "active_context.json").exists()
+    assert expansions_path.read_bytes() == expansions_before
+
+
+def test_true_legacy_refresh_binary_source_keeps_expansions_and_creates_no_canonical_state(
+    tmp_path: Path,
+) -> None:
+    """The non-mutating legacy path also protects rejected binary admissions."""
+    from sacas.init import initialize
+    from sacas.paths import discover_manifest
+    from sacas.refresh import refresh_context
+
+    initialized = initialize(tmp_path, graphify_mode="off")
+    source = tmp_path / "src" / "legacy.py"
+    source.parent.mkdir()
+    source.write_bytes(b"\x00binary")
+    task_dir = initialized.sacas_root / "tasks" / "current"
+    task_dir.mkdir(parents=True, exist_ok=True)
+    expansions_path = task_dir / "expansions.json"
+    expansions_path.write_text(
+        json.dumps({
+            "task_id": "legacy-binary",
+            "goal": "Repair a binary legacy source",
+            "initial_files": {"src/legacy.py": "legacy-hash"},
+            "expanded_files": {},
+        }),
+        encoding="utf-8",
+    )
+    expansions_before = expansions_path.read_bytes()
+
+    manifest_path = initialized.sacas_root / ".sacas" / "manifest.json"
+    manifest_data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest_data["current_task_id"] = "legacy-binary"
+    manifest_path.write_text(json.dumps(manifest_data), encoding="utf-8")
+
+    installation = discover_manifest(tmp_path)
+    assert installation is not None
+    with pytest.raises(ValueError, match="source_binary: src/legacy.py"):
+        refresh_context(installation)
+
+    assert not (task_dir / "task.json").exists()
+    assert not (task_dir / "active_context.json").exists()
+    assert expansions_path.read_bytes() == expansions_before
+
+
 def test_selective_refresh_refuses_when_an_unselected_context_layer_is_stale(tmp_path: Path) -> None:
     """A selective refresh must not publish a partially-current manifest."""
     from dataclasses import replace

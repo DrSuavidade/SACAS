@@ -10,8 +10,9 @@ from sacas.active_context import (
     ActiveSymbolContext,
     SourceRange,
     load_active_context,
+    load_task_state,
     save_active_context,
-    migrate_legacy_active_context,
+    load_legacy_active_context,
 )
 
 def test_active_context_manifest_serialization() -> None:
@@ -86,7 +87,7 @@ def test_active_file_context_normalizes_legacy_confidence_labels_at_model_bounda
     assert context.confidence == expected_confidence
     assert context.to_dict()["confidence"] == expected_confidence
 
-def test_legacy_expansions_migration(tmp_path: Path) -> None:
+def test_legacy_expansions_are_loaded_without_persisting(tmp_path: Path) -> None:
     # Set up legacy expansions.json v2
     legacy_data = {
         "schema_version": 2,
@@ -116,7 +117,7 @@ def test_legacy_expansions_migration(tmp_path: Path) -> None:
     legacy_file = tmp_path / "expansions.json"
     legacy_file.write_text(json.dumps(legacy_data), encoding="utf-8")
     
-    manifest = migrate_legacy_active_context(tmp_path)
+    manifest = load_legacy_active_context(tmp_path)
     assert manifest is not None
     assert manifest.task_id == "legacy_task"
     assert manifest.category == "bugfix"
@@ -130,11 +131,63 @@ def test_legacy_expansions_migration(tmp_path: Path) -> None:
     store_file = next(f for f in manifest.files if f.path == "src/session_store.py")
     assert store_file.selection["mode"] == "full"
     
-    # Verify legacy file is deleted
-    assert not legacy_file.exists()
-    
-    # Verify active_context.json exists and can be loaded
-    assert (tmp_path / "active_context.json").is_file()
+    # Legacy inspection is read-only; only refresh may publish a conversion.
+    assert legacy_file.is_file()
+    assert not (tmp_path / "active_context.json").exists()
     loaded = load_active_context(tmp_path)
     assert loaded is not None
     assert loaded.task_id == "legacy_task"
+
+
+@pytest.mark.parametrize("source_state", ("missing", "binary"))
+@pytest.mark.parametrize("reader", ("state", "status", "validate", "provenance", "benchmark"))
+def test_legacy_context_readers_do_not_migrate_before_refresh(
+    tmp_path: Path, source_state: str, reader: str,
+) -> None:
+    """Inspection paths must never replace a legacy task before its inputs are safe."""
+    from sacas.benchmark import run_benchmark
+    from sacas.init import initialize
+    from sacas.paths import discover_manifest
+    from sacas.provenance import query_why_file
+    from sacas.status import get_status_report
+    from sacas.validate import run_diagnostics
+
+    initialized = initialize(tmp_path, graphify_mode="off")
+    task_dir = initialized.sacas_root / "tasks" / "current"
+    source = tmp_path / "src" / "legacy.py"
+    if source_state == "binary":
+        source.parent.mkdir()
+        source.write_bytes(b"\x00not utf-8")
+
+    legacy_payload = {
+        "schema_version": 2,
+        "task_id": "legacy-read-only",
+        "goal": "Inspect legacy state",
+        "initial_scope": [{"path": "src/legacy.py", "source": "explicit"}],
+        "expansions": [],
+    }
+    expansions_path = task_dir / "expansions.json"
+    expansions_path.write_text(json.dumps(legacy_payload), encoding="utf-8")
+    original_expansions = expansions_path.read_bytes()
+
+    manifest_path = initialized.sacas_root / ".sacas" / "manifest.json"
+    installation_payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    installation_payload["current_task_id"] = "legacy-read-only"
+    manifest_path.write_text(json.dumps(installation_payload), encoding="utf-8")
+    installation = discover_manifest(tmp_path)
+    assert installation is not None
+
+    if reader == "state":
+        load_task_state(task_dir)
+    elif reader == "status":
+        get_status_report(installation)
+    elif reader == "validate":
+        run_diagnostics(tmp_path)
+    elif reader == "provenance":
+        query_why_file(installation, "src/legacy.py")
+    else:
+        run_benchmark(installation)
+
+    assert expansions_path.read_bytes() == original_expansions
+    assert not (task_dir / "task.json").exists()
+    assert not (task_dir / "active_context.json").exists()
