@@ -23,7 +23,7 @@ Initialize a SACAS structure inside a repository directory.
 
 **Arguments:**
 - `--root <path>`: Repository root directory (default: current directory).
-- `--sacas-root <name>`: Directory name for storing SACAS structures (default: `Structure`).
+- `--sacas-root <name>`: Directory name for storing SACAS structures (default: `Structure`). Must be a proper child of the repository; installing directly at the repository root (`.`) is refused because SACAS would claim generic folders like `rules/` and `tasks/`.
 - `--graphify <off|existing|code-only|semantic>`: Graphify integration mode (default: `existing`).
 - `--workflow`: Also create ICM workspace documents (`$SACAS_ROOT/CLAUDE.md`, `$SACAS_ROOT/CONTEXT.md`), stages (`$SACAS_ROOT/stages/`), and `$SACAS_ROOT/_config/` artifacts. The default is lean and does not create these workflow-only files; repository-root agent adapters are still created. `$SACAS_ROOT` defaults to `Structure`.
 
@@ -42,7 +42,7 @@ Extract AST graph dependency nodes using Graphify to map the repository.
 
 **Arguments:**
 - `--root <path>`: Repository root directory.
-- `--sacas-root <name>`: SACAS structures directory.
+- `--sacas-root <name>`: SACAS structures directory (must be a proper child of the repository).
 - `--output <dir>`: Target output folder relative to repository for graph assets (default: `graphify-out`).
 - `--mode <off|existing|code-only|semantic>`: Dependency extraction strategy.
 
@@ -280,7 +280,7 @@ All repository-controlled reads, including routing, validation, budgeting, and b
 
 ### Graphify Evidence Outcomes
 
-Graphify is optional evidence. A missing, removed, malformed, unavailable, or zero-result graph falls back to lexical routing and cannot retain obsolete Graphify admissions. A valid graph with a provider/query failure retains its graph identity for convergence and emits a retry instruction: rebuild or touch the graph with `sacas map`, then reroute. Graph snapshots are validated as repository-relative JSON and have a dedicated 50MB limit.
+Graphify is optional evidence. A missing, removed, or malformed graph falls back to lexical routing and cannot retain obsolete Graphify admissions. A valid graph whose provider query fails or returns zero matches is first re-ranked locally: nodes are scored against the goal by label, identifier words (camelCase/snake_case aware), path stems, and directory names, and routing proceeds on those ranked paths while retaining the snapshot's identity. Only a valid graph with no locally rankable node degrades to lexical fallback. Graph snapshots are validated as repository-relative JSON and have a dedicated 50MB limit.
 
 ### Agent Boundary
 ```
