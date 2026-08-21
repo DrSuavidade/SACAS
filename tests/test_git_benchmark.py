@@ -366,3 +366,20 @@ def test_histbench_command_returns_nonzero_when_a_result_has_an_error(
     assert histbench_command(installation, output_dir=str(output_dir), format_type="json") == 1
     assert output_dir.is_dir()
     assert "routing failed" in capsys.readouterr().out
+
+def test_get_diff_symbols_handles_non_ascii_content(temp_git_repo: Path):
+    """Diffs containing non-UTF8-hostile characters must not crash generation."""
+    (temp_git_repo / "src" / "resumo.py").write_text(
+        "# resumo\n\ndef resumo_dia():\n    return 1\n",
+        encoding="utf-8",
+    )
+    subprocess.run(["git", "add", "src/resumo.py"], cwd=temp_git_repo, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "commit", "-m", "Add resumo — ação e coração"],
+        cwd=temp_git_repo, check=True, capture_output=True,
+    )
+    commits = _run_git(temp_git_repo, ["log", "--pretty=format:%H", "-2"]).strip().split("\n")
+    parent, child = commits[1], commits[0]
+
+    symbols = _get_diff_symbols(temp_git_repo, parent, child)
+    assert "resumo_dia" in symbols

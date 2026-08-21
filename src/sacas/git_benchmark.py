@@ -26,15 +26,16 @@ class HistoricalTask:
 
 
 def _run_git(repo: Path, args: list[str]) -> str:
-    """Run git command and return stdout."""
+    """Run git command and return stdout as UTF-8 text."""
     result = subprocess.run(
         ["git"] + args,
         cwd=repo,
         capture_output=True,
-        text=True,
+        encoding="utf-8",
+        errors="replace",
         check=False
     )
-    return result.stdout.strip()
+    return (result.stdout or "").strip()
 
 
 def _get_commit_history(repo: Path, max_commits: int = 1000) -> list[dict]:
@@ -234,7 +235,8 @@ def _run_in_detached_worktree(repo: Path, commit: str, callback) -> Any:
             ["git", "worktree", "add", "--detach", str(worktree_path), commit],
             cwd=repo,
             capture_output=True,
-            text=True,
+            encoding="utf-8",
+            errors="replace",
             check=False
         )
         if result.returncode != 0:
