@@ -1,5 +1,7 @@
 # SACAS Router Implementation Plan
 
+> **Archived historical plan.** This 18 Aug 2026 implementation record is retained unchanged apart from this notice and may describe superseded behavior; use the current README and `sacas --help` for supported behavior.
+
 > **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Deliver a tested Python SACAS CLI that compiles narrow task context from repository evidence and optional Graphify data.

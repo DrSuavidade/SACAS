@@ -1,5 +1,7 @@
 # SACAS Implementation Plan
 
+> **Archived historical plan.** This roadmap reflects the repository at commit `629894c` (19 Aug 2026); use the current README and `sacas --help` for supported behavior.
+
 Based on code review at commit `629894c` (19 Aug 2026). Prioritized roadmap with specific code changes.
 
 ---

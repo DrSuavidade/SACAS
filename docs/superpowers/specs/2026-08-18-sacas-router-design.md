@@ -1,5 +1,7 @@
 # SACAS Router Design
 
+> **Archived historical design.** This document preserves the 18 Aug 2026 proposal and may describe superseded commands or state models; use the current README and `sacas --help` for supported behavior.
+
 ## Goal
 
 Transform SACAS from a PowerShell scaffolder into a task-aware, Python-based context router for AI-assisted software development.

@@ -14,7 +14,7 @@ python -m pip install -e ".[test]"
 
 ## CLI Commands Reference
 
-All commands support targeting specific directories using `--root <path>` (default: current directory).
+Most commands accept `--root <path>` to target a repository (default: current directory). `sacas pipeline` accepts `--root <path>` on each child command rather than on the parent command itself.
 
 ---
 
@@ -63,7 +63,8 @@ Generate a new task contract, setting initial focus files via goal-driven routin
 - `--constraints [item ...]`: Execution constraints.
 - `--verification [item ...]`: Verification steps/commands.
 - `--files [path ...]`: Optional. Explicit focus files.
-- `--symbol [sym ...]`: Optional. Repeatable target code symbols (format: `file::SymbolName`).
+- `--symbol <sym>`: Optional. Repeatable target code symbol (format: `file::SymbolName`).
+- `--symbols [sym ...]`: Optional. One or more target code symbols; equivalent to supplying `--symbol` repeatedly.
 - `--tests [test ...]`: Optional. Target tests.
 - `--rules [rule ...]`: Optional. Rules to copy/link.
 - `--references [ref ...]`: Optional. Reference files/documentation.
@@ -96,10 +97,10 @@ Explicitly expand the active context with new files, symbols, rules, or referenc
 
 **Arguments:**
 - `--root <path>`: Repository root directory.
-- `--file [path ...]`: Repeatable. Explicit file path to admit.
-- `--symbol [sym ...]`: Repeatable. Symbol path (format: `file::SymbolName`) to admit.
-- `--rule [rule ...]`: Repeatable. Rule path to admit.
-- `--reference [ref ...]`: Repeatable. Reference path (or section `file.md#heading`) to admit.
+- `--file <path>`: Repeatable. Explicit file path to admit.
+- `--symbol <sym>`: Repeatable. Symbol path (format: `file::SymbolName`) to admit.
+- `--rule <path>`: Repeatable. Rule path to admit.
+- `--reference <path>`: Repeatable. Reference path (or section `file.md#heading`) to admit.
 - `--reason <text>`: Audit rationale for this expansion.
 - `--all-candidates`: Expand all candidates in `candidates.json` that fit the remaining context budget.
 
@@ -149,20 +150,37 @@ Show details of the current task, including task ID, context budget utilization,
 ### 9. `sacas validate`
 Run cold-agent validation checks (generated regions, legacy tracker files, stale file states, budget overruns, protected boundaries, and task/manifest/context-pack identity and coverage checks).
 
+**Arguments:**
+- `--root <path>`: Repository root directory.
+- `--format <text|json>`: Output presentation (default: `text`).
+
 ---
 
 ### 10. `sacas migrate`
 Migrate legacy structures (e.g., PowerShell `PROGRESS.md` or v2 `expansions.json`) to the unified Python CLI structures (`active_context.json` and `STATE.md`).
+
+**Arguments:**
+- `--root <path>`: Repository root directory.
+- `--apply`: Execute migration changes. Without it, migration is a preview.
+- `--format <text|json>`: Output presentation (default: `text`).
 
 ---
 
 ### 11. `sacas context-simulation`
 Simulate context sizes across all repository files using retrieval modes: B0 (whole repo), B1 (basic search), B2 (lexical routing), B3 (Graphify whole-file), B4 (SACAS range routing), B5 (hybrid lexical+Graphify).
 
+**Arguments:**
+- `--root <path>`: Repository root directory.
+- `--format <text|json>`: Output presentation (default: `text`).
+
 ---
 
 ### 12. `sacas benchmark`
 Evaluate routing quality metrics (Precision@K, Recall@K, MRR, symbol recall, test recall, payload context efficiency, total context efficiency) for the active task or gold-standard benchmarks. Does NOT present whole-repo token reduction as a primary metric.
+
+**Arguments:**
+- `--root <path>`: Repository root directory.
+- `--format <text|json>`: Output presentation (default: `text`).
 
 ---
 
@@ -188,14 +206,11 @@ Manage ICM multi-stage pipelines.
 
 **Subcommands:**
 - `sacas pipeline orchestrate` — Walk through pipeline sequentially with review gates.
-- `sacas pipeline stage <stage_id>` — Run a specific pipeline stage.
-- `sacas pipeline review <stage_id>` — Open stage output for human review.
+- `sacas pipeline stage` — Run a specific pipeline stage: `sacas pipeline stage <stage_id>`.
+- `sacas pipeline review` — Open stage output for human review: `sacas pipeline review <stage_id>`.
 - `sacas pipeline list` — List available pipeline stages.
 
-**Arguments:**
-- `--root <path>`: Repository root directory.
-- `--start <stage>`: Stage to start from (default: `01_analyze`).
-- `--skip-review`: Skip human review gates (non-interactive).
+**Arguments:** All pipeline children accept `--root <path>`. `orchestrate` also accepts `--start <stage>` (default: `01_analyze`) and `--skip-review` to skip human review gates in non-interactive runs. `stage` and `review` require a positional `<stage_id>`.
 
 ---
 
@@ -340,7 +355,7 @@ your-project/
 |----|------|-------------|
 | B0 | `B0_whole_repo` | Whole repository upper bound |
 | B1 | `B1_basic_search` | Secure filename + full-content keyword matching over eligible files |
-| B2 | `B2_lexical_routing` | SACAS lexical fallback routing |
+| B2 | `B2_lexical_fallback` | SACAS lexical fallback routing |
 | B3 | `B3_graphify_whole` | Graphify whole-file retrieval |
 | B4 | `B4_sacas_graphify` | SACAS range routing with Graphify |
 | B5 | `B5_hybrid_lexical_graph` | Hybrid lexical + Graphify whole-file |

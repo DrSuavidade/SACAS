@@ -1,5 +1,7 @@
 # SACAS v2 Routing Implementation Plan
 
+> **Archived historical plan.** This 18 Aug 2026 v2 proposal is retained unchanged apart from this notice and may describe superseded behavior; use the current README and `sacas --help` for supported behavior.
+
 > **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Implement verified Graphify integration (>=0.9.46,<1.0), capability probing, goal-driven context routing (Graphify + Symbol/Module/Filename heuristics), strict path containment, predictive budgeting, and a full E2E routing verification loop.

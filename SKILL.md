@@ -38,11 +38,17 @@ sacas task "Goal" --files src/app.py
 # Refresh task context and expand scope
 sacas refresh
 
+# Admit an explicit file, symbol, rule, or reference with an audit reason
+sacas expand --symbol src/app.py::main --reason "Task entry point"
+
 # Show task status
 sacas status
 
 # Validate installation and state
 sacas validate
+
+# Diagnose ignore boundaries and configuration health
+sacas doctor
 
 # Run context size simulations
 sacas context-simulation
@@ -55,6 +61,12 @@ sacas histbench --generate-only
 
 # Explain why a file/symbol is in context
 sacas why src/auth.py
+
+# Use the optional ICM workflow: inspect stages, then orchestrate or run/review one
+sacas pipeline list
+sacas pipeline orchestrate --start 01_analyze
+sacas pipeline stage 02_implement
+sacas pipeline review 02_implement
 ```
 
 ## Structure
@@ -112,7 +124,9 @@ your-project/
 
 ## Key Principle
 
-`active_context.json` is the canonical state. Each task gets a compiled context that lists exactly which files and symbols are relevant, with line ranges and token budgets. The agent receives the minimal auditable context — not the full codebase.
+`task.json` and `active_context.json` are the canonical pair. `task.json` records task intent; `active_context.json` records admitted selectors, source hashes, provenance, and budget. Each task gets a compiled context that lists exactly which files and symbols are relevant, with line ranges and token budgets. The agent receives the minimal auditable context — not the full codebase.
+
+For routine operation, create or update the task with `sacas task`, use `sacas refresh` to recompile canonical state, use `sacas expand` only for explicit audited admissions, inspect decisions with `sacas why`, check health with `sacas doctor`, inspect freshness with `sacas status`, and run `sacas validate` before handing context to an agent.
 
 ## New Capabilities
 
