@@ -71,8 +71,11 @@ def write_system_map(path: Path, system_map: SystemMap) -> None:
 
 def impact_records(evidence: GraphifyEvidence, target: str) -> tuple[ImpactRecord, ...]:
     """Return direct, typed impact evidence only; no transitive expansion."""
-    node_paths = dict(evidence.nodes)
-    target_id = next((node_id for node_id, path in evidence.nodes if path == target or node_id == target), None)
+    node_paths = {node_id: path for node_id, path, _label, _line in evidence.nodes}
+    target_id = next(
+        (node_id for node_id, path, _label, _line in evidence.nodes if path == target or node_id == target),
+        None,
+    )
     if target_id is None:
         return ()
     records = [ImpactRecord("direct_target", node_paths.get(target_id, target_id), evidence.provenance, evidence.freshness)]

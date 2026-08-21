@@ -94,9 +94,18 @@ class GraphifyEvidence:
     freshness: str
     content_hash: str
     communities: tuple[tuple[str, tuple[str, ...]], ...] = ()
-    nodes: tuple[tuple[str, str], ...] = ()
+    # id, repository path, stable node label, source line.  The latter two are
+    # optional for legacy snapshots but must travel with newly normalized
+    # evidence so candidates can be lowered back to source ranges.
+    nodes: tuple[tuple[str, str, str | None, int | None], ...] = ()
     edges: tuple[tuple[str, str, str], ...] = ()
     warning: str = ""
+
+    def __post_init__(self) -> None:
+        # Public callers historically constructed evidence with (id, path)
+        # pairs. Normalize that shape once at the boundary so every consumer
+        # can safely use rich node metadata.
+        object.__setattr__(self, "nodes", _normalize_evidence_nodes(self.nodes))
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -213,7 +222,7 @@ def read_graphify_manifest(path: Path) -> GraphifyEvidence:
         raise ValueError("Graphify manifest must be an object")
     try:
         communities = tuple((name, tuple(paths)) for name, paths in data.get("communities", []))
-        nodes = tuple(tuple(node) for node in data.get("nodes", []))
+        nodes = _normalize_evidence_nodes(data.get("nodes", []))
         edges = tuple(tuple(edge) for edge in data.get("edges", []))
         return GraphifyEvidence(
             output=data["output"], status=data["status"], provenance=data["provenance"],
@@ -251,16 +260,56 @@ def _warning(mode: str, status: str) -> str:
     return "; ".join(warnings)
 
 
-def _nodes(raw: object) -> tuple[tuple[str, str], ...]:
+def _manifest_node(raw: object) -> tuple[str, str, str | None, int | None]:
+    if not isinstance(raw, (list, tuple)) or len(raw) not in {2, 4}:
+        raise ValueError("Invalid Graphify node metadata")
+    node_id, path = raw[0], raw[1]
+    if not isinstance(node_id, str) or not isinstance(path, str):
+        raise ValueError("Invalid Graphify node metadata")
+    if len(raw) == 2:
+        return node_id, path, None, None
+    label, line = raw[2], raw[3]
+    if label is not None and not isinstance(label, str):
+        raise ValueError("Invalid Graphify node label")
+    if line is not None and (not isinstance(line, int) or line < 1):
+        raise ValueError("Invalid Graphify node line")
+    return node_id, path, label, line
+
+
+def _node_metadata_rank(node: tuple[str, str, str | None, int | None]) -> tuple[int, int, str, int]:
+    """Prefer the richest duplicate record without comparing None to strings."""
+    return (node[2] is not None, node[3] is not None, node[2] or "", node[3] or 0)
+
+
+def _normalize_evidence_nodes(raw: object) -> tuple[tuple[str, str, str | None, int | None], ...]:
+    if not isinstance(raw, (list, tuple)):
+        raise ValueError("Invalid Graphify nodes")
+    unique: dict[tuple[str, str], tuple[str, str, str | None, int | None]] = {}
+    for item in raw:
+        node = _manifest_node(item)
+        key = node[0], node[1]
+        existing = unique.get(key)
+        if existing is None or _node_metadata_rank(node) > _node_metadata_rank(existing):
+            unique[key] = node
+    return tuple(sorted(unique.values(), key=lambda node: (node[0], node[1], node[2] or "", node[3] or 0)))
+
+
+def _nodes(raw: object) -> tuple[tuple[str, str, str | None, int | None], ...]:
     if not isinstance(raw, list):
         return ()
-    found: list[tuple[str, str]] = []
+    found: list[tuple[str, str, str | None, int | None]] = []
     for node in raw:
         if isinstance(node, dict) and isinstance(node.get("id"), str):
             path = node.get("path", node["id"])
             if isinstance(path, str):
-                found.append((node["id"], path))
-    return tuple(sorted(set(found)))
+                label = node.get("label")
+                if not isinstance(label, str):
+                    label = None
+                line = node.get("line")
+                if not isinstance(line, int) or line < 1:
+                    line = None
+                found.append((node["id"], path, label, line))
+    return _normalize_evidence_nodes(found)
 
 
 def _edges(raw: object) -> tuple[tuple[str, str, str], ...]:

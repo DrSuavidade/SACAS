@@ -397,6 +397,7 @@ def refresh_context(
         candidates_list = generate_candidates_for_manifest(installation, manifest)
         candidates_data = {
             "task_id": manifest.task_id,
+            "graph_snapshot_hash": manifest.graph_snapshot_hash,
             "candidates": candidates_list
         }
 
@@ -790,13 +791,15 @@ def generate_candidates_for_manifest(
     }
 
     if evidence is not None:
-        node_paths = dict(evidence.nodes)
+        node_details = {node_id: (path, label, line) for node_id, path, label, line in evidence.nodes}
         candidate_details = {}
         for source_id, destination_id, edge_kind in evidence.edges:
-            source_path = node_paths.get(source_id)
-            dest_path = node_paths.get(destination_id)
-            if not source_path or not dest_path:
+            source_detail = node_details.get(source_id)
+            dest_detail = node_details.get(destination_id)
+            if source_detail is None or dest_detail is None:
                 continue
+            source_path, _source_label, _source_line = source_detail
+            dest_path, _dest_label, _dest_line = dest_detail
 
             is_dest_active = dest_path in active_paths
             is_source_active = source_path in active_paths
@@ -804,10 +807,14 @@ def generate_candidates_for_manifest(
             if is_dest_active and source_path not in active_paths:
                 cand_path = source_path
                 trigger_path = dest_path
+                candidate_node_id = source_id
+                candidate_label, candidate_line = _source_label, _source_line
                 direction = "incoming"
             elif is_source_active and dest_path not in active_paths:
                 cand_path = dest_path
                 trigger_path = source_path
+                candidate_node_id = destination_id
+                candidate_label, candidate_line = _dest_label, _dest_line
                 direction = "outgoing"
             else:
                 continue
@@ -838,6 +845,9 @@ def generate_candidates_for_manifest(
                     "semantic_direction": semantic_direction,
                     "triggered_by": trigger_path,
                     "confidence": confidence,
+                    "graph_node_id": candidate_node_id,
+                    "node_label": candidate_label,
+                    "node_line": candidate_line,
                 }
 
         # Community check
@@ -885,7 +895,10 @@ def generate_candidates_for_manifest(
                 "direction": details["direction"],
                 "semantic_direction": details["semantic_direction"],
                 "triggered_by": details["triggered_by"],
-                "estimated_tokens": cand_cost
+                "estimated_tokens": cand_cost,
+                "graph_node_id": details.get("graph_node_id", ""),
+                "node_label": details.get("node_label"),
+                "node_line": details.get("node_line"),
             })
     else:
         # Fallback search ranking
@@ -915,4 +928,9 @@ def generate_candidates_for_manifest(
                 "estimated_tokens": cand_cost
             })
             
+    # candidates.json is derived task-bound state. Copy the canonical graph
+    # identity onto every Graphify suggestion so expand can reject spliced or
+    # stale records even when the surrounding payload looks valid.
+    for candidate in candidates_list:
+        candidate["graph_snapshot_hash"] = manifest.graph_snapshot_hash
     return candidates_list

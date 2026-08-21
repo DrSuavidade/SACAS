@@ -120,6 +120,45 @@ def test_existing_mode_reads_compatible_graph_with_hash_and_provenance(tmp_path:
     assert evidence.communities == (("core", ("src/api.py", "src/web.py")),)
 
 
+def test_graphify_evidence_preserves_validated_node_label_and_line(tmp_path: Path) -> None:
+    from sacas.graphify import collect_graphify, read_graphify_manifest, write_graphify_manifest
+
+    graph = tmp_path / "graphify-out" / "graph.json"
+    graph.parent.mkdir()
+    graph.write_text(json.dumps({
+        "nodes": [{"id": "handler", "path": "src/handler.py", "label": "handle", "line": 7}],
+        "edges": [],
+    }), encoding="utf-8")
+
+    evidence = collect_graphify(tmp_path, mode="existing")
+    assert evidence.nodes == (("handler", "src/handler.py", "handle", 7),)
+    manifest = tmp_path / "graphify.json"
+    write_graphify_manifest(manifest, evidence)
+    assert read_graphify_manifest(manifest).nodes == evidence.nodes
+
+
+def test_graphify_evidence_normalizes_legacy_nodes_and_duplicate_metadata() -> None:
+    from sacas.graphify import GraphifyEvidence
+    from sacas.map import impact_records
+
+    evidence = GraphifyEvidence(
+        output="graphify-out", status="fresh", provenance="graphify_existing",
+        freshness="fresh", content_hash="hash",
+        nodes=(
+            ("api", "src/api.py"),
+            ("api", "src/api.py", "handle", 7),
+            ("web", "src/web.py", None, None),
+        ),
+        edges=(("web", "api", "calls"),),
+    )
+
+    assert evidence.nodes == (
+        ("api", "src/api.py", "handle", 7),
+        ("web", "src/web.py", None, None),
+    )
+    assert impact_records(evidence, "src/api.py")
+
+
 def test_existing_mode_is_graceful_when_graph_is_absent_or_stale(tmp_path: Path) -> None:
     from sacas.graphify import collect_graphify
 

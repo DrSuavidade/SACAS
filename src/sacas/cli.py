@@ -12,7 +12,7 @@ from sacas.graphify import collect_graphify, repository_relative_path, write_gra
 from sacas.init import initialize
 from sacas.io import read_repo_source_bytes
 from sacas.map import build_system_map, write_system_map
-from sacas.paths import Installation
+from sacas.paths import Installation, resolve_repo_path
 
 
 def _hash_repo_source(repository_root: Path, path: str) -> str:
@@ -302,6 +302,8 @@ def expand_context_command(
         ActiveContextManifest,
     )
     from sacas.tasks import regenerate_task_markdown
+    from sacas.io import read_repo_source_bytes, read_repo_text
+    from sacas.regions import SymbolRangeResolver, extract_markdown_section
     import hashlib
     
     task_dir = installation.sacas_root / "tasks" / "current"
@@ -310,24 +312,123 @@ def expand_context_command(
         print("No active SACAS task found.")
         return 1
         
+    # Expansion is an admission boundary.  Do all filesystem and selector
+    # checks before constructing anything that can be published or enforced.
+    def admitted_source(path: str) -> tuple[str, str]:
+        normalized = resolve_repo_path(installation.repository_root, path)
+        raw = read_repo_source_bytes(installation.repository_root, normalized)
+        return normalized, hashlib.sha256(raw).hexdigest()
+
+    def structure_source(path: str) -> tuple[str, str, str]:
+        requested = path.replace("\\", "/")
+        root_relative = installation.sacas_root.relative_to(installation.repository_root).as_posix()
+        if requested != root_relative and not requested.startswith(f"{root_relative}/"):
+            requested = f"{root_relative}/{requested}"
+        normalized, digest = admitted_source(requested)
+        if normalized != root_relative and not normalized.startswith(f"{root_relative}/"):
+            raise ValueError("Rule/reference must remain inside the SACAS root")
+        return requested, normalized, digest
+
+    try:
+        explicit_files = [admitted_source(path) for path in files]
+        explicit_symbols: list[tuple[str, str, str, object, str]] = []
+        for requested in symbols:
+            if "::" not in requested:
+                raise ValueError(f"Symbol '{requested}' must use file::name format")
+            path, symbol = requested.split("::", 1)
+            if not path or not symbol:
+                raise ValueError(f"Symbol '{requested}' must use file::name format")
+            normalized, digest = admitted_source(path)
+            resolved = SymbolRangeResolver.resolve(installation, normalized, symbol)
+            if resolved is None:
+                raise ValueError(f"Symbol '{normalized}::{symbol}' does not resolve")
+            explicit_symbols.append((requested, normalized, symbol, resolved, digest))
+
+        explicit_rules = [structure_source(path) for path in rules]
+        explicit_refs: list[tuple[str, dict[str, object], str]] = []
+        for requested in references:
+            path, separator, anchor = requested.partition("#")
+            _requested, normalized, digest = structure_source(path)
+            if separator:
+                if not anchor:
+                    raise ValueError(f"Reference '{requested}' has an empty heading")
+                heading_path = [anchor.replace("-", " ")]
+                extract_markdown_section(
+                    read_repo_text(installation.repository_root, normalized), heading_path, strict=True,
+                )
+                selection: dict[str, object] = {
+                    "mode": "sections", "sections": [{"heading_path": heading_path}],
+                }
+            else:
+                selection = {"mode": "full"}
+            explicit_refs.append((normalized, selection, digest))
+
+        candidates: list[tuple[dict[str, object], str, str, dict[str, object] | None]] = []
+        if all_candidates:
+            candidates_path = task_dir / "candidates.json"
+            if candidates_path.is_file():
+                raw_candidates = json.loads(candidates_path.read_text(encoding="utf-8"))
+                if not isinstance(raw_candidates, dict) or raw_candidates.get("task_id") != manifest.task_id:
+                    raise ValueError("Candidates do not belong to the active task")
+                candidate_graph_hash = raw_candidates.get("graph_snapshot_hash")
+                if candidate_graph_hash is not None:
+                    if not isinstance(candidate_graph_hash, str):
+                        raise ValueError("Candidates graph hash is invalid")
+                    if candidate_graph_hash != manifest.graph_snapshot_hash:
+                        raise ValueError("Candidates are stale for the active graph snapshot")
+                raw_list = raw_candidates.get("candidates")
+                if not isinstance(raw_list, list):
+                    raise ValueError("Candidates payload is malformed")
+                for candidate in raw_list:
+                    if not isinstance(candidate, dict) or not isinstance(candidate.get("path"), str):
+                        raise ValueError("Candidate entry is malformed")
+                    for field in (
+                        "source", "reason", "relation", "graph_snapshot_hash", "graph_query_id",
+                        "graph_node_id", "graph_edge_source_id", "graph_edge_target_id", "graph_edge_kind",
+                    ):
+                        if field in candidate and not isinstance(candidate[field], str):
+                            raise ValueError(f"Candidate field '{field}' is malformed")
+                    if "confidence" in candidate and not isinstance(candidate["confidence"], str):
+                        raise ValueError("Candidate field 'confidence' is malformed")
+                    if (
+                        manifest.graph_snapshot_hash
+                        and "graph_snapshot_hash" not in candidate
+                    ):
+                        raise ValueError("Candidate is missing its graph snapshot hash")
+                    if (
+                        "graph_snapshot_hash" in candidate
+                        and candidate["graph_snapshot_hash"] != manifest.graph_snapshot_hash
+                    ):
+                        raise ValueError("Candidate is stale for the active graph snapshot")
+                    path, digest = admitted_source(candidate["path"])
+                    label = candidate.get("node_label")
+                    line = candidate.get("node_line")
+                    if label is not None and (not isinstance(label, str) or not label):
+                        raise ValueError(f"Candidate selector is invalid for {path}")
+                    if line is not None and (not isinstance(line, int) or line < 1):
+                        raise ValueError(f"Candidate selector is invalid for {path}")
+                    selector = None
+                    if label is not None or line is not None:
+                        resolved_node = SymbolRangeResolver.resolve_node_range(
+                            installation, path, label, line,
+                        )
+                        if resolved_node is None:
+                            raise ValueError(f"Candidate selector is unresolved for {path}")
+                        selector, _selector_reason = resolved_node
+                    candidates.append((candidate, path, digest, selector))
+    except (ValueError, LookupError, FileNotFoundError, OSError, json.JSONDecodeError) as error:
+        print(f"Expansion refused: {error}")
+        return 1
+
     new_files = list(manifest.files)
     new_rules = list(manifest.rules)
     new_refs = list(manifest.references)
     new_events = list(manifest.events)
     
-    # 1. Expand from candidates if requested
-    if all_candidates:
-        candidates_path = task_dir / "candidates.json"
-        if candidates_path.is_file():
-            try:
-                candidates_data = json.loads(candidates_path.read_text(encoding="utf-8"))
-                for cand in candidates_data.get("candidates", []):
-                    path = cand["path"]
+    # 1. Expand validated candidates.
+    for cand, path, f_hash, selector in candidates:
                     if path in [f.path for f in new_files]:
                         continue
-                    
-                    f_hash = _hash_repo_source(installation.repository_root, path)
-                        
                     conf_map = {"high": 1.0, "medium": 0.7, "low": 0.4}
                     cand_conf = cand.get("confidence", "high")
                     conf_float = conf_map.get(cand_conf, 0.7)
@@ -337,7 +438,7 @@ def expand_context_command(
                     
                     new_file_ctx = ActiveFileContext(
                         path=path,
-                        selection={"mode": "full"},
+                        selection=selector if selector is not None else {"mode": "full"},
                         source=cand.get("source", "graphify"),
                         ranking_score=conf_float,
                         confidence=conf_float,
@@ -383,14 +484,11 @@ def expand_context_command(
                         ))
                     else:
                         print(f"Skipping candidate {path} due to token budget constraint ({breakdown.used} > {manifest.budget.limit})")
-            except Exception as e:
-                print(f"Error loading candidates: {e}")
                 
     # 2. Expand explicit files/symbols/rules/refs
-    for f in files:
+    for f, f_hash in explicit_files:
         if f in [item.path for item in new_files]:
             continue
-        f_hash = _hash_repo_source(installation.repository_root, f)
             
         new_files.append(ActiveFileContext(
             path=f,
@@ -418,16 +516,8 @@ def expand_context_command(
             direction="forward"
         ))
         
-    for sym in symbols:
-        if "::" in sym:
-            sym_file, sym_name = sym.split("::", 1)
-        else:
-            print(f"WARNING: Symbol '{sym}' is not in file::name format. Skipping.")
-            continue
-            
+    for sym, sym_file, sym_name, rng, f_hash in explicit_symbols:
         found = False
-        from sacas.regions import SymbolRangeResolver
-        rng = SymbolRangeResolver.resolve(installation, sym_file, sym_name)
         for idx, file_ctx in enumerate(new_files):
             if file_ctx.path == sym_file:
                 found = True
@@ -449,7 +539,6 @@ def expand_context_command(
                 )
                 break
         if not found:
-            f_hash = _hash_repo_source(installation.repository_root, sym_file)
             new_files.append(ActiveFileContext(
                 path=sym_file,
                 selection={"mode": "symbols", "symbols": [ActiveSymbolContext(name=sym_name, range=rng, reason=reason or "Explicit CLI expand")]},
@@ -472,36 +561,12 @@ def expand_context_command(
         ))
 
     # Apply Rules/Refs
-    for r in rules:
-        r_clean = r.replace("\\", "/")
-        if not r_clean.startswith("Structure/"):
-            r_rel = "Structure/" + r_clean
-        else:
-            r_rel = r_clean
+    for _requested, r_rel, r_hash in explicit_rules:
         if not any(rule.path == r_rel for rule in new_rules):
-            r_hash = _hash_repo_source(installation.repository_root, r_rel)
             new_rules.append(ActiveRuleContext(path=r_rel, hash=r_hash, reason=reason or "Explicit CLI expand"))
 
-    for ref in references:
-        path_part = ref
-        section_anchor = None
-        if "#" in ref:
-            path_part, section_anchor = ref.split("#", 1)
-            
-        path_part_clean = path_part.replace("\\", "/")
-        if not path_part_clean.startswith("Structure/"):
-            r_rel = "Structure/" + path_part_clean
-        else:
-            r_rel = path_part_clean
-            
-        if section_anchor:
-            heading_path = [section_anchor.replace("-", " ").title()]
-            sel = {"mode": "sections", "sections": [{"heading_path": heading_path}]}
-        else:
-            sel = {"mode": "full"}
-            
+    for r_rel, sel, ref_hash in explicit_refs:
         if not any(reference.path == r_rel for reference in new_refs):
-            ref_hash = _hash_repo_source(installation.repository_root, r_rel)
             new_refs.append(ActiveReferenceContext(path=r_rel, selection=sel, hash=ref_hash, reason=reason or "Explicit CLI expand"))
 
     from dataclasses import replace
