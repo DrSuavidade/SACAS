@@ -587,7 +587,7 @@ def benchmark_command_dispatch(installation: Installation, format_type: str = "t
                 print(f"  Test-File Recall:           {r.test_recall * 100:.1f}%")
                 print(f"  Payload Context Efficiency: {r.payload_context_efficiency * 100:.1f}%")
                 print(f"  Total Context Efficiency:   {r.total_context_efficiency * 100:.1f}%")
-                print(f"  Token Reduction:            {r.token_reduction * 100:.1f}%")
+                print(f"  Whole-repository reduction: {r.whole_repository_reduction * 100:.1f}%")
                 print("-" * 40)
         return 0
     else:
@@ -603,7 +603,7 @@ def histbench_command(
     format_type: str = "text"
 ) -> int:
     """Generate and optionally run historical Git benchmarks."""
-    from sacas.git_benchmark import generate_historical_tasks, save_historical_benchmarks
+    from sacas.git_benchmark import generate_historical_tasks, run_historical_benchmarks, save_historical_benchmarks
     import json
     
     repo_root = installation.repository_root
@@ -630,28 +630,31 @@ def histbench_command(
     
     # Run benchmarks
     print("\nRunning benchmarks...")
-    from sacas.benchmark_runner import load_and_run_all_benchmarks
-    results = load_and_run_all_benchmarks(installation)
+    results = run_historical_benchmarks(installation, bench_dir)
     
     if not results:
         print("No benchmarks to run.")
         return 0
     
     if format_type == "json":
-        print(json.dumps([r.to_dict() for r in results], indent=2))
+        print(json.dumps(results, indent=2))
     else:
         print("\nHistorical Benchmark Results")
         print("============================")
         for r in results:
-            print(f"Task ID:     {r.task_id}")
-            print(f"  Precision: {r.precision * 100:.1f}%")
-            print(f"  Recall:    {r.recall * 100:.1f}%")
-            print(f"  F1:        {r.f1 * 100:.1f}%")
-            print(f"  Tokens:    {r.baselines.get('B4_sacas_graphify', {}).get('tokens', 0) if r.baselines else 'N/A'}")
-            print(f"  vs B0:     {r.token_reduction * 100:.1f}% reduction")
+            if "error" in r:
+                print(f"Task ID:     {r['task_id']}")
+                print(f"  Error:     {r['error']}")
+                print("-" * 40)
+                continue
+            print(f"Task ID:     {r['task_id']}")
+            print(f"  Precision: {r['eval']['precision'] * 100:.1f}%")
+            print(f"  Recall:    {r['eval']['recall'] * 100:.1f}%")
+            print(f"  Parent:    {r['parent_commit']}")
+            print(f"  Child:     {r['child_commit']}")
             print("-" * 40)
     
-    return 0
+    return 1 if any("error" in result for result in results) else 0
 
 
 def pipeline_list_command(installation: Installation) -> int:

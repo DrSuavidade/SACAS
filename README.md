@@ -78,7 +78,7 @@ sacas task "fix Session restoration" --symbol src/auth.py::login --context-polic
 ---
 
 ### 4. `sacas refresh`
-Recompile the context pack from canonical state. Detects stale source files, task contract changes, and graph snapshot changes. Regenerates `context.pack.jsonl` with exact source content.
+Recompile the context pack from canonical state. Detects stale source files, task contract changes, and graph snapshot changes, then publishes a validated pack and manifest together. A successful refresh converges: an immediate second refresh performs no semantic work. If an admitted source or selector is invalid, refresh fails closed rather than emitting a partial or stale pack.
 
 **Arguments:**
 - `--root <path>`: Repository root directory.
@@ -147,7 +147,7 @@ Show details of the current task, including task ID, context budget utilization,
 ---
 
 ### 9. `sacas validate`
-Run cold-agent validation checks (generated regions, legacy tracker files, stale file states, budget overruns, protected boundaries, etc.).
+Run cold-agent validation checks (generated regions, legacy tracker files, stale file states, budget overruns, protected boundaries, and task/manifest/context-pack identity and coverage checks).
 
 ---
 
@@ -234,6 +234,7 @@ Invariants:
 - Identical inputs → byte-identical pack
 - Overlapping/adjacent ranges merged
 - Full-file fallbacks deduplicated by `(source, None)`
+- The pack must match the canonical task and active context. A stale, incomplete, or mismatched pack is rejected rather than consumed.
 
 ### Three-Fingerprint Invalidation
 | Fingerprint | Triggers | Scope |
@@ -241,6 +242,8 @@ Invariants:
 | `task_contract_hash` | Task goal/criteria/constraints change | Full re-route |
 | `graph_snapshot_hash` | Graphify graph.json changes | Graph-derived files only |
 | `source_content_hash` | Source file content changes | That file's selectors |
+
+Task and graph invalidation take precedence over selective source refresh. Source-only refresh preserves the original admission origin and evidence; graph rediscovery removes obsolete Graphify-derived context while retaining genuine explicit admissions.
 
 ### Provenance Chain
 Every fragment links to admission events with preserved evidence:
@@ -257,6 +260,12 @@ All repository paths from external/persisted state pass through `resolve_repo_pa
 - Ignore dirs: `.git`, `.sacas`, `node_modules`, `__pycache__`, etc.
 - `.sacasignore` with glob patterns
 - Binary detection, 1MB default size limit
+
+All repository-controlled reads, including routing, validation, budgeting, and benchmark baselines, use this boundary. Internal SACAS state is read separately as trusted control data.
+
+### Graphify Evidence Outcomes
+
+Graphify is optional evidence. A missing, removed, malformed, unavailable, or zero-result graph falls back to lexical routing and cannot retain obsolete Graphify admissions. A valid graph with a provider/query failure retains its graph identity for convergence and emits a retry instruction: rebuild or touch the graph with `sacas map`, then reroute. Graph snapshots are validated as repository-relative JSON and have a dedicated 50MB limit.
 
 ### Agent Boundary
 ```
@@ -330,7 +339,7 @@ your-project/
 | ID | Name | Description |
 |----|------|-------------|
 | B0 | `B0_whole_repo` | Whole repository upper bound |
-| B1 | `B1_basic_search` | Filename + content keyword matching |
+| B1 | `B1_basic_search` | Secure filename + full-content keyword matching over eligible files |
 | B2 | `B2_lexical_routing` | SACAS lexical fallback routing |
 | B3 | `B3_graphify_whole` | Graphify whole-file retrieval |
 | B4 | `B4_sacas_graphify` | SACAS range routing with Graphify |
@@ -352,8 +361,13 @@ Whole-repository token reduction is reported as `whole_repository_reduction` but
 - Parent/child ancestry via `git rev-parse <child>^`
 - Merge commits skipped
 - Gold = child commit diff (labeled `weak_gold`)
-- Routing runs in detached worktree at parent commit
+- Tasks are ordered deterministically from oldest eligible child commit to newest
+- Routing runs in a detached worktree at the actual parent commit; child data is used only after routing for weak-gold evaluation
 - Active checkout never modified
+
+### Fix6 Deliberate Deferrals
+
+Fix6 stabilizes the current compiler and measurement boundary. It does not add a new ranking/confidence model, multi-node Graphify aggregation, deterministic Graphify query IDs, a `STATE.md` authority redesign, a dependency/build engine, embeddings, or an agent-success benchmarking framework. Those P2 changes require empirical retrieval results first.
 
 ---
 

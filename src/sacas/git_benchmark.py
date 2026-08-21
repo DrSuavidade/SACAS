@@ -130,7 +130,7 @@ def generate_historical_tasks(repo: Path, max_commits: int = 500) -> list[Histor
     - Uses explicit Git parent lookup (not list position)
     - Skips merge commits
     """
-    commits = _get_commit_history(repo, max_commits)
+    commits = list(reversed(_get_commit_history(repo, max_commits)))
     tasks = []
     
     for i in range(len(commits)):
@@ -263,7 +263,7 @@ def run_historical_benchmarks(installation: Installation, benchmark_dir: Path) -
     results = []
     repo_root = installation.repository_root
     
-    for bench_file in benchmark_dir.glob("*.json"):
+    for bench_file in sorted(benchmark_dir.glob("*.json")):
         try:
             gold_task = json.loads(bench_file.read_text(encoding="utf-8"))
             
@@ -300,9 +300,13 @@ def run_historical_benchmarks(installation: Installation, benchmark_dir: Path) -
             
             manifest = _run_in_detached_worktree(repo_root, parent_commit, do_routing)
             
-            # Evaluate against expected (gold is evaluation data only, never used for routing)
-            from sacas.benchmark_runner import evaluate_retrieval
-            eval_result = evaluate_retrieval(manifest, gold_task["expected"])
+            # Evaluate after routing. Child diff data is never passed to route_goal.
+            expected_files = set(gold_task["expected"].get("files", ()))
+            retrieved_files = {file.path for file in manifest.files}
+            true_positives = len(expected_files & retrieved_files)
+            precision = true_positives / len(retrieved_files) if retrieved_files else 0.0
+            recall = true_positives / len(expected_files) if expected_files else 0.0
+            eval_result = {"precision": precision, "recall": recall}
             
             results.append({
                 "task_id": gold_task["id"],

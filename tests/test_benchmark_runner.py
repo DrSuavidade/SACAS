@@ -112,6 +112,47 @@ def test_benchmark_suite_metrics(tmp_path: Path) -> None:
     
     assert res.precision_at_5 == 0.4
     assert res.mrr == 1.0
+    serialized = res.to_dict()
+    assert "whole_repository_reduction" in serialized
+    assert "token_reduction" not in serialized
+    assert res.token_reduction == res.whole_repository_reduction
+
+
+def test_b1_sorts_equal_scores_by_score_then_path_length_then_path(tmp_path: Path) -> None:
+    from sacas.benchmark_runner import _baseline_b1_basic_search
+
+    installation = initialize(tmp_path).installation
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "a-very-long-name.py").write_text("needle", encoding="utf-8")
+    (tmp_path / "src" / "z.py").write_text("needle", encoding="utf-8")
+    (tmp_path / "src" / "y.py").write_text("needle", encoding="utf-8")
+
+    _, files = _baseline_b1_basic_search(installation, "needle")
+
+    assert files == ["src/y.py", "src/z.py", "src/a-very-long-name.py"]
+
+
+def test_benchmark_cli_labels_whole_repository_reduction(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from sacas.benchmark_runner import RoutingBenchmarkResult
+    from sacas.cli import benchmark_command_dispatch
+    import sacas.benchmark_runner
+
+    installation = initialize(tmp_path).installation
+    result = RoutingBenchmarkResult(
+        task_id="metric-name", precision=0.0, recall=0.0, f1=0.0,
+        precision_at_5=0.0, precision_at_10=0.0, recall_at_5=0.0, recall_at_10=0.0,
+        mrr=0.0, symbol_recall=0.0, test_recall=0.0,
+        payload_context_efficiency=0.0, total_context_efficiency=0.0,
+        whole_repository_reduction=0.25,
+    )
+    monkeypatch.setattr(sacas.benchmark_runner, "load_and_run_all_benchmarks", lambda _: [result])
+
+    assert benchmark_command_dispatch(installation) == 0
+    output = capsys.readouterr().out
+    assert "Whole-repository reduction" in output
+    assert "Token Reduction" not in output
 
 def test_load_and_run_all_benchmarks(tmp_path: Path) -> None:
     init_result = initialize(tmp_path)

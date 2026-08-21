@@ -66,7 +66,7 @@ def _baseline_b1_basic_search(installation: Installation, goal: str) -> tuple[in
         if score > 0:
             scored_files.append((score, f))
     
-    scored_files.sort(key=lambda x: -x[0])
+    scored_files.sort(key=lambda item: (-item[0], len(item[1]), item[1]))
     top_files = [f for _, f in scored_files[:10]]
     tokens = calculate_context_size(installation.repository_root, tuple(top_files))
     return tokens, top_files
@@ -157,7 +157,7 @@ class RoutingBenchmarkResult:
         test_recall: float,
         payload_context_efficiency: float,
         total_context_efficiency: float,
-        token_reduction: float,
+        whole_repository_reduction: float,
         baselines: dict[str, dict[str, float]] | None = None
     ):
         self.task_id = task_id
@@ -173,8 +173,13 @@ class RoutingBenchmarkResult:
         self.test_recall = test_recall
         self.payload_context_efficiency = payload_context_efficiency
         self.total_context_efficiency = total_context_efficiency
-        self.token_reduction = token_reduction
+        self.whole_repository_reduction = whole_repository_reduction
         self.baselines = baselines or {}
+
+    @property
+    def token_reduction(self) -> float:
+        """Deprecated compatibility alias; do not serialize."""
+        return self.whole_repository_reduction
 
     def to_dict(self) -> dict[str, Any]:
         result = {
@@ -191,7 +196,7 @@ class RoutingBenchmarkResult:
             "test_recall": self.test_recall,
             "payload_context_efficiency": self.payload_context_efficiency,
             "total_context_efficiency": self.total_context_efficiency,
-            "token_reduction": self.token_reduction
+            "whole_repository_reduction": self.whole_repository_reduction,
         }
         if self.baselines:
             result["baselines"] = self.baselines
@@ -315,7 +320,7 @@ def run_routing_benchmark_suite(
     baselines["B5_hybrid_lexical_graph"] = _compute_baseline_metrics(installation, goal, gold_files, b5_files)
     
     # Token reduction vs B0 (whole repo)
-    token_reduction = 1.0 - (breakdown.used / b0_tokens) if b0_tokens > 0 else 0.0
+    whole_repository_reduction = 1.0 - (breakdown.used / b0_tokens) if b0_tokens > 0 else 0.0
 
     return RoutingBenchmarkResult(
         task_id=gold_task.get("id", manifest.task_id),
@@ -331,7 +336,7 @@ def run_routing_benchmark_suite(
         test_recall=test_recall,
         payload_context_efficiency=payload_context_efficiency,
         total_context_efficiency=total_context_efficiency,
-        token_reduction=token_reduction,
+        whole_repository_reduction=whole_repository_reduction,
         baselines=baselines
     )
 
@@ -343,7 +348,7 @@ def load_and_run_all_benchmarks(installation: Installation) -> list[RoutingBench
     if not benchmark_dir.is_dir():
         return results
 
-    for path in benchmark_dir.glob("*.json"):
+    for path in sorted(benchmark_dir.glob("*.json")):
         try:
             gold_task = json.loads(path.read_text(encoding="utf-8"))
             

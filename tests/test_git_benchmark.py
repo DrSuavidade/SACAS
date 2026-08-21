@@ -219,13 +219,57 @@ def test_generate_historical_tasks_root_commit_skipped(temp_git_repo: Path):
 def test_generate_historical_tasks_correct_commit_order(temp_git_repo: Path):
     """Test that tasks are generated from oldest to newest (parent to child)."""
     tasks = generate_historical_tasks(temp_git_repo, max_commits=10)
-    
-    # Tasks should be ordered by child commit (which follows git history order)
-    # git log returns newest first, so tasks should be in reverse chronological order
-    for i in range(len(tasks) - 1):
-        # Each task's child should be a descendant of the previous task's child
-        # In practice, they follow git log order (newest first)
-        assert tasks[i].child_commit != tasks[i+1].child_commit
+
+    task_children = {task.child_commit for task in tasks}
+    expected_order = [
+        commit
+        for commit in reversed(_run_git(temp_git_repo, ["log", "--pretty=format:%H", "-10"]).splitlines())
+        if commit in task_children
+    ]
+    assert [task.child_commit for task in tasks] == expected_order
+
+
+def test_historical_routing_uses_actual_parent_worktree_without_child_file_hints(
+    temp_git_repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from sacas.git_benchmark import run_historical_benchmarks
+    from sacas.init import initialize
+    from sacas.active_context import ActiveContextManifest
+    import sacas.tasks
+
+    parent = _run_git(temp_git_repo, ["log", "--pretty=format:%H", "-2"]).splitlines()[1]
+    child = _run_git(temp_git_repo, ["log", "--pretty=format:%H", "-1"]).strip()
+    benchmark_dir = tmp_path / "benchmarks"
+    benchmark_dir.mkdir()
+    (benchmark_dir / "historical.json").write_text(json.dumps({
+        "id": "hist-parent-only",
+        "goal": "Investigate child-only behavior",
+        "category": "investigate",
+        "expected": {"files": ["child_only.py"], "symbols": [], "tests": []},
+        "metadata": {"parent_commit": parent, "child_commit": child, "weak_gold": True},
+    }), encoding="utf-8")
+    installation = initialize(temp_git_repo).installation
+    captured: dict[str, object] = {}
+
+    def fake_route_goal(*, installation, **kwargs):
+        captured["root"] = installation.repository_root
+        captured["head"] = _run_git(installation.repository_root, ["rev-parse", "HEAD"])
+        captured["kwargs"] = kwargs
+        return ActiveContextManifest(task_id="route", git_revision="unknown", files=(), rules=(), references=(), events=())
+
+    monkeypatch.setattr(sacas.tasks, "route_goal", fake_route_goal)
+    results = run_historical_benchmarks(installation, benchmark_dir)
+
+    assert captured["root"] != temp_git_repo
+    assert captured["head"] == parent
+    assert captured["kwargs"] == {
+        "goal": "Investigate child-only behavior",
+        "category": "investigate",
+        "files": (), "symbols": (), "tests": (), "rules": (), "references": (),
+        "context_policy": "advisory",
+    }
+    assert results[0]["child_commit"] == child
+    assert "error" not in results[0]
 
 
 def test_run_in_detached_worktree_isolation(temp_git_repo: Path):
@@ -270,3 +314,26 @@ def test_generate_and_run_historical_benchmarks_integration(temp_git_repo: Path)
     # We can't easily test this without a full SACAS installation
     # The function signature is tested by existence
     assert callable(generate_and_run_historical_benchmarks)
+
+
+def test_histbench_command_returns_nonzero_when_a_result_has_an_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Historical failures remain on disk and produce a failing CLI status."""
+    from sacas.cli import histbench_command
+    from sacas.init import initialize
+    import sacas.git_benchmark
+
+    installation = initialize(tmp_path).installation
+    output_dir = tmp_path / "historical-output"
+    monkeypatch.setattr(sacas.git_benchmark, "generate_historical_tasks", lambda *_args, **_kwargs: [object()])
+    monkeypatch.setattr(sacas.git_benchmark, "save_historical_benchmarks", lambda _tasks, directory: directory.mkdir(parents=True, exist_ok=True))
+    monkeypatch.setattr(
+        sacas.git_benchmark,
+        "run_historical_benchmarks",
+        lambda _installation, _directory: [{"task_id": "hist-failed", "error": "routing failed"}],
+    )
+
+    assert histbench_command(installation, output_dir=str(output_dir), format_type="json") == 1
+    assert output_dir.is_dir()
+    assert "routing failed" in capsys.readouterr().out
