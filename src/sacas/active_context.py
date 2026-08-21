@@ -602,12 +602,21 @@ def load_active_context(task_dir: Path) -> ActiveContextManifest | None:
     return manifest
 
 
-def load_task_state(task_dir: Path) -> tuple[ActiveContextManifest | None, TaskContract | None]:
-    """Load both active context manifest and task contract as canonical pair."""
+def load_task_state(
+    task_dir: Path, *, allow_task_id_mismatch: bool = False,
+) -> tuple[ActiveContextManifest | None, TaskContract | None]:
+    """Load the canonical pair, refusing task/context identity disagreement.
+
+    Refresh alone may opt into the pre-existing mismatch result while it
+    deliberately converges a legacy or rerouted contract at its transaction
+    boundary.  All readers otherwise treat disagreement as invalid state.
+    """
     from sacas.task_contract import load_task_contract
     manifest = load_active_context(task_dir)
     contract = load_task_contract(task_dir)
     if manifest and contract and manifest.task_id != contract.task_id:
+        if not allow_task_id_mismatch:
+            raise CanonicalStateError(task_dir / "task.json", "disagrees with active_context.json")
         return manifest, None
     return manifest, contract
 

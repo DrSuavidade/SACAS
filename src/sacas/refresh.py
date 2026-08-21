@@ -210,7 +210,7 @@ def refresh_context(
         manifest = load_legacy_active_context(task_dir)
         contract = load_task_contract(task_dir)
     else:
-        manifest, contract = load_task_state(task_dir)
+        manifest, contract = load_task_state(task_dir, allow_task_id_mismatch=True)
     if manifest is None:
         raise ValueError("Active task metadata (active_context.json) is missing or unreadable.")
     # task.json is canonical when a refresh reroutes; load_task_state deliberately

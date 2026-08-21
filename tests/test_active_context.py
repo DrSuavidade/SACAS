@@ -187,6 +187,41 @@ def test_canonical_loader_rejects_directory_artifact_without_legacy_fallback(
             load_active_context(tmp_path)
     assert legacy.is_file()
 
+
+def test_public_consumers_refuse_task_context_identity_mismatch_without_mutation(tmp_path: Path) -> None:
+    """Canonical pair disagreement is an error, never an implicit missing contract."""
+    from sacas.benchmark import run_benchmark
+    from sacas.cli import main
+    from sacas.init import initialize
+    from sacas.paths import discover_manifest
+    from sacas.provenance import query_why_file
+    from sacas.status import get_status_report
+
+    initialized = initialize(tmp_path, graphify_mode="off")
+    source = tmp_path / "src" / "app.py"
+    source.parent.mkdir()
+    source.write_text("value = 1\n", encoding="utf-8")
+    assert main(["task", "Mismatched state", "--root", str(tmp_path), "--files", "src/app.py"]) == 0
+    task_dir = initialized.sacas_root / "tasks" / "current"
+    contract_path = task_dir / "task.json"
+    contract = json.loads(contract_path.read_text(encoding="utf-8"))
+    contract["task_id"] = "different-task"
+    contract_path.write_text(json.dumps(contract), encoding="utf-8")
+    before_contract = contract_path.read_bytes()
+    before_context = (task_dir / "active_context.json").read_bytes()
+    installation = discover_manifest(tmp_path)
+    assert installation is not None
+    expected = "Canonical task state is corrupt: task.json disagrees with active_context.json"
+
+    assert get_status_report(installation)["error"] == expected
+    assert run_benchmark(installation) == {"active_task": False, "error": expected}
+    assert query_why_file(installation, "src/app.py") == [expected]
+    assert main(["why", "src/app.py", "--root", str(tmp_path)]) == 1
+    assert main(["expand", "--root", str(tmp_path), "--file", "src/app.py"]) == 1
+    assert main(["status", "--root", str(tmp_path), "--format", "json"]) == 1
+    assert contract_path.read_bytes() == before_contract
+    assert (task_dir / "active_context.json").read_bytes() == before_context
+
 def test_active_context_manifest_serialization() -> None:
     manifest = ActiveContextManifest(
         task_id="abc12345",
