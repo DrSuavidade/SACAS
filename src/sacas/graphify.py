@@ -464,6 +464,156 @@ def raw_graph_snapshot_hash(repository_root: Path, graph_relative_path: str) -> 
     return hashlib.sha256(raw).hexdigest()
 
 
+def _camel_tokens(text: str) -> list[str]:
+    """Split an identifier into lowercase word tokens across case styles."""
+    import re
+
+    return [token.lower() for token in re.findall(r"[A-Za-z][a-z0-9]*|[a-z0-9]+", text)]
+
+
+def _node_tokens(node: dict) -> set[str]:
+    """Every lowercase word a goal keyword could plausibly match for this node."""
+    from pathlib import PurePosixPath
+
+    tokens: set[str] = set()
+    label = node.get("label")
+    if isinstance(label, str):
+        tokens.update(_camel_tokens(label))
+        norm_label = node.get("norm_label")
+        if isinstance(norm_label, str) and norm_label:
+            tokens.update(norm_label.lower().split("-"))
+    node_id = node.get("id")
+    if isinstance(node_id, str):
+        tokens.update(token for token in node_id.lower().split("_") if token)
+    path = _node_source_path(node)
+    if path:
+        pure = PurePosixPath(path)
+        tokens.update(_camel_tokens(pure.stem))
+        tokens.update(part.lower() for part in pure.parts[:-1] if part not in ("", "/"))
+    return {token for token in tokens if len(token) >= 3}
+
+
+def rank_nodes_for_goal(nodes: list, goal: str) -> dict[str, int]:
+    """Score every node id against the routing goal.
+
+    Deterministic lexical scoring over labels, identifier words, and file
+    paths. Returns only nodes with a positive score, best first.
+    """
+    from sacas.tasks import extract_keywords
+
+    # Identifier punctuation must not glue words together: "node_a" and
+    # "session-manager" each carry two matchable keywords.
+    keywords = extract_keywords(goal.replace("_", " ").replace("-", " "))
+    if not keywords:
+        return {}
+
+    scores: dict[str, int] = {}
+    goal_lower = goal.lower()
+    for node in nodes:
+        if not isinstance(node, dict) or not isinstance(node.get("id"), str):
+            continue
+        score = 0
+        tokens = _node_tokens(node)
+        for keyword in keywords:
+            if keyword in tokens:
+                score += 4
+            elif len(keyword) >= 4 and any(keyword in token or token in keyword for token in tokens):
+                score += 2
+        label = node.get("label")
+        if isinstance(label, str) and len(label) >= 4 and label.lower() in goal_lower:
+            score += 6
+        path = _node_source_path(node)
+        if path:
+            from pathlib import PurePosixPath
+
+            pure = PurePosixPath(path)
+            if any(part.lower() in goal_lower for part in pure.parts[:-1]):
+                score += 3
+            stem = pure.stem.lower()
+            if len(stem) >= 4 and stem in goal_lower:
+                score += 6
+        if score > 0:
+            scores[node["id"]] = score
+    return dict(sorted(scores.items(), key=lambda item: (-item[1], item[0])))
+
+
+def local_graph_query(
+    repository_root: Path,
+    graph_relative_path: str,
+    goal: str,
+    *,
+    snapshot_hash: str = "",
+) -> "GraphifyQueryResult | None":
+    """Rank a Graphify snapshot locally when the primary provider yields nothing."""
+    try:
+        raw_nodes_and_graph = read_graph_snapshot(repository_root, graph_relative_path)
+    except GraphSnapshotError:
+        return None
+    _raw, graph = raw_nodes_and_graph
+    nodes = graph.get("nodes")
+    if not isinstance(nodes, list):
+        return None
+
+    scores = rank_nodes_for_goal(nodes, goal)
+    if not scores:
+        return None
+
+    id_to_node = {n["id"]: n for n in nodes if isinstance(n, dict) and isinstance(n.get("id"), str)}
+    ranked_paths: list[str] = []
+    seen_paths: set[str] = set()
+    for node_id in scores:
+        node = id_to_node[node_id]
+        path = _node_source_path(node)
+        if path and path not in seen_paths:
+            seen_paths.add(path)
+            ranked_paths.append(path)
+
+    edges = []
+    for edge in _graph_links(graph) or []:
+        if not isinstance(edge, dict):
+            continue
+        source, target = edge.get("source"), edge.get("target")
+        kind = edge.get("relation") or edge.get("type") or edge.get("relationship") or "related"
+        if all(isinstance(item, str) for item in (source, target, kind)):
+            edges.append(GraphQueryEdge(
+                source=source,
+                target=target,
+                relation=kind,
+                confidence=_optional_str_value(edge.get("confidence")),
+                provenance=_optional_str_value(edge.get("provenance")),
+            ))
+
+    query_nodes = []
+    for node_id, score in scores.items():
+        node = id_to_node[node_id]
+        query_nodes.append(GraphQueryNode(
+            id=node_id,
+            label=node.get("label") if isinstance(node.get("label"), str) else None,
+            path=_node_source_path(node),
+            line=_node_line(node),
+            node_type=(
+                node.get("type") if isinstance(node.get("type"), str)
+                else node.get("node_type") if isinstance(node.get("node_type"), str)
+                else None
+            ),
+            community=_node_community(node),
+        ))
+
+    return GraphifyQueryResult(
+        status="success",
+        nodes=tuple(query_nodes),
+        edges=tuple(edges),
+        raw_output=json.dumps({"ranked": scores}),
+        paths=tuple(ranked_paths),
+        graph_snapshot_hash=snapshot_hash,
+        query_id="local-rank",
+    )
+
+
+def _optional_str_value(value: object) -> str | None:
+    return value if isinstance(value, str) else None
+
+
 def resolve_graph_routing_outcome(
     repository_root: Path,
     graph_relative_path: str,
@@ -497,6 +647,21 @@ def resolve_graph_routing_outcome(
     if result is not None:
         result = replace(result, graph_snapshot_hash=snapshot_hash)
     if result is None or not result.paths:
+        # The primary provider found nothing for this goal. Before degrading
+        # to whole-file lexical search, rank the same validated snapshot
+        # locally: labels and identifier words usually still contain the
+        # signal the provider's own matcher missed.
+        rescued = local_graph_query(repository_root, graph_relative_path, goal, snapshot_hash=snapshot_hash)
+        if rescued is not None and rescued.paths:
+            return GraphRoutingOutcome(
+                snapshot_hash=snapshot_hash,
+                query_result=rescued,
+                use_lexical_fallback=False,
+                warning=(
+                    "Provider query produced no matches; ranked graph nodes "
+                    "locally against the goal"
+                ),
+            )
         return GraphRoutingOutcome(
             snapshot_hash=snapshot_hash,
             query_result=result,
@@ -872,24 +1037,20 @@ class JsonGraphifyProvider(GraphifyProvider):
         )
 
     def query(self, goal: str, graph_path: Path, *, token_budget: int | None = None) -> GraphifyQueryResult | None:
-        if not self.graph_path.is_file():
+        if self.graph_path.is_file() is False:
             return None
         try:
             data = self._read_data()
             if data is None:
                 return None
-            paths = []
             nodes_list = []
             for node in data.get("nodes", []):
                 if not isinstance(node, dict):
                     return None
-                p = self._node_path(node)
-                if any(part.lower() in goal.lower() for part in p.split("/")):
-                    paths.append(p)
                 nodes_list.append(GraphQueryNode(
                     id=node["id"],
                     label=self._optional_str(node.get("label")),
-                    path=p,
+                    path=self._node_path(node),
                     line=self._node_line(node),
                     node_type=self._optional_str(node.get("type")) or self._optional_str(node.get("node_type")),
                     community=self._node_community(node),
@@ -905,12 +1066,25 @@ class JsonGraphifyProvider(GraphifyProvider):
                     confidence=self._optional_str(edge.get("confidence")) or self._optional_str(edge.get("provenance")),
                     provenance=self._optional_str(edge.get("provenance")),
                 ))
+
+            # Rank nodes against the goal instead of only keeping literal
+            # path-part substring hits; labels and identifier words are the
+            # signals real goals actually hit.
+            raw_nodes = data.get("nodes", [])
+            scores = rank_nodes_for_goal(raw_nodes, goal)
+            id_to_path = {n.id: n.path for n in nodes_list if n.path}
+            ranked_paths: list[str] = []
+            for node_id in scores:
+                path = id_to_path.get(node_id)
+                if path and path not in ranked_paths:
+                    ranked_paths.append(path)
+
             return GraphifyQueryResult(
                 status="success",
                 nodes=tuple(nodes_list),
                 edges=tuple(edges_list),
                 raw_output=json.dumps(data),
-                paths=tuple(dict.fromkeys(paths)),
+                paths=tuple(ranked_paths),
                 graph_snapshot_hash=raw_graph_snapshot_hash(
                     self.repository_root,
                     self.graph_path.relative_to(self.repository_root).as_posix(),

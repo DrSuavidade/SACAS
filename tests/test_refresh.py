@@ -1476,7 +1476,7 @@ def test_deleting_a_configured_graph_clears_identity_uses_fallback_and_converges
 def test_graph_fallback_keeps_valid_raw_identity_and_converges(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, provider_result: str
 ) -> None:
-    """Optional Graphify failures retain valid evidence identity while using lexical routing."""
+    """An unrouteable provider degrades to local snapshot ranking, keeping raw identity."""
     import hashlib
     from sacas.active_context import load_active_context
     from sacas.graphify import GraphifyQueryResult, JsonGraphifyProvider
@@ -1516,8 +1516,9 @@ def test_graph_fallback_keeps_valid_raw_identity_and_converges(
     manifest = load_active_context(task_dir)
     assert manifest is not None
     assert manifest.graph_snapshot_hash == hashlib.sha256(raw).hexdigest()
-    assert any(item.source == "heuristic" for item in manifest.files)
-    assert any(event.source == "heuristic" for event in manifest.events)
+    assert any(item.source == "graphify" for item in manifest.files)
+    assert any(event.source == "graphify" for event in manifest.events)
+    assert not any(item.source == "heuristic" for item in manifest.files)
     assert refresh_context(discover_manifest(tmp_path)) is False
 
 
@@ -1578,10 +1579,10 @@ def test_graph_refresh_fallback_replaces_stale_graph_provenance_and_converges(
     assert refreshed is not None
     expected_hash = hashlib.sha256(new_raw).hexdigest()
     assert refreshed.graph_snapshot_hash == expected_hash
-    assert not any(item.source == "graphify" for item in refreshed.files)
-    assert not any(event.source == "graphify" for event in refreshed.events)
-    assert any(item.source == "heuristic" for item in refreshed.files)
-    assert any(event.source == "heuristic" for event in refreshed.events)
+    # The changed snapshot is locally rankable, so provenance is replaced with
+    # fresh graphify admissions under the new identity rather than stale ones.
+    assert any(item.source == "graphify" for item in refreshed.files)
+    assert any(event.source == "graphify" for event in refreshed.events)
     pack_path = tmp_path / "Structure" / ".sacas" / "runtime" / "context.pack.jsonl"
     header, _ = read_context_pack(pack_path)
     assert header.graph_snapshot_hash == expected_hash
@@ -1589,3 +1590,48 @@ def test_graph_refresh_fallback_replaces_stale_graph_provenance_and_converges(
     pack_bytes = pack_path.read_bytes()
     assert refresh_context(discover_manifest(tmp_path)) is False
     assert pack_path.read_bytes() == pack_bytes
+
+
+@pytest.mark.parametrize("provider_result", ("failure", "no_matches"))
+def test_unrankable_graph_still_degrades_to_lexical_fallback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, provider_result: str
+) -> None:
+    """A valid but irrelevant snapshot must still route lexically."""
+    from sacas.active_context import load_active_context
+    from sacas.graphify import GraphifyQueryResult, JsonGraphifyProvider
+    from sacas.init import initialize
+    from sacas.paths import discover_manifest
+    from sacas.tasks import generate_task
+
+    initialize(tmp_path, graphify_mode="existing")
+    _configure_custom_graph_output(tmp_path, "custom-graph")
+    source = tmp_path / "src" / "auth.py"
+    source.parent.mkdir()
+    source.write_text("def login(): pass\n", encoding="utf-8")
+    graph_path = tmp_path / "custom-graph" / "graph.json"
+    _write_graph(graph_path, "docs/unrelated-notes.md")
+
+    class FallbackProvider(JsonGraphifyProvider):
+        def verify_capabilities(self, required: set[str]) -> bool:
+            return True
+
+        def query(self, goal: str, gp: Path, *, token_budget: int | None = None):
+            if provider_result == "failure":
+                return None
+            return GraphifyQueryResult(
+                status="success", nodes=(), edges=(), raw_output="no matches", paths=()
+            )
+
+    monkeypatch.setattr(
+        "sacas.graphify.get_graphify_provider",
+        lambda *_args, **_kwargs: FallbackProvider(graph_path, tmp_path),
+    )
+    installation = discover_manifest(tmp_path)
+    assert installation is not None
+    generate_task(installation, "auth.py")
+
+    task_dir = tmp_path / "Structure" / "tasks" / "current"
+    manifest = load_active_context(task_dir)
+    assert manifest is not None
+    assert any(item.source == "heuristic" for item in manifest.files)
+    assert any(event.source == "heuristic" for event in manifest.events)
