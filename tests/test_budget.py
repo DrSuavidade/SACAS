@@ -72,7 +72,6 @@ def test_calculate_manifest_tokens(tmp_path: Path) -> None:
     task_dir.mkdir(parents=True)
     (task_dir / "TASK.md").write_text("# Task\nGoal here.\n", encoding="utf-8")
     (task_dir / "CONTEXT.md").write_text("# Context\nFiles here.\n", encoding="utf-8")
-    (task_dir / "STATE.md").write_text("# State\nChecklist here.\n", encoding="utf-8")
     
     rules_dir = sacas_root / "rules"
     rules_dir.mkdir()

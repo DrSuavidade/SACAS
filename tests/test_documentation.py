@@ -5,7 +5,7 @@ import inspect
 import re
 from pathlib import Path
 
-from sacas.benchmark_runner import run_routing_benchmark_suite
+from sacas.lab.benchmark_runner import run_routing_benchmark_suite
 from sacas.cli import build_parser
 
 
@@ -39,47 +39,45 @@ def test_readme_documents_the_public_command_and_option_contract() -> None:
                     action.dest in section or f"<{action.dest}>" in section
                 ), f"section must document positional {action.dest}"
 
-    assert "All commands support targeting specific directories" not in readme
     assert "Most commands accept `--root <path>`" in readme
 
     commands = subparsers(build_parser())
     headings = {
         "init": "### 1. `sacas init`",
-        "map": "### 2. `sacas map`",
-        "task": "### 3. `sacas task`",
-        "refresh": "### 4. `sacas refresh`",
-        "expand": "### 5. `sacas expand`",
-        "why": "### 6. `sacas why`",
-        "doctor": "### 7. `sacas doctor`",
-        "status": "### 8. `sacas status`",
-        "validate": "### 9. `sacas validate`",
-        "migrate": "### 10. `sacas migrate`",
-        "context-simulation": "### 11. `sacas context-simulation`",
-        "benchmark": "### 12. `sacas benchmark`",
-        "histbench": "### 13. `sacas histbench`",
+        "prepare": '### 2. `sacas prepare "<goal>"`',
+        "add": "### 3. `sacas add`",
+        "explain": "### 4. `sacas explain`",
+        "doctor": "### 5. `sacas doctor`",
     }
     for command, heading in headings.items():
         assert_parser_contract(command_section(heading), commands[command])
 
-    pipeline_section = command_section("### 14. `sacas pipeline`")
-    pipeline_children = subparsers(commands["pipeline"])
-    for child, child_parser in pipeline_children.items():
-        assert f"`sacas pipeline {child}`" in pipeline_section
-        assert_parser_contract(pipeline_section, child_parser)
+    # The agent-facing surface stays tiny: everything else must not be a
+    # documented headline command.
+    public = set(headings)
+    documented = set(re.findall(r"^### \d+\. `sacas ([a-z-]+)", readme, flags=re.M))
+    assert documented == public
 
     # README claims these defaults explicitly; keep each claim tied to the parser default.
     claimed_defaults = (
         ("init", "### 1. `sacas init`", "root", ".", "default: current directory"),
         ("init", "### 1. `sacas init`", "sacas_root", "Structure", "default: `Structure`"),
         ("init", "### 1. `sacas init`", "graphify", "existing", "default: `existing`"),
-        ("task", "### 3. `sacas task`", "context_policy", "advisory", "default: `advisory`"),
-        ("histbench", "### 13. `sacas histbench`", "max_commits", 200, "default: 200"),
-        ("pipeline", "### 14. `sacas pipeline`", "start", "01_analyze", "default: `01_analyze`"),
+        ("prepare", '### 2. `sacas prepare "<goal>"`', "context_policy", "advisory", "default: `advisory`"),
     )
     for command, heading, destination, expected, rendered in claimed_defaults:
-        parser = pipeline_children["orchestrate"] if command == "pipeline" else commands[command]
+        parser = commands[command]
         assert parser.get_default(destination) == expected
         assert rendered in command_section(heading)
+
+
+def test_pipeline_and_context_simulation_are_removed_from_the_cli() -> None:
+    commands = build_parser()
+    action = next(
+        action for action in commands._actions if isinstance(action, argparse._SubParsersAction)
+    )
+    for removed in ("pipeline", "context-simulation"):
+        assert removed not in action.choices
 
 
 def test_readme_uses_the_serialized_b2_benchmark_key() -> None:
@@ -91,22 +89,16 @@ def test_readme_uses_the_serialized_b2_benchmark_key() -> None:
     assert f"`{match.group(1)}`" in readme
 
 
-def test_skill_documents_canonical_pair_and_routine_operations() -> None:
+def test_skill_documents_canonical_pair_and_minimal_operations() -> None:
     skill = (REPOSITORY_ROOT / "SKILL.md").read_text(encoding="utf-8")
 
     for token in (
         "`task.json`",
         "`active_context.json`",
         "canonical pair",
-        "sacas refresh",
-        "sacas expand",
-        "sacas why",
+        "sacas prepare",
+        "sacas add",
+        "sacas explain",
         "sacas doctor",
-        "sacas status",
-        "sacas validate",
-        "sacas pipeline orchestrate",
-        "sacas pipeline stage",
-        "sacas pipeline review",
-        "sacas pipeline list",
     ):
         assert token in skill, f"SKILL.md must document {token}"

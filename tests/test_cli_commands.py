@@ -8,16 +8,16 @@ from sacas.init import initialize
 from sacas.active_context import load_active_context
 
 
-def test_lean_init_pipeline_commands_explain_how_to_create_workflow_stages(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    assert main(["init", "--root", str(tmp_path)]) == 0
+def test_pipeline_commands_are_removed() -> None:
+    import argparse
 
-    assert main(["pipeline", "list", "--root", str(tmp_path)]) == 1
-    assert "sacas init --workflow" in capsys.readouterr().out
+    from sacas.cli import build_parser
 
-    assert main(["pipeline", "orchestrate", "--root", str(tmp_path)]) == 1
-    assert "sacas init --workflow" in capsys.readouterr().out
+    parser = build_parser()
+    action = next(
+        action for action in parser._actions if isinstance(action, argparse._SubParsersAction)
+    )
+    assert "pipeline" not in action.choices
 
 def test_expand_why_doctor_cli_commands(tmp_path: Path) -> None:
     # 1. Initialize

@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from sacas.git_benchmark import (
+from sacas.lab.git_benchmark import (
     generate_historical_tasks,
     save_historical_benchmarks,
     _run_git,
@@ -232,7 +232,7 @@ def test_generate_historical_tasks_correct_commit_order(temp_git_repo: Path):
 def test_historical_routing_uses_actual_parent_worktree_without_child_file_hints(
     temp_git_repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from sacas.git_benchmark import run_historical_benchmarks
+    from sacas.lab.git_benchmark import run_historical_benchmarks
     from sacas.init import initialize
     from sacas.active_context import ActiveContextManifest
     import sacas.tasks
@@ -274,7 +274,7 @@ def test_historical_routing_uses_actual_parent_worktree_without_child_file_hints
 
 def test_run_in_detached_worktree_isolation(temp_git_repo: Path):
     """Test that worktree operations don't affect the main repo."""
-    from sacas.git_benchmark import _run_in_detached_worktree
+    from sacas.lab.git_benchmark import _run_in_detached_worktree
     
     # Get a commit
     commit = _run_git(temp_git_repo, ["log", "--pretty=format:%H", "-1"]).strip()
@@ -351,14 +351,14 @@ def test_histbench_command_returns_nonzero_when_a_result_has_an_error(
     """Historical failures remain on disk and produce a failing CLI status."""
     from sacas.cli import histbench_command
     from sacas.init import initialize
-    import sacas.git_benchmark
+    import sacas.lab.git_benchmark as git_benchmark_module
 
     installation = initialize(tmp_path).installation
     output_dir = tmp_path / "historical-output"
-    monkeypatch.setattr(sacas.git_benchmark, "generate_historical_tasks", lambda *_args, **_kwargs: [object()])
-    monkeypatch.setattr(sacas.git_benchmark, "save_historical_benchmarks", lambda _tasks, directory: directory.mkdir(parents=True, exist_ok=True))
+    monkeypatch.setattr(git_benchmark_module, "generate_historical_tasks", lambda *_args, **_kwargs: [object()])
+    monkeypatch.setattr(git_benchmark_module, "save_historical_benchmarks", lambda _tasks, directory: directory.mkdir(parents=True, exist_ok=True))
     monkeypatch.setattr(
-        sacas.git_benchmark,
+        git_benchmark_module,
         "run_historical_benchmarks",
         lambda _installation, _directory: [{"task_id": "hist-failed", "error": "routing failed"}],
     )

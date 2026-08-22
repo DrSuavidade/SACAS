@@ -107,7 +107,6 @@ def get_status_report(installation: Installation) -> dict[str, Any]:
         "router": f_tokens(installation.sacas_root / "ROUTER.md"),
         "task": f_tokens(task_dir / "TASK.md"),
         "context": f_tokens(task_dir / "CONTEXT.md"),
-        "state": f_tokens(task_dir / "STATE.md"),
         "rules": breakdown_obj.rule_tokens,
         "references": breakdown_obj.reference_tokens,
         "source": breakdown_obj.source_tokens,

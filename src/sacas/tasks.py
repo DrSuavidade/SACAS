@@ -35,11 +35,6 @@ def is_explicit_rule_or_reference(reason: str | None) -> bool:
     return reason == EXPLICIT_CONTEXT_REASON
 from sacas.regions import render_generated_region, replace_generated_region
 from sacas.regions import resolve_section_ranges
-from sacas.state import (
-    generate_pickup_markdown,
-    parse_state_checkboxes,
-    render_state_markdown,
-)
 from sacas.active_context import (
     ActiveContextManifest,
     ActiveFileContext,
@@ -862,7 +857,7 @@ def regenerate_task_markdown(
     contract: TaskContract | None = None,
     candidates_data: dict[str, object] | None = None,
 ) -> None:
-    """Regenerate TASK.md, STATE.md, PICKUP.md, and CONTEXT.md deterministically."""
+    """Regenerate TASK.md and CONTEXT.md deterministically."""
     if contract is None:
         from sacas.task_contract import load_task_contract
         contract = load_task_contract(task_dir)
@@ -897,21 +892,7 @@ def regenerate_task_markdown(
     else:
         task_md_content = f"# Task {manifest.task_id}\n\n" + render_generated_region("task-contract", contract_text)
 
-    # 2. In-memory STATE.md
-    state_md_path = task_dir / "STATE.md"
-    old_state_content = state_md_path.read_text(encoding="utf-8") if state_md_path.exists() else None
-    state_text = render_state_markdown(manifest.task_id, manifest.goal, criteria, verification, old_content=old_state_content)
-    
-    if state_md_path.exists():
-        state_md_content = replace_generated_region(old_state_content, "task-state", state_text)
-    else:
-        state_md_content = f"# Task State\n\n" + render_generated_region("task-state", state_text)
-
-    # 3. In-memory PICKUP.md
-    completed, pending = parse_state_checkboxes(state_text)
-    pickup_content = generate_pickup_markdown(completed, pending)
-
-    # 4. Gather Graphify evidence & boundaries for CONTEXT.md
+    # Gather Graphify evidence & boundaries for CONTEXT.md
     graphify_manifest_path = installation.sacas_root / ".sacas" / "graphify.json"
     evidence = None
     if graphify_manifest_path.is_file():
@@ -1043,8 +1024,6 @@ def regenerate_task_markdown(
 
     rendered_views = {
         "TASK.md": task_md_content,
-        "STATE.md": state_md_content,
-        "PICKUP.md": pickup_content,
         "CONTEXT.md": context_md_skeleton,
         "ROUTER.md": router_content,
     }
@@ -1074,8 +1053,6 @@ def regenerate_task_markdown(
     updated_manifest = replace(manifest, budget=budget_state)
     views = {
         task_md_path: task_md_content,
-        state_md_path: state_md_content,
-        task_dir / "PICKUP.md": pickup_content,
         task_dir / "CONTEXT.md": context_md_final,
     }
     if candidates_data is not None:

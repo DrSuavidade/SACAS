@@ -156,7 +156,7 @@ def run_diagnostics(root: Path) -> dict[str, Any]:
             diagnostics.append({
                 "severity": "FAIL",
                 "check": "state_drift",
-                "message": "Legacy PROGRESS.md file found. State should be tracked exclusively in STATE.md."
+                "message": "Legacy PROGRESS.md file found. Task state should be tracked exclusively in the canonical task contract.",
             })
 
         # Existing canonical files are authoritative: corruption is neither a

@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 import pytest
 from sacas.active_context import ActiveContextManifest, ActiveFileContext, ActiveSymbolContext, SourceRange
-from sacas.benchmark_runner import run_routing_benchmark_suite, load_and_run_all_benchmarks
+from sacas.lab.benchmark_runner import run_routing_benchmark_suite, load_and_run_all_benchmarks
 from sacas.init import initialize
 from sacas.paths import discover_manifest
 from sacas.active_context import save_active_context
@@ -12,7 +12,7 @@ from sacas.cli import main
 
 
 def test_b0_and_b1_enumerate_only_secure_text_entries(tmp_path: Path) -> None:
-    from sacas.benchmark_runner import _baseline_b0_whole_repo, _baseline_b1_basic_search
+    from sacas.lab.benchmark_runner import _baseline_b0_whole_repo, _baseline_b1_basic_search
 
     installation = initialize(tmp_path).installation
     (tmp_path / "src").mkdir()
@@ -119,7 +119,7 @@ def test_benchmark_suite_metrics(tmp_path: Path) -> None:
 
 
 def test_b1_sorts_equal_scores_by_score_then_path_length_then_path(tmp_path: Path) -> None:
-    from sacas.benchmark_runner import _baseline_b1_basic_search
+    from sacas.lab.benchmark_runner import _baseline_b1_basic_search
 
     installation = initialize(tmp_path).installation
     (tmp_path / "src").mkdir()
@@ -135,9 +135,9 @@ def test_b1_sorts_equal_scores_by_score_then_path_length_then_path(tmp_path: Pat
 def test_benchmark_cli_labels_whole_repository_reduction(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    from sacas.benchmark_runner import RoutingBenchmarkResult
+    from sacas.lab.benchmark_runner import RoutingBenchmarkResult
     from sacas.cli import benchmark_command_dispatch
-    import sacas.benchmark_runner
+    import sacas.lab.benchmark_runner as benchmark_runner_module
 
     installation = initialize(tmp_path).installation
     result = RoutingBenchmarkResult(
@@ -147,7 +147,7 @@ def test_benchmark_cli_labels_whole_repository_reduction(
         payload_context_efficiency=0.0, total_context_efficiency=0.0,
         whole_repository_reduction=0.25,
     )
-    monkeypatch.setattr(sacas.benchmark_runner, "load_and_run_all_benchmarks", lambda _: [result])
+    monkeypatch.setattr(benchmark_runner_module, "load_and_run_all_benchmarks", lambda _: [result])
 
     assert benchmark_command_dispatch(installation) == 0
     output = capsys.readouterr().out

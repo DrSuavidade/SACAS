@@ -17,17 +17,7 @@ from sacas.paths import (
     discover_manifest,
     resolve_sacas_root,
 )
-from sacas.templates import (
-    boundaries_document,
-    router_document,
-    claude_md_document,
-    workspace_context_document,
-    stage_context_template,
-    config_conventions_document,
-    config_voice_document,
-    config_design_system_document,
-    stage_output_readme,
-)
+from sacas.templates import boundaries_document, router_document
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,12 +32,8 @@ class InitResult:
         return self.installation.sacas_root
 
 
-def initialize(repository_root: Path | str, *, sacas_root: str = "Structure", graphify_mode: str = "off", workflow: bool = False) -> InitResult:
-    """Create the canonical SACAS layout, preserving human-authored documents.
-    
-    By default creates a lean context-router structure.
-    With workflow=True, also creates the ICM 5-layer pipeline structure.
-    """
+def initialize(repository_root: Path | str, *, sacas_root: str = "Structure", graphify_mode: str = "off") -> InitResult:
+    """Create the canonical SACAS layout, preserving human-authored documents."""
     repository_root = Path(repository_root).resolve()
     resolved_root = resolve_sacas_root(repository_root, sacas_root)
     configured_root = sacas_root.replace("\\", "/")
@@ -83,71 +69,12 @@ def initialize(repository_root: Path | str, *, sacas_root: str = "Structure", gr
             directory.mkdir(parents=True, exist_ok=True)
             changed = True
 
-    # Optional ICM workflow directories
-    if workflow:
-        for directory in (
-            resolved_root / "_config",
-            resolved_root / "stages" / "01_analyze" / "references",
-            resolved_root / "stages" / "01_analyze" / "output",
-            resolved_root / "stages" / "02_implement" / "references",
-            resolved_root / "stages" / "02_implement" / "output",
-            resolved_root / "stages" / "03_verify" / "references",
-            resolved_root / "stages" / "03_verify" / "output",
-        ):
-            if not directory.exists():
-                directory.mkdir(parents=True, exist_ok=True)
-                changed = True
-
     # Manifest
     if not manifest_path.exists():
         changed |= _write_if_changed(manifest_path, stable_json(manifest.to_dict()))
     if configured_root != DEFAULT_SACAS_ROOT:
         locator = {"manifest": manifest_path.relative_to(repository_root).as_posix()}
         changed |= _write_if_changed(repository_root / LOCATOR_RELATIVE_PATH, stable_json(locator))
-
-    # Optional ICM workflow files
-    if workflow:
-        # Layer 0/1: Workflow workspace contracts. These are intentionally
-        # opt-in; repository-root adapters remain core artifacts below.
-        claude_path = resolved_root / "CLAUDE.md"
-        if not claude_path.exists():
-            write_text_atomic(claude_path, claude_md_document(configured_root))
-            changed = True
-
-        context_path = resolved_root / "CONTEXT.md"
-        if not context_path.exists():
-            write_text_atomic(context_path, workspace_context_document())
-            changed = True
-
-        # Layer 2: Stage CONTEXT.md contracts
-        stage_configs = [
-            (1, "analyze", "Analyze codebase, understand requirements, produce structured analysis"),
-            (2, "implement", "Implement changes based on analysis output, follow conventions"),
-            (3, "verify", "Test, validate, and verify implementation against requirements"),
-        ]
-        for stage_num, stage_name, purpose in stage_configs:
-            stage_context_path = resolved_root / "stages" / f"{stage_num:02d}_{stage_name}" / "CONTEXT.md"
-            if not stage_context_path.exists():
-                write_text_atomic(stage_context_path, stage_context_template(stage_num, stage_name, purpose))
-                changed = True
-            
-            # Stage output README
-            output_readme_path = resolved_root / "stages" / f"{stage_num:02d}_{stage_name}" / "output" / "README.md"
-            if not output_readme_path.exists():
-                write_text_atomic(output_readme_path, stage_output_readme(stage_num, stage_name))
-                changed = True
-
-        # Layer 3: Global stable references (_config/)
-        config_files = [
-            ("conventions.md", config_conventions_document()),
-            ("voice.md", config_voice_document()),
-            ("design-system.md", config_design_system_document()),
-        ]
-        for filename, content in config_files:
-            config_path = resolved_root / "_config" / filename
-            if not config_path.exists():
-                write_text_atomic(config_path, content)
-                changed = True
 
     # Router and boundaries (always)
     router_path = resolved_root / "ROUTER.md"

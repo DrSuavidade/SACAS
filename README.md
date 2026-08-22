@@ -2,7 +2,7 @@
 
 SACAS is a **task-aware context compiler** for AI coding agents.
 
-It transforms a task and repository evidence into a deterministic, auditable, budgeted set of exact source fragments.
+It compiles a coding task and repository evidence into a deterministic, auditable, budgeted set of exact source fragments. The agent-facing surface is intentionally tiny; routing, invalidation, validation, mapping, and refresh are internal operations of the compiler.
 
 ## Installation
 
@@ -14,7 +14,7 @@ python -m pip install -e ".[test]"
 
 ## CLI Commands Reference
 
-Most commands accept `--root <path>` to target a repository (default: current directory). `sacas pipeline` accepts `--root <path>` on each child command rather than on the parent command itself.
+Most commands accept `--root <path>` to target a repository (default: current directory).
 
 ---
 
@@ -25,39 +25,19 @@ Initialize a SACAS structure inside a repository directory.
 - `--root <path>`: Repository root directory (default: current directory).
 - `--sacas-root <name>`: Directory name for storing SACAS structures (default: `Structure`). Must be a proper child of the repository; installing directly at the repository root (`.`) is refused because SACAS would claim generic folders like `rules/` and `tasks/`.
 - `--graphify <off|existing|code-only|semantic>`: Graphify integration mode (default: `existing`).
-- `--workflow`: Also create ICM workspace documents (`$SACAS_ROOT/CLAUDE.md`, `$SACAS_ROOT/CONTEXT.md`), stages (`$SACAS_ROOT/stages/`), and `$SACAS_ROOT/_config/` artifacts. The default is lean and does not create these workflow-only files; repository-root agent adapters are still created. `$SACAS_ROOT` defaults to `Structure`.
 
 **Example:**
 ```bash
 sacas init --sacas-root Structure --graphify code-only
-
-# With ICM workflow
-sacas init --sacas-root Structure --graphify code-only --workflow
 ```
 
 ---
 
-### 2. `sacas map`
-Extract AST graph dependency nodes using Graphify to map the repository.
+### 2. `sacas prepare "<goal>"`
+Prepare the context pack for a task. If an identical active task already exists, stale context is refreshed and republished; otherwise a new task contract is created with goal-driven routing and fallbacks. This is the normal entry point for agent work.
 
 **Arguments:**
-- `--root <path>`: Repository root directory.
-- `--sacas-root <name>`: SACAS structures directory (must be a proper child of the repository).
-- `--output <dir>`: Target output folder relative to repository for graph assets (default: `graphify-out`).
-- `--mode <off|existing|code-only|semantic>`: Dependency extraction strategy.
-
-**Example:**
-```bash
-sacas map --mode code-only
-```
-
----
-
-### 3. `sacas task`
-Generate a new task contract, setting initial focus files via goal-driven routing and fallbacks.
-
-**Arguments:**
-- `goal`: (Positional, Required) Goal/description of the task.
+- `<goal>`: (Positional) Goal/description of the task.
 - `--root <path>`: Repository root directory.
 - `--criteria [item ...]`: Acceptance criteria for the task.
 - `--constraints [item ...]`: Execution constraints.
@@ -73,27 +53,13 @@ Generate a new task contract, setting initial focus files via goal-driven routin
 
 **Example:**
 ```bash
-sacas task "fix Session restoration" --symbol src/auth.py::login --context-policy enforce
+sacas prepare "fix Session restoration" --symbol src/auth.py::login --context-policy enforce
 ```
 
 ---
 
-### 4. `sacas refresh`
-Recompile the context pack from canonical state. Detects stale source files, task contract changes, and graph snapshot changes, then publishes a validated pack and manifest together. A successful refresh converges: an immediate second refresh performs no semantic work. If an admitted source or selector is invalid, refresh fails closed rather than emitting a partial or stale pack.
-
-**Arguments:**
-- `--root <path>`: Repository root directory.
-- `--files [path ...]`: Optional. Re-evaluate only specified focus files.
-
-**Example:**
-```bash
-sacas refresh
-```
-
----
-
-### 5. `sacas expand`
-Explicitly expand the active context with new files, symbols, rules, or references.
+### 3. `sacas add`
+Admit an explicit file, symbol, rule, or reference into the active context when the router missed something.
 
 **Arguments:**
 - `--root <path>`: Repository root directory.
@@ -106,30 +72,33 @@ Explicitly expand the active context with new files, symbols, rules, or referenc
 
 **Example:**
 ```bash
-sacas expand --file src/helper.py --reason "Utility import"
+sacas add --file src/helper.py --reason "Utility import"
 ```
 
 ---
 
-### 6. `sacas why`
-Explain the routing path and metadata for a given file or symbol using persisted provenance (never re-queries Graphify).
+### 4. `sacas explain`
+Explain context decisions. With a `path`, prints the persisted provenance chain for that file or symbol (never re-queries Graphify). Without arguments, prints current task status including freshness, budget utilization, and a token breakdown.
 
 **Arguments:**
-- `path`: (Positional, Required) File path or symbol name to query.
+- `[path]`: (Positional, Optional) File path or symbol name to query.
 - `--root <path>`: Repository root directory.
+- `--format <text|json>`: Output presentation (default: `text`).
 
 **Example:**
 ```bash
-sacas why src/auth.py
+sacas explain src/auth.py
+sacas explain --format json
 ```
 
 ---
 
-### 7. `sacas doctor`
-Run diagnostic health checks on workspace context and platform ignore boundaries.
+### 5. `sacas doctor`
+Run diagnostic health checks and cold-agent validation (generated regions, legacy tracker files, stale file states, budget overruns, protected boundaries, and task/manifest/context-pack identity and coverage checks).
 
 **Arguments:**
 - `--root <path>`: Repository root directory.
+- `--format <text|json>`: Output presentation (default: `text`).
 
 **Example:**
 ```bash
@@ -138,79 +107,14 @@ sacas doctor
 
 ---
 
-### 8. `sacas status`
-Show details of the current task, including task ID, context budget utilization, a breakdown of context components, and modified/stale files.
+## Internal, Maintenance, and Laboratory Operations
 
-**Arguments:**
-- `--root <path>`: Repository root directory.
-- `--format <text|json>`: Output presentation (default: `text`).
+The following exist but are not part of the normal agent workflow:
 
----
-
-### 9. `sacas validate`
-Run cold-agent validation checks (generated regions, legacy tracker files, stale file states, budget overruns, protected boundaries, and task/manifest/context-pack identity and coverage checks).
-
-**Arguments:**
-- `--root <path>`: Repository root directory.
-- `--format <text|json>`: Output presentation (default: `text`).
-
----
-
-### 10. `sacas migrate`
-Migrate legacy structures (e.g., PowerShell `PROGRESS.md` or v2 `expansions.json`) to the unified Python CLI structures (`active_context.json` and `STATE.md`).
-
-**Arguments:**
-- `--root <path>`: Repository root directory.
-- `--apply`: Execute migration changes. Without it, migration is a preview.
-- `--format <text|json>`: Output presentation (default: `text`).
-
----
-
-### 11. `sacas context-simulation`
-Simulate context sizes across all repository files using retrieval modes: B0 (whole repo), B1 (basic search), B2 (lexical routing), B3 (Graphify whole-file), B4 (SACAS range routing), B5 (hybrid lexical+Graphify).
-
-**Arguments:**
-- `--root <path>`: Repository root directory.
-- `--format <text|json>`: Output presentation (default: `text`).
-
----
-
-### 12. `sacas benchmark`
-Evaluate routing quality metrics (Precision@K, Recall@K, MRR, symbol recall, test recall, payload context efficiency, total context efficiency) for the active task or gold-standard benchmarks. Does NOT present whole-repo token reduction as a primary metric.
-
-**Arguments:**
-- `--root <path>`: Repository root directory.
-- `--format <text|json>`: Output presentation (default: `text`).
-
----
-
-### 13. `sacas histbench`
-Generate and run historical Git benchmarks from commit history. Uses detached worktrees at parent commits to prevent contamination.
-
-**Arguments:**
-- `--root <path>`: Repository root directory.
-- `--max-commits <n>`: Maximum commits to analyze (default: 200).
-- `--generate-only`: Only generate benchmark files, don't run.
-- `--output-dir <dir>`: Output directory for generated benchmarks.
-- `--format <text|json>`: Output presentation (default: `text`).
-
-**Example:**
-```bash
-sacas histbench --generate-only --max-commits 100
-```
-
----
-
-### 14. `sacas pipeline`
-Manage ICM multi-stage pipelines.
-
-**Subcommands:**
-- `sacas pipeline orchestrate` — Walk through pipeline sequentially with review gates.
-- `sacas pipeline stage` — Run a specific pipeline stage: `sacas pipeline stage <stage_id>`.
-- `sacas pipeline review` — Open stage output for human review: `sacas pipeline review <stage_id>`.
-- `sacas pipeline list` — List available pipeline stages.
-
-**Arguments:** All pipeline children accept `--root <path>`. `orchestrate` also accepts `--start <stage>` (default: `01_analyze`) and `--skip-review` to skip human review gates in non-interactive runs. `stage` and `review` require a positional `<stage_id>`.
+- `sacas refresh`, `sacas map`, `sacas status`, `sacas validate` — internal operations; `prepare` triggers refresh automatically, graph building happens during routing, and validation runs before any pack is published. They remain available as hidden commands.
+- `sacas migrate` — one-time migration of legacy PowerShell structures to the unified Python CLI structures (`active_context.json` and the canonical task contract). Supports `--apply` and `--format`.
+- `sacas lab benchmark` — evaluate routing quality metrics (Precision@K, Recall@K, MRR, symbol recall, test recall, payload context efficiency, total context efficiency) against gold-standard benchmarks. Developer-only.
+- `sacas histbench` / `sacas lab histbench` — generate and run historical Git benchmarks from commit history using detached worktrees at parent commits to prevent contamination. Supports `--max-commits` (default: 200), `--generate-only`, `--output-dir`.
 
 ---
 
@@ -226,8 +130,6 @@ active_context.json    # ActiveContextManifest: admitted selectors, hashes, prov
 ```
 TASK.md       # Task contract summary
 CONTEXT.md    # Scoped files, symbols, budget
-STATE.md      # Checklist of task items
-PICKUP.md     # Cross-session handoff
 ```
 
 ### Ephemeral Runtime Output
@@ -312,40 +214,12 @@ your-project/
     │       ├── task.json      # Canonical TaskContract
     │       ├── active_context.json  # Canonical ActiveContextManifest
     │       ├── TASK.md        # Current task goal and contract (view)
-    │       ├── CONTEXT.md     # Scoped files, symbols, budget (view)
-    │       ├── STATE.md       # Checklist of task items (view)
-    │       └── PICKUP.md      # Cross-session handoff (view)
+    │       └── CONTEXT.md     # Scoped files, symbols, budget (view)
     └── .sacas/
         ├── manifest.json      # Canonical configuration marker
         ├── graphify.json      # Cached Graphify evidence
         └── runtime/
             └── context.pack.jsonl  # Ephemeral agent payload
-```
-
-**With `--workflow`:**
-```
-your-project/
-└── $SACAS_ROOT/              # default: Structure
-    ├── CLAUDE.md              # Workspace identity
-    ├── CONTEXT.md             # Workspace routing
-    ├── _config/
-    │   ├── conventions.md
-    │   ├── voice.md
-    │   └── design-system.md
-    ├── stages/
-    │   ├── 01_analyze/
-    │   │   ├── CONTEXT.md     # Stage contract
-    │   │   ├── references/
-    │   │   └── output/
-    │   ├── 02_implement/
-    │   │   ├── CONTEXT.md
-    │   │   ├── references/
-    │   │   └── output/
-    │   └── 03_verify/
-    │       ├── CONTEXT.md
-    │       ├── references/
-    │       └── output/
-    └── ... (lean structure)
 ```
 
 ## Benchmark Methodology
@@ -380,9 +254,9 @@ Whole-repository token reduction is reported as `whole_repository_reduction` but
 - Routing runs in a detached worktree at the actual parent commit; child data is used only after routing for weak-gold evaluation
 - Active checkout never modified
 
-### Fix6 Deliberate Deferrals
+### Deliberate Deferrals
 
-Fix6 stabilizes the current compiler and measurement boundary. It does not add a new ranking/confidence model, multi-node Graphify aggregation, deterministic Graphify query IDs, a `STATE.md` authority redesign, a dependency/build engine, embeddings, or an agent-success benchmarking framework. Those P2 changes require empirical retrieval results first.
+The current compiler and measurement boundary intentionally do not include a ranking/confidence model, multi-node Graphify aggregation, deterministic Graphify query IDs, a cross-session progression-memory redesign, a dependency/build engine, embeddings, or an agent-success benchmarking framework. Those changes require empirical retrieval results first.
 
 ---
 

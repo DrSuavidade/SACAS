@@ -45,8 +45,8 @@ def test_task_generation_creates_files_with_stable_id(tmp_path: Path) -> None:
     task_dir = init_result.sacas_root / "tasks" / "current"
     assert (task_dir / "TASK.md").is_file()
     assert (task_dir / "CONTEXT.md").is_file()
-    assert (task_dir / "STATE.md").is_file()
-    assert (task_dir / "PICKUP.md").is_file()
+    assert not (task_dir / "STATE.md").exists()
+    assert not (task_dir / "PICKUP.md").exists()
 
     # Read TASK.md and check contract contents
     task_content = (task_dir / "TASK.md").read_text(encoding="utf-8")
@@ -62,7 +62,7 @@ def test_task_generation_creates_files_with_stable_id(tmp_path: Path) -> None:
     assert "tests/test_auth.py" in context_content
 
 
-def test_task_rerun_preserves_checked_checkboxes_and_human_content(tmp_path: Path) -> None:
+def test_task_rerun_preserves_human_content(tmp_path: Path) -> None:
     from sacas.init import initialize
     from sacas.tasks import generate_task
 
@@ -78,14 +78,7 @@ def test_task_rerun_preserves_checked_checkboxes_and_human_content(tmp_path: Pat
     )
 
     task_dir = init_result.sacas_root / "tasks" / "current"
-    state_file = task_dir / "STATE.md"
     task_file = task_dir / "TASK.md"
-
-    # Human edits STATE.md to check "Log in" and add notes outside region
-    old_state = state_file.read_text(encoding="utf-8")
-    edited_state = old_state.replace("- [ ] Log in (Acceptance Criteria)", "- [x] Log in (Acceptance Criteria)")
-    edited_state += "\nHuman notes here.\n"
-    state_file.write_text(edited_state, encoding="utf-8")
 
     # Human edits TASK.md to add notes outside region
     old_task = task_file.read_text(encoding="utf-8")
@@ -99,12 +92,6 @@ def test_task_rerun_preserves_checked_checkboxes_and_human_content(tmp_path: Pat
         criteria=("Log in", "Log out"),
         verification=("Run test",)
     )
-
-    # Verify notes and checkmarks preserved
-    new_state = state_file.read_text(encoding="utf-8")
-    assert "- [x] Log in (Acceptance Criteria)" in new_state
-    assert "- [ ] Log out (Acceptance Criteria)" in new_state
-    assert "Human notes here." in new_state
 
     new_task = task_file.read_text(encoding="utf-8")
     assert "Human contract notes." in new_task

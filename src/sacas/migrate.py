@@ -4,20 +4,18 @@ from __future__ import annotations
 
 import hashlib
 import json
-import re
 from pathlib import Path
+from typing import Any
 from sacas.init import initialize
 from sacas.io import write_text_atomic
 from sacas.paths import discover_manifest
-from sacas.regions import render_generated_region
-from sacas.state import generate_pickup_markdown, parse_state_checkboxes, render_state_markdown
 
 
 def migrate_repository(root: Path, apply: bool = False) -> dict[str, Any]:
     """Preview or apply migration from legacy PowerShell structure to Python structure."""
     root = root.resolve()
     actions = []
-    
+
     # 1. Manifest / Init check
     installation = discover_manifest(root)
     if installation is None:
@@ -25,65 +23,35 @@ def migrate_repository(root: Path, apply: bool = False) -> dict[str, Any]:
         if apply:
             initialize(root)
             installation = discover_manifest(root)
-            
+
     sacas_root = installation.sacas_root if installation else root / "Structure"
-    legacy_progress = sacas_root / "tasks" / "current" / "PROGRESS.md"
-    new_state = sacas_root / "tasks" / "current" / "STATE.md"
-    new_pickup = sacas_root / "tasks" / "current" / "PICKUP.md"
-    new_active_context = sacas_root / "tasks" / "current" / "active_context.json"
+    task_dir = sacas_root / "tasks" / "current"
+    legacy_progress = task_dir / "PROGRESS.md"
 
     if legacy_progress.is_file():
-        actions.append(f"Migrate legacy progress state from PROGRESS.md to STATE.md")
-        actions.append(f"Delete legacy PROGRESS.md")
-        
+        actions.append("Migrate legacy progress state from PROGRESS.md to the canonical task contract")
+        actions.append("Delete legacy PROGRESS.md")
+
         if apply:
             content = legacy_progress.read_text(encoding="utf-8")
-            
+
             # Parse checkboxes and comments
-            criteria_items = []
-            completed_items = set()
-            comments_lines = []
-            
+            criteria_items: list[str] = []
             for line in content.splitlines():
                 line_stripped = line.strip()
                 if line_stripped.startswith("- [x]") or line_stripped.startswith("- [ ]"):
-                    item_text = line_stripped[5:].strip()
-                    criteria_items.append(item_text)
-                    if line_stripped.startswith("- [x]"):
-                        completed_items.add(item_text)
-                elif not line_stripped.startswith("#") and not line_stripped.startswith("##") and line_stripped:
-                    comments_lines.append(line)
-                    
-            comments = "\n".join(comments_lines) + "\n" if comments_lines else ""
-            
+                    criteria_items.append(line_stripped[5:].strip())
+
             goal = "Migrated legacy task"
             task_id = hashlib.sha256(goal.encode("utf-8")).hexdigest()[:8]
-            
+
             # Update manifest current_task_id
             if installation:
                 manifest_path = installation.manifest_path
                 manifest_data = installation.manifest.to_dict()
                 manifest_data["current_task_id"] = task_id
                 write_text_atomic(manifest_path, json.dumps(manifest_data, indent=2) + "\n")
-            
-            # Write STATE.md with completed items preserved
-            state_lines = [
-                f"Task: {task_id}",
-                f"Goal: {goal}",
-                "",
-                "## Checklist",
-            ]
-            for item in criteria_items:
-                status = "[x]" if item in completed_items else "[ ]"
-                state_lines.append(f"- {status} {item} (Acceptance Criteria)")
-                
-            state_text = "\n".join(state_lines) + "\n"
-            state_content = f"# Task State\n\n" + render_generated_region("task-state", state_text) + "\n" + comments
-            
-            new_state.parent.mkdir(parents=True, exist_ok=True)
-            write_text_atomic(new_state, state_content)
-            
-            # Generate active_context.json
+
             from sacas.task_contract import TaskContract, save_task_contract, task_contract_hash
             from sacas.active_context import ActiveContextManifest, save_active_context
             contract = TaskContract(
@@ -91,11 +59,11 @@ def migrate_repository(root: Path, apply: bool = False) -> dict[str, Any]:
                 task_id=task_id,
                 goal=goal,
                 category="bugfix",
-                criteria=(),
+                criteria=tuple(criteria_items),
                 constraints=(),
                 verification=()
             )
-            save_task_contract(sacas_root / "tasks" / "current", contract)
+            save_task_contract(task_dir, contract)
             h = task_contract_hash(contract)
 
             manifest = ActiveContextManifest(
@@ -111,13 +79,8 @@ def migrate_repository(root: Path, apply: bool = False) -> dict[str, Any]:
                 goal=goal,
                 category="bugfix"
             )
-            save_active_context(sacas_root / "tasks" / "current", manifest)
-            
-            # Generate PICKUP.md
-            completed, pending = parse_state_checkboxes(state_text)
-            pickup_content = generate_pickup_markdown(completed, pending)
-            write_text_atomic(new_pickup, pickup_content)
-            
+            save_active_context(task_dir, manifest)
+
             # Remove legacy progress
             legacy_progress.unlink()
 

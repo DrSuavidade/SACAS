@@ -112,7 +112,6 @@ def calculate_total_context_size(installation, files: tuple[str, ...], tokenizer
     task_dir = installation.sacas_root / "tasks" / "current"
     total_tokens += add_file_tokens(task_dir / "TASK.md")
     total_tokens += add_file_tokens(task_dir / "CONTEXT.md")
-    total_tokens += add_file_tokens(task_dir / "STATE.md")
 
     rules_dir = installation.sacas_root / "rules"
     if rules_dir.is_dir():
@@ -153,7 +152,6 @@ def get_detailed_context_breakdown(installation, files: tuple[str, ...], tokeniz
     task_dir = installation.sacas_root / "tasks" / "current"
     task_tokens = add_file_tokens(task_dir / "TASK.md")
     context_tokens = add_file_tokens(task_dir / "CONTEXT.md")
-    state_tokens = add_file_tokens(task_dir / "STATE.md")
 
     rules_tokens = 0
     rules_dir = installation.sacas_root / "rules"
@@ -174,10 +172,9 @@ def get_detailed_context_breakdown(installation, files: tuple[str, ...], tokeniz
         "router": router_tokens,
         "task": task_tokens,
         "context": context_tokens,
-        "state": state_tokens,
         "rules": rules_tokens,
         "references": refs_tokens,
-        "total": source_tokens + router_tokens + task_tokens + context_tokens + state_tokens + rules_tokens + refs_tokens
+        "total": source_tokens + router_tokens + task_tokens + context_tokens + rules_tokens + refs_tokens
     }
 
 from dataclasses import dataclass
@@ -293,7 +290,7 @@ def compile_budget_report(
 
     # 4. Control tokens
     control_tokens = 0
-    views_to_check = ["ROUTER.md", "TASK.md", "CONTEXT.md", "STATE.md", "PICKUP.md"]
+    views_to_check = ["ROUTER.md", "TASK.md", "CONTEXT.md"]
     for view_name in views_to_check:
         if rendered_views and view_name in rendered_views:
             control_tokens += estimate_tokens(rendered_views[view_name], tokenizer)

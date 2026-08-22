@@ -44,7 +44,7 @@ def test_canonical_state_loader_distinguishes_corruption_from_absence(
 @pytest.mark.parametrize("filename", ("task.json", "active_context.json"))
 def test_public_state_consumers_refuse_corrupt_canonical_context(tmp_path: Path, filename: str) -> None:
     """Inspection consumers give deterministic errors without rewriting state."""
-    from sacas.benchmark import run_benchmark
+    from sacas.lab.benchmark import run_benchmark
     from sacas.cli import main
     from sacas.init import initialize
     from sacas.paths import discover_manifest
@@ -190,7 +190,7 @@ def test_canonical_loader_rejects_directory_artifact_without_legacy_fallback(
 
 def test_public_consumers_refuse_task_context_identity_mismatch_without_mutation(tmp_path: Path) -> None:
     """Canonical pair disagreement is an error, never an implicit missing contract."""
-    from sacas.benchmark import run_benchmark
+    from sacas.lab.benchmark import run_benchmark
     from sacas.cli import main
     from sacas.init import initialize
     from sacas.paths import discover_manifest
@@ -352,7 +352,7 @@ def test_legacy_context_readers_do_not_migrate_before_refresh(
     tmp_path: Path, source_state: str, reader: str,
 ) -> None:
     """Inspection paths must never replace a legacy task before its inputs are safe."""
-    from sacas.benchmark import run_benchmark
+    from sacas.lab.benchmark import run_benchmark
     from sacas.init import initialize
     from sacas.paths import discover_manifest
     from sacas.provenance import query_why_file
