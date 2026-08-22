@@ -314,7 +314,7 @@ def test_histbench_full_cli_workflow(temp_git_repo: Path, capsys: pytest.Capture
     assert main(["init", "--root", str(temp_git_repo), "--graphify", "off"]) == 0
 
     exit_code = main([
-        "histbench",
+        "lab", "histbench",
         "--root", str(temp_git_repo),
         "--max-commits", "10",
         "--format", "json",

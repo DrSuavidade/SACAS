@@ -46,7 +46,7 @@ def build_parser() -> argparse.ArgumentParser:
     init_parser.add_argument("--graphify", choices=("off", "existing", "code-only", "semantic"), default="existing", help="Graphify integration mode.")
 
     prepare_parser = add_command("prepare", help="Prepare the context pack for a task goal.")
-    prepare_parser.add_argument("goal", nargs="?", default=None, help="The goal of the task.")
+    prepare_parser.add_argument("goal", help="The goal of the task.")
     prepare_parser.add_argument("--root", default=".", help="Repository root (default: current directory).")
     prepare_parser.add_argument("--criteria", nargs="*", default=(), help="Acceptance criteria.")
     prepare_parser.add_argument("--constraints", nargs="*", default=(), help="Constraints.")
@@ -184,7 +184,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         installation = _require_installation(root)
 
         if arguments.command == "prepare":
-            refreshed = _prepare_existing_task(installation, getattr(arguments, "goal", None))
+            refreshed = _prepare_existing_task(installation, arguments.goal)
             if refreshed is not None:
                 return refreshed
 

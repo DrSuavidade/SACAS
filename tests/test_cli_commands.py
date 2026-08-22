@@ -19,6 +19,54 @@ def test_pipeline_commands_are_removed() -> None:
     )
     assert "pipeline" not in action.choices
 
+
+def test_prepare_requires_a_goal(tmp_path: Path) -> None:
+    import pytest
+
+    with pytest.raises(SystemExit):
+        main(["prepare", "--root", str(tmp_path)])
+
+
+def test_public_cli_lifecycle(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """Full agent loop using only the public command names."""
+    init_result = initialize(tmp_path)
+    source = tmp_path / "src" / "auth.py"
+    helper = tmp_path / "src" / "helper.py"
+    source.parent.mkdir(parents=True)
+    source.write_text("def login():\n    pass\n", encoding="utf-8")
+
+    # 1. prepare creates a task and its context pack
+    assert main(["prepare", "Fix authentication session", "--root", str(tmp_path), "--files", "src/auth.py"]) == 0
+    task_dir = init_result.sacas_root / "tasks" / "current"
+    manifest = load_active_context(task_dir)
+    assert manifest is not None
+    assert (init_result.sacas_root / ".sacas" / "runtime" / "context.pack.jsonl").is_file()
+
+    # 2. prepare with the same goal refreshes the existing task
+    assert main(["prepare", "Fix authentication session", "--root", str(tmp_path)]) == 0
+    refreshed = load_active_context(task_dir)
+    assert refreshed is not None
+    assert refreshed.task_id == manifest.task_id
+
+    # 3. add admits an explicit file with an audit reason
+    helper.write_text("value = 1\n", encoding="utf-8")
+    assert main(["add", "--file", "src/helper.py", "--reason", "manual check", "--root", str(tmp_path)]) == 0
+    updated = load_active_context(task_dir)
+    assert updated is not None
+    assert "src/helper.py" in [f.path for f in updated.files]
+
+    # 4. explain shows provenance for that file
+    assert main(["explain", "src/helper.py", "--root", str(tmp_path)]) == 0
+    assert "src/helper.py" in capsys.readouterr().out
+
+    # 5. explain without a path prints the status report
+    assert main(["explain", "--root", str(tmp_path)]) == 0
+    status_out = capsys.readouterr().out
+    assert updated.task_id in status_out
+
+    # 6. doctor runs diagnostics plus validation on a clean install
+    assert main(["doctor", "--root", str(tmp_path)]) == 0
+
 def test_expand_why_doctor_cli_commands(tmp_path: Path) -> None:
     # 1. Initialize
     init_result = initialize(tmp_path)
