@@ -287,3 +287,59 @@ def test_e2e_lexical_provenance_chain(tmp_path: Path) -> None:
     assert "Lexical query:" in text
     assert event.lexical_query_hash[:16] in text
     assert "auth" in text
+
+
+def test_route_goal_stops_at_goal_rank_cutoff(tmp_path: Path) -> None:
+    """Weakly-ranked paths are not admitted even when the budget allows them."""
+    repo = tmp_path / "cutoff-repo"
+    (repo / "src").mkdir(parents=True)
+    (repo / "src" / "auth.py").write_text("class AuthProvider:\n    def login(self):\n        pass\n", encoding="utf-8")
+    (repo / "src" / "weak.py").write_text("x = 1\n", encoding="utf-8")
+
+    from sacas.init import initialize
+    from sacas.graphify import GraphQueryNode, GraphifyProvider, GraphifyQueryResult
+    import sacas.graphify as graphify_module
+    import sacas.tasks as tasks_module
+
+    initialize(repo, graphify_mode="existing")
+
+    class ScoredProvider(GraphifyProvider):
+        def verify_capabilities(self, required):
+            return True
+
+        def query(self, goal, graph_path, *, token_budget=None):
+            return GraphifyQueryResult(
+                status="success",
+                nodes=(
+                    GraphQueryNode("n1", "AuthProvider", "src/auth.py", 1, None, None, goal_rank_score=10),
+                    GraphQueryNode("n2", "Weak", "src/weak.py", 1, None, None, goal_rank_score=2),
+                ),
+                edges=(),
+                raw_output="",
+                paths=("src/auth.py", "src/weak.py"),
+            )
+
+        def validate_query_contract(self, result):
+            return True
+
+        def neighbors(self, path):
+            return []
+
+        def communities(self):
+            return ()
+
+        def locate_symbol(self, file_path, symbol_name):
+            return None
+
+    original = graphify_module.get_graphify_provider
+    graphify_module.get_graphify_provider = lambda *a, **k: ScoredProvider()
+    try:
+        installation = discover_manifest(repo)
+        assert installation is not None
+        manifest = tasks_module.route_goal(installation=installation, goal="auth provider login")
+    finally:
+        graphify_module.get_graphify_provider = original
+
+    admitted = [f.path for f in manifest.files]
+    assert "src/auth.py" in admitted
+    assert "src/weak.py" not in admitted

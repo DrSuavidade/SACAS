@@ -21,6 +21,14 @@ from sacas.paths import (
 
 EXPLICIT_CONTEXT_REASON = "Explicitly specified by user"
 
+# Admissions stop at the first ranked path scoring below this fraction of the
+# best-ranked score, with an absolute floor of one strong token match (4).
+# Real-repo sweeps showed pure relative cutoffs are no-ops because directory
+# bonuses cluster scores; the floor removes directory-bonus-only admissions.
+GOAL_RANK_CUTOFF_RATIO_NUM = 35
+GOAL_RANK_CUTOFF_RATIO_DEN = 100
+GOAL_RANK_CUTOFF_FLOOR = 4
+
 
 def is_explicit_rule_or_reference(reason: str | None) -> bool:
     """Return whether a rule/reference originated from explicit user input."""
@@ -522,8 +530,27 @@ def route_goal(
             graph_snapshot_hash = outcome.snapshot_hash
             query_res = outcome.query_result
             if not outcome.use_lexical_fallback and query_res is not None:
+                    # Ranked results carry per-node goal relevance. Admissions
+                    # below a relative cutoff of the best score are noise the
+                    # budget alone would happily spend itself on, so stop at
+                    # the first under-cutoff path (paths arrive ranked).
+                    path_scores: dict[str, int] = {}
+                    for scored_node in query_res.nodes:
+                        if scored_node.path and scored_node.goal_rank_score > 0:
+                            path_scores[scored_node.path] = max(
+                                path_scores.get(scored_node.path, 0),
+                                scored_node.goal_rank_score,
+                            )
+                    best_score = max(path_scores.values(), default=0)
+                    if best_score:
+                        ratio_cut = -(-best_score * GOAL_RANK_CUTOFF_RATIO_NUM // GOAL_RANK_CUTOFF_RATIO_DEN)
+                        cutoff = max(ratio_cut, GOAL_RANK_CUTOFF_FLOOR)
+                    else:
+                        cutoff = 0
                     path_to_node = {n.path: n for n in query_res.nodes if n.path}
                     for path in query_res.paths:
+                        if cutoff and path_scores.get(path, 0) < cutoff:
+                            break
                         from sacas.paths import resolve_repo_path
                         try:
                             f_rel = resolve_repo_path(installation.repository_root, path)

@@ -424,6 +424,8 @@ class GraphQueryNode:
     line: int | None
     node_type: str | None
     community: str | None
+    # Lexical relevance to the routing goal (0 when unraked/unavailable).
+    goal_rank_score: int = 0
 
 @dataclass(frozen=True)
 class GraphQueryEdge:
@@ -597,6 +599,7 @@ def local_graph_query(
                 else None
             ),
             community=_node_community(node),
+            goal_rank_score=score,
         ))
 
     return GraphifyQueryResult(
@@ -612,6 +615,48 @@ def local_graph_query(
 
 def _optional_str_value(value: object) -> str | None:
     return value if isinstance(value, str) else None
+
+
+def _attach_local_goal_scores(
+    repository_root: Path,
+    graph_relative_path: str,
+    goal: str,
+    result: "GraphifyQueryResult",
+) -> "GraphifyQueryResult | None":
+    """Score an unscored provider result against the goal using the snapshot.
+
+    Providers (notably the CLI) return matches without relevance scores.
+    Ranking them with the same local scorer unifies ordering and enables
+    cutoff-based admission regardless of which provider served the query.
+    """
+    try:
+        _raw, graph = read_graph_snapshot(repository_root, graph_relative_path)
+    except GraphSnapshotError:
+        return None
+    nodes = graph.get("nodes")
+    if not isinstance(nodes, list):
+        return None
+
+    scores = rank_nodes_for_goal(nodes, goal)
+    id_to_node = {n["id"]: n for n in nodes if isinstance(n, dict) and isinstance(n.get("id"), str)}
+    if not scores or not id_to_node:
+        return None
+
+    # Provider results identify nodes differently from the snapshot
+    # (labels, symbol names); the repository file path is the stable join.
+    path_best: dict[str, int] = {}
+    for node_id, score in scores.items():
+        path = _node_source_path(id_to_node[node_id])
+        if path:
+            path_best[path] = max(path_best.get(path, 0), score)
+
+    # Attach relevance scores for cutoff admission while preserving the
+    # provider's own path ordering: sweeps showed reordering regresses
+    # tight-budget arms even when it wins at higher budgets.
+    scored_nodes = tuple(
+        replace(n, goal_rank_score=path_best.get(n.path, 0)) for n in result.nodes
+    )
+    return replace(result, nodes=scored_nodes)
 
 
 def resolve_graph_routing_outcome(
@@ -646,6 +691,14 @@ def resolve_graph_routing_outcome(
         result = None
     if result is not None:
         result = replace(result, graph_snapshot_hash=snapshot_hash)
+    if (
+        result is not None
+        and result.paths
+        and all(node.goal_rank_score == 0 for node in result.nodes)
+    ):
+        rescored = _attach_local_goal_scores(repository_root, graph_relative_path, goal, result)
+        if rescored is not None:
+            result = rescored
     if result is None or not result.paths:
         # The primary provider found nothing for this goal. Before degrading
         # to whole-file lexical search, rank the same validated snapshot
@@ -1078,6 +1131,9 @@ class JsonGraphifyProvider(GraphifyProvider):
                 path = id_to_path.get(node_id)
                 if path and path not in ranked_paths:
                     ranked_paths.append(path)
+            nodes_list = [
+                replace(n, goal_rank_score=scores.get(n.id, 0)) for n in nodes_list
+            ]
 
             return GraphifyQueryResult(
                 status="success",
