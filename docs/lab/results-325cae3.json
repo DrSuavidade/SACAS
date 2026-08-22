@@ -1,0 +1,3148 @@
+{
+  "commit": "325cae3bdda7a855e92af12ba39f20413757385d",
+  "aggregate": {
+    "tasks": 67,
+    "errors": 0,
+    "macro_precision": 0.3672,
+    "macro_recall": 0.3939,
+    "macro_f1": 0.38
+  },
+  "per_task": [
+    {
+      "task_id": "hist-005bacd8",
+      "goal": "fix: clarify copilot exclusion limits",
+      "parent_commit": "5a22a51e0f103d83b2f23d0569241dbc88fc2f12",
+      "child_commit": "005bacd8cea0cc2594d120be3f7b8e38f2b9323d",
+      "expected_files": [
+        "src/sacas/adapters.py",
+        "tests/test_adapters.py"
+      ],
+      "expected_symbols": [],
+      "expected_tests": [
+        "tests/test_adapters.py"
+      ],
+      "retrieved_files": [
+        ".github/copilot-instructions.md",
+        "tests/test_adapters.py"
+      ],
+      "eval": {
+        "precision": 0.5,
+        "recall": 0.5
+      }
+    },
+    {
+      "task_id": "hist-03459104",
+      "goal": "feat: default interactive mode, -NonInteractive switch, SubDir prefixing",
+      "parent_commit": "05f7a879d4657072b1985d715d85fbad7043cbe2",
+      "child_commit": "034591049bc3283e701dc525c1f7661d4e95898d",
+      "expected_files": [
+        ".aiignore",
+        ".cursorignore",
+        ".gitignore",
+        "LICENSE",
+        "README.md",
+        "SKILL.md",
+        "scripts/analyze.ps1",
+        "scripts/detect-architecture.ps1",
+        "scripts/detect-modules.ps1",
+        "scripts/detect-stack.ps1",
+        "scripts/generate-context-md.ps1",
+        "scripts/read-graphify.ps1",
+        "scripts/scaffold.ps1",
+        "templates/CONTEXT.md.template",
+        "templates/aiignore.template",
+        "templates/conventions.md.template",
+        "templates/task-runner.md.template"
+      ],
+      "expected_symbols": [],
+      "expected_tests": [],
+      "retrieved_files": [],
+      "eval": {
+        "precision": 0.0,
+        "recall": 0.0
+      }
+    },
+    {
+      "task_id": "hist-05f7a879",
+      "goal": "Update project name and description in README",
+      "parent_commit": "da159f33ec156ec4f62d22db431bdece7d85eeca",
+      "child_commit": "05f7a879d4657072b1985d715d85fbad7043cbe2",
+      "expected_files": [
+        "README.md"
+      ],
+      "expected_symbols": [],
+      "expected_tests": [],
+      "retrieved_files": [
+        "README.md"
+      ],
+      "eval": {
+        "precision": 1.0,
+        "recall": 1.0
+      }
+    },
+    {
+      "task_id": "hist-09588458",
+      "goal": "fix(benchmark): make Fix6 claims reproducible",
+      "parent_commit": "db197619fe8b050142f09d1db61dbeb7b94a8725",
+      "child_commit": "09588458d217b3d3692dd4531fcc3c76d0bfb510",
+      "expected_files": [
+        "README.md",
+        "docs/superpowers/plans/2026-08-20-sacas-fix6-stabilization.md",
+        "docs/superpowers/specs/2026-08-20-sacas-fix6-stabilization-design.md",
+        "src/sacas/benchmark_runner.py",
+        "src/sacas/cli.py",
+        "src/sacas/git_benchmark.py",
+        "tests/test_benchmark_runner.py",
+        "tests/test_git_benchmark.py"
+      ],
+      "expected_symbols": [
+        "docs/superpowers/plans/2026-08-20-sacas-fix6-stabilization.md::compiler_repo",
+        "docs/superpowers/plans/2026-08-20-sacas-fix6-stabilization.md::read_repo_source_bytes",
+        "docs/superpowers/plans/2026-08-20-sacas-fix6-stabilization.md::RepositoryTextFile",
+        "docs/superpowers/plans/2026-08-20-sacas-fix6-stabilization.md::iter_repo_text_files",
+        "docs/superpowers/plans/2026-08-20-sacas-fix6-stabilization.md::GraphSnapshot",
+        "docs/superpowers/plans/2026-08-20-sacas-fix6-stabilization.md::read_graph_snapshot",
+        "docs/superpowers/plans/2026-08-20-sacas-fix6-stabilization.md::is_explicit_rule_or_reference",
+        "docs/superpowers/plans/2026-08-20-sacas-fix6-stabilization.md::current_graph_snapshot",
+        "docs/superpowers/plans/2026-08-20-sacas-fix6-stabilization.md::_is_graph_changed",
+        "docs/superpowers/plans/2026-08-20-sacas-fix6-stabilization.md::_refresh_file_selection",
+        "docs/superpowers/plans/2026-08-20-sacas-fix6-stabilization.md::event_applies_to_selector",
+        "docs/superpowers/plans/2026-08-20-sacas-fix6-stabilization.md::ContextCompilationError",
+        "docs/superpowers/plans/2026-08-20-sacas-fix6-stabilization.md::__init__",
+        "docs/superpowers/plans/2026-08-20-sacas-fix6-stabilization.md::validate_context_pack_against_state",
+        "docs/superpowers/plans/2026-08-20-sacas-fix6-stabilization.md::token_reduction",
+        "docs/superpowers/specs/2026-08-20-sacas-fix6-stabilization-design.md::token_reduction",
+        "src/sacas/benchmark_runner.py::RepositoryTextFile",
+        "src/sacas/benchmark_runner.py::iter_repo_text_files",
+        "src/sacas/benchmark_runner.py::__init__",
+        "src/sacas/benchmark_runner.py::token_reduction",
+        "src/sacas/cli.py::read_repo_source_bytes",
+        "tests/test_benchmark_runner.py::token_reduction",
+        "tests/test_benchmark_runner.py::test_b1_sorts_equal_scores_by_score_then_path_length_then_path",
+        "tests/test_benchmark_runner.py::test_benchmark_cli_labels_whole_repository_reduction",
+        "tests/test_git_benchmark.py::test_historical_routing_uses_actual_parent_worktree_without_child_file_hints",
+        "tests/test_git_benchmark.py::fake_route_goal",
+        "tests/test_git_benchmark.py::test_histbench_command_returns_nonzero_when_a_result_has_an_error"
+      ],
+      "expected_tests": [
+        "docs/superpowers/specs/2026-08-20-sacas-fix6-stabilization-design.md",
+        "tests/test_benchmark_runner.py",
+        "tests/test_git_benchmark.py"
+      ],
+      "retrieved_files": [
+        "src/sacas/benchmark_runner.py",
+        "src/sacas/git_benchmark.py",
+        "src/sacas/benchmark.py",
+        "tests/test_benchmark_runner.py"
+      ],
+      "eval": {
+        "precision": 0.75,
+        "recall": 0.375
+      }
+    },
+    {
+      "task_id": "hist-0a6499c9",
+      "goal": "docs: plan documentation accuracy audit",
+      "parent_commit": "24eb303a6b33ad77fbe6d499e3ac1c47da84f4bb",
+      "child_commit": "0a6499c9e5d1df073e53b3c48b3f12ad78053a14",
+      "expected_files": [
+        "docs/superpowers/plans/2026-08-21-sacas-documentation-accuracy.md",
+        "docs/superpowers/specs/2026-08-21-sacas-documentation-accuracy-design.md"
+      ],
+      "expected_symbols": [],
+      "expected_tests": [
+        "docs/superpowers/specs/2026-08-21-sacas-documentation-accuracy-design.md"
+      ],
+      "retrieved_files": [
+        "docs/superpowers/plans/2026-08-18-sacas-router.md",
+        "docs/superpowers/plans/2026-08-18-sacas-v2-routing.md",
+        "docs/superpowers/plans/2026-08-21-sacas-boundary-completion.md",
+        "src/sacas/budget.py"
+      ],
+      "eval": {
+        "precision": 0.0,
+        "recall": 0.0
+      }
+    },
+    {
+      "task_id": "hist-0c5fb610",
+      "goal": "fix(refresh): preserve admission provenance",
+      "parent_commit": "144560fcc144f62e7c1b1d9d3823965fd317aa61",
+      "child_commit": "0c5fb610016d6371a3581dedeee5c9d41803e409",
+      "expected_files": [
+        "src/sacas/active_context.py",
+        "src/sacas/compiler.py",
+        "src/sacas/provenance.py",
+        "src/sacas/refresh.py",
+        "src/sacas/tasks.py",
+        "tests/test_active_context.py",
+        "tests/test_compiler.py",
+        "tests/test_provenance.py",
+        "tests/test_refresh.py"
+      ],
+      "expected_symbols": [
+        "src/sacas/active_context.py::context",
+        "src/sacas/active_context.py::query",
+        "src/sacas/compiler.py::context",
+        "src/sacas/provenance.py::context",
+        "src/sacas/provenance.py::query",
+        "src/sacas/refresh.py::_reresolve_changed_source_selections",
+        "src/sacas/refresh.py::resolve_layer",
+        "src/sacas/refresh.py::_event_key",
+        "src/sacas/refresh.py::_merge_events",
+        "src/sacas/refresh.py::refreshed_layer",
+        "src/sacas/refresh.py::remove_missing",
+        "src/sacas/refresh.py::context",
+        "src/sacas/refresh.py::query",
+        "src/sacas/tasks.py::context",
+        "src/sacas/tasks.py::query",
+        "tests/test_active_context.py::test_active_context_serialization_preserves_each_constituent_symbol",
+        "tests/test_active_context.py::context",
+        "tests/test_compiler.py::test_compiler_merged_symbol_fragment_keeps_each_symbol_event",
+        "tests/test_compiler.py::test_compiler_merged_selector_is_sorted_independent_of_manifest_symbol_order",
+        "tests/test_compiler.py::context",
+        "tests/test_provenance.py::test_provenance_reports_each_fragment_specific_content_hash",
+        "tests/test_provenance.py::test_provenance_nests_only_each_fragment_own_admission_events",
+        "tests/test_provenance.py::context",
+        "tests/test_refresh.py::_merge_events",
+        "tests/test_refresh.py::test_selective_refresh_refuses_when_an_unselected_context_layer_is_stale",
+        "tests/test_refresh.py::test_selective_refresh_refuses_stale_rule_or_reference_without_writing",
+        "tests/test_refresh.py::test_refresh_rehashes_rules_and_references",
+        "tests/test_refresh.py::test_refresh_rehashes_every_context_file_layer",
+        "tests/test_refresh.py::test_task_reroute_keeps_explicit_admission_ids_for_all_explicit_context",
+        "tests/test_refresh.py::test_task_reroute_preserves_explicit_layer_membership_and_discards_other_origins",
+        "tests/test_refresh.py::context",
+        "tests/test_refresh.py::record_route_goal",
+        "tests/test_refresh.py::test_source_refresh_reresolves_symbols_without_replacing_selector_events",
+        "tests/test_refresh.py::test_task_reroute_seeds_explicit_context_before_discovery",
+        "tests/test_refresh.py::test_full_reroute_discards_legacy_nonexplicit_tests",
+        "tests/test_refresh.py::test_full_reroute_seeds_explicit_rules_and_references_by_reason_not_event",
+        "tests/test_refresh.py::test_task_contract_reroute_replaces_heuristic_rules_and_references_but_keeps_explicit",
+        "tests/test_refresh.py::test_graph_rediscovery_seeds_non_graph_context_and_explicit_origin_wins",
+        "tests/test_refresh.py::AuthGraphProvider",
+        "tests/test_refresh.py::verify_capabilities",
+        "tests/test_refresh.py::query",
+        "tests/test_refresh.py::test_graph_rediscovery_replaces_heuristic_context_with_fresh_graph_provenance",
+        "tests/test_refresh.py::test_merge_events_preserves_history_deduplicates_semantics_and_allocates_refresh_ids",
+        "tests/test_refresh.py::test_graph_no_match_uses_lexical_fallback_when_seeded_explicit_files_exist",
+        "tests/test_refresh.py::NoMatchProvider",
+        "tests/test_refresh.py::test_graph_no_match_uses_lexical_fallback_when_explicit_tests_exist"
+      ],
+      "expected_tests": [
+        "tests/test_active_context.py",
+        "tests/test_compiler.py",
+        "tests/test_provenance.py",
+        "tests/test_refresh.py"
+      ],
+      "retrieved_files": [
+        "tests/test_refresh.py",
+        "tests/test_invalidation.py",
+        "tests/test_init.py"
+      ],
+      "eval": {
+        "precision": 0.3333333333333333,
+        "recall": 0.1111111111111111
+      }
+    },
+    {
+      "task_id": "hist-0dd7fdf5",
+      "goal": "fix(paths): make sacas_root a real runtime invariant",
+      "parent_commit": "b5780e50420a0895534e5b1b83a9cb65a6184d88",
+      "child_commit": "0dd7fdf509f3bbd8db013bfd79b06b81505ebb5e",
+      "expected_files": [
+        ".gitignore",
+        "src/sacas/active_context.py",
+        "src/sacas/benchmark.py",
+        "src/sacas/benchmark_runner.py",
+        "src/sacas/cli.py",
+        "src/sacas/git_benchmark.py",
+        "src/sacas/init.py",
+        "src/sacas/paths.py",
+        "src/sacas/refresh.py",
+        "src/sacas/regions.py",
+        "src/sacas/search.py",
+        "src/sacas/tasks.py",
+        "src/sacas/templates.py",
+        "tests/fixtures/dotnet-monolith/obj/App.csproj.nuget.dgspec.json",
+        "tests/fixtures/dotnet-monolith/obj/App.csproj.nuget.g.props",
+        "tests/fixtures/dotnet-monolith/obj/App.csproj.nuget.g.targets",
+        "tests/fixtures/dotnet-monolith/obj/Debug/net8.0/App.AssemblyInfo.cs",
+        "tests/fixtures/dotnet-monolith/obj/Debug/net8.0/App.AssemblyInfoInputs.cache",
+        "tests/fixtures/dotnet-monolith/obj/Debug/net8.0/App.GeneratedMSBuildEditorConfig.editorconfig",
+        "tests/fixtures/dotnet-monolith/obj/Debug/net8.0/App.assets.cache",
+        "tests/fixtures/dotnet-monolith/obj/project.assets.json",
+        "tests/fixtures/dotnet-monolith/obj/project.nuget.cache",
+        "tests/test_e2e_routing.py",
+        "tests/test_git_benchmark.py"
+      ],
+      "expected_symbols": [
+        "src/sacas/active_context.py::sacas_root_posix",
+        "src/sacas/active_context.py::lexical_query_hash",
+        "src/sacas/benchmark.py::sacas_generated_exclusions",
+        "src/sacas/benchmark_runner.py::sacas_generated_exclusions",
+        "src/sacas/cli.py::extract_markdown_section",
+        "src/sacas/cli.py::resolve_section_ranges",
+        "src/sacas/cli.py::lexical_query_hash",
+        "src/sacas/git_benchmark.py::sacas_root_posix",
+        "src/sacas/init.py::claude_md_document",
+        "src/sacas/paths.py::sacas_root_posix",
+        "src/sacas/paths.py::sacas_child_repo_path",
+        "src/sacas/paths.py::sacas_generated_exclusions",
+        "src/sacas/paths.py::normalize_sacas_document_path",
+        "src/sacas/refresh.py::lexical_query_hash",
+        "src/sacas/regions.py::extract_markdown_section",
+        "src/sacas/regions.py::_normalize_heading",
+        "src/sacas/regions.py::find_markdown_section_range",
+        "src/sacas/regions.py::normalize_heading",
+        "src/sacas/regions.py::resolve_section_ranges",
+        "src/sacas/search.py::sacas_generated_exclusions",
+        "src/sacas/tasks.py::sacas_root_posix",
+        "src/sacas/tasks.py::sacas_child_repo_path",
+        "src/sacas/tasks.py::normalize_sacas_document_path",
+        "src/sacas/tasks.py::resolve_section_ranges",
+        "src/sacas/tasks.py::lexical_query_hash",
+        "src/sacas/templates.py::claude_md_document",
+        "tests/test_e2e_routing.py::lexical_query_hash",
+        "tests/test_e2e_routing.py::test_e2e_custom_sacas_root_lifecycle",
+        "tests/test_e2e_routing.py::test_e2e_lexical_provenance_chain",
+        "tests/test_git_benchmark.py::test_histbench_full_cli_workflow"
+      ],
+      "expected_tests": [
+        "tests/fixtures/dotnet-monolith/obj/App.csproj.nuget.dgspec.json",
+        "tests/fixtures/dotnet-monolith/obj/App.csproj.nuget.g.props",
+        "tests/fixtures/dotnet-monolith/obj/App.csproj.nuget.g.targets",
+        "tests/fixtures/dotnet-monolith/obj/Debug/net8.0/App.AssemblyInfo.cs",
+        "tests/fixtures/dotnet-monolith/obj/Debug/net8.0/App.AssemblyInfoInputs.cache",
+        "tests/fixtures/dotnet-monolith/obj/Debug/net8.0/App.GeneratedMSBuildEditorConfig.editorconfig",
+        "tests/fixtures/dotnet-monolith/obj/Debug/net8.0/App.assets.cache",
+        "tests/fixtures/dotnet-monolith/obj/project.assets.json",
+        "tests/fixtures/dotnet-monolith/obj/project.nuget.cache",
+        "tests/test_e2e_routing.py",
+        "tests/test_git_benchmark.py"
+      ],
+      "retrieved_files": [
+        "src/sacas/paths.py",
+        "src/sacas/modules.py",
+        "tests/test_graphify.py"
+      ],
+      "eval": {
+        "precision": 0.3333333333333333,
+        "recall": 0.041666666666666664
+      }
+    },
+    {
+      "task_id": "hist-144560fc",
+      "goal": "fix(refresh): converge task and graph identities",
+      "parent_commit": "503dea291e6d0eec404f976eeb386de351b6bff6",
+      "child_commit": "144560fcc144f62e7c1b1d9d3823965fd317aa61",
+      "expected_files": [
+        "src/sacas/graphify.py",
+        "src/sacas/refresh.py",
+        "src/sacas/tasks.py",
+        "tests/test_graphify_providers.py",
+        "tests/test_invalidation.py",
+        "tests/test_refresh.py"
+      ],
+      "expected_symbols": [
+        "src/sacas/graphify.py::GraphRoutingOutcome",
+        "src/sacas/graphify.py::raw_graph_snapshot_hash",
+        "src/sacas/graphify.py::resolve_graph_routing_outcome",
+        "src/sacas/graphify.py::_parse_query_output",
+        "src/sacas/graphify.py::Provider",
+        "src/sacas/graphify.py::verify_capabilities",
+        "src/sacas/graphify.py::query",
+        "src/sacas/graphify.py::validate_query_contract",
+        "src/sacas/graphify.py::neighbors",
+        "src/sacas/graphify.py::communities",
+        "src/sacas/graphify.py::locate_symbol",
+        "src/sacas/refresh.py::raw_graph_snapshot_hash",
+        "src/sacas/refresh.py::task_contract_hash_for_refresh",
+        "src/sacas/refresh.py::Provider",
+        "src/sacas/refresh.py::communities",
+        "src/sacas/tasks.py::resolve_graph_routing_outcome",
+        "src/sacas/tasks.py::query",
+        "tests/test_graphify_providers.py::resolve_graph_routing_outcome",
+        "tests/test_graphify_providers.py::_parse_query_output",
+        "tests/test_graphify_providers.py::test_get_graphify_provider_routes_a_configured_json_snapshot_without_monkeypatching",
+        "tests/test_graphify_providers.py::test_graph_routing_outcome_uses_raw_custom_snapshot_identity",
+        "tests/test_graphify_providers.py::Provider",
+        "tests/test_graphify_providers.py::verify_capabilities",
+        "tests/test_graphify_providers.py::test_graph_routing_outcomes_fall_back_without_losing_valid_identity",
+        "tests/test_graphify_providers.py::query",
+        "tests/test_graphify_providers.py::test_graph_routing_outcome_degrades_when_an_optional_provider_raises",
+        "tests/test_graphify_providers.py::RaisingProvider",
+        "tests/test_graphify_providers.py::validate_query_contract",
+        "tests/test_graphify_providers.py::neighbors",
+        "tests/test_graphify_providers.py::communities",
+        "tests/test_graphify_providers.py::locate_symbol",
+        "tests/test_graphify_providers.py::test_graph_routing_outcome_tells_user_how_to_retry_a_valid_no_match",
+        "tests/test_invalidation.py::query",
+        "tests/test_invalidation.py::communities",
+        "tests/test_refresh.py::Provider",
+        "tests/test_refresh.py::verify_capabilities",
+        "tests/test_refresh.py::query",
+        "tests/test_refresh.py::test_refresh_converges_contract_fingerprint_and_context_pack_in_one_run",
+        "tests/test_refresh.py::_configure_custom_graph_output",
+        "tests/test_refresh.py::_custom_graph_provider",
+        "tests/test_refresh.py::QueryableJsonProvider",
+        "tests/test_refresh.py::_write_graph",
+        "tests/test_refresh.py::test_custom_graph_bytes_drive_refresh_identity_reroute_and_convergence",
+        "tests/test_refresh.py::test_graph_mode_off_and_graph_deletion_clear_identity_then_converge",
+        "tests/test_refresh.py::test_deleting_a_configured_graph_clears_identity_uses_fallback_and_converges",
+        "tests/test_refresh.py::test_graph_fallback_keeps_valid_raw_identity_and_converges",
+        "tests/test_refresh.py::FallbackProvider",
+        "tests/test_refresh.py::test_graph_refresh_fallback_replaces_stale_graph_provenance_and_converges",
+        "tests/test_refresh.py::LifecycleProvider"
+      ],
+      "expected_tests": [
+        "tests/test_graphify_providers.py",
+        "tests/test_invalidation.py",
+        "tests/test_refresh.py"
+      ],
+      "retrieved_files": [
+        "tests/test_graphify.py",
+        "src/sacas/graphify.py"
+      ],
+      "eval": {
+        "precision": 0.5,
+        "recall": 0.16666666666666666
+      }
+    },
+    {
+      "task_id": "hist-145e5148",
+      "goal": "fix: harden manifest and generated region validation",
+      "parent_commit": "8e3b395b712289c7fd97584fddbbadb47868fcdc",
+      "child_commit": "145e514866fdaa2a1d31c2c67a003e9bdf7f6ac6",
+      "expected_files": [
+        "src/sacas/models.py",
+        "tests/test_regions.py"
+      ],
+      "expected_symbols": [
+        "tests/test_regions.py::test_manifest_converts_directly_supplied_mutable_adapters_to_an_immutable_tuple",
+        "tests/test_regions.py::test_manifest_rejects_unknown_graphify_mode",
+        "tests/test_regions.py::test_write_json_atomic_is_deterministic",
+        "tests/test_regions.py::test_replace_region_rejects_missing_malformed_or_duplicate_ownership"
+      ],
+      "expected_tests": [
+        "tests/test_regions.py"
+      ],
+      "retrieved_files": [
+        "src/sacas/regions.py",
+        "tests/test_regions.py",
+        "src/sacas/models.py"
+      ],
+      "eval": {
+        "precision": 0.6666666666666666,
+        "recall": 1.0
+      }
+    },
+    {
+      "task_id": "hist-18550099",
+      "goal": "fix(graphify): parse real snapshot shape (links, source_file, int communities)",
+      "parent_commit": "a7eb6ad9e9892f71467d632f1958dd025a927d1d",
+      "child_commit": "1855009904e43fad34396ad6f031c04b527b7c88",
+      "expected_files": [
+        "src/sacas/graphify.py",
+        "tests/test_graphify.py",
+        "tests/test_graphify_providers.py"
+      ],
+      "expected_symbols": [
+        "src/sacas/graphify.py::_node_source_path",
+        "src/sacas/graphify.py::_node_line",
+        "src/sacas/graphify.py::_graph_links",
+        "src/sacas/graphify.py::_node_community",
+        "tests/test_graphify.py::_realistic_graph_fixture",
+        "tests/test_graphify.py::test_collect_graphify_parses_real_graphify_snapshot_shape",
+        "tests/test_graphify.py::test_adapter_query_resolves_real_snapshot_paths_and_lines"
+      ],
+      "expected_tests": [
+        "tests/test_graphify.py",
+        "tests/test_graphify_providers.py"
+      ],
+      "retrieved_files": [
+        "src/sacas/graphify.py",
+        "tests/test_graphify_integration.py"
+      ],
+      "eval": {
+        "precision": 0.5,
+        "recall": 0.3333333333333333
+      }
+    },
+    {
+      "task_id": "hist-213ffad5",
+      "goal": "fix: bound pnpm workspace parsing",
+      "parent_commit": "cc7e74901e405086f78d56fb2784632aa0ab273d",
+      "child_commit": "213ffad5915948427a8b41b5966b95b2f22cca26",
+      "expected_files": [
+        "src/sacas/modules.py",
+        "tests/test_analysis.py"
+      ],
+      "expected_symbols": [
+        "src/sacas/modules.py::_pnpm_package_patterns",
+        "tests/test_analysis.py::test_pnpm_workspace_parser_ignores_unrelated_yaml_sequences"
+      ],
+      "expected_tests": [
+        "tests/test_analysis.py"
+      ],
+      "retrieved_files": [
+        "src/sacas/modules.py",
+        "tests/test_analysis.py",
+        "tests/fixtures/node-monorepo/pnpm-workspace.yaml",
+        "tests/test_init.py",
+        "src/sacas/templates.py"
+      ],
+      "eval": {
+        "precision": 0.4,
+        "recall": 1.0
+      }
+    },
+    {
+      "task_id": "hist-24eb303a",
+      "goal": "fix(state): reject mismatched canonical pairs",
+      "parent_commit": "8f4df37f941c26b788d7d281d2b6888507932162",
+      "child_commit": "24eb303a6b33ad77fbe6d499e3ac1c47da84f4bb",
+      "expected_files": [
+        "src/sacas/active_context.py",
+        "src/sacas/refresh.py",
+        "tests/test_active_context.py"
+      ],
+      "expected_symbols": [
+        "src/sacas/active_context.py::load_task_state",
+        "src/sacas/refresh.py::load_task_state",
+        "tests/test_active_context.py::load_task_state",
+        "tests/test_active_context.py::test_public_consumers_refuse_task_context_identity_mismatch_without_mutation"
+      ],
+      "expected_tests": [
+        "tests/test_active_context.py"
+      ],
+      "retrieved_files": [
+        "tests/test_active_context.py",
+        "tests/test_repository_reads.py",
+        "tests/test_graphify.py"
+      ],
+      "eval": {
+        "precision": 0.3333333333333333,
+        "recall": 0.3333333333333333
+      }
+    },
+    {
+      "task_id": "hist-2871f3db",
+      "goal": "fix: isolate Graphify freshness state",
+      "parent_commit": "358fef90338292127d8e5665e628365246c2a827",
+      "child_commit": "2871f3db2957b50b3700bb842d11ebc812a7b4f1",
+      "expected_files": [
+        "src/sacas/cli.py",
+        "src/sacas/graphify.py",
+        "tests/test_graphify.py"
+      ],
+      "expected_symbols": [
+        "src/sacas/cli.py::repository_relative_path",
+        "src/sacas/graphify.py::repository_relative_path",
+        "src/sacas/graphify.py::_has_newer_source",
+        "tests/test_graphify.py::test_sacas_generated_map_state_does_not_make_graphify_stale_on_repeat_map",
+        "tests/test_graphify.py::test_runnable_graphify_modes_reject_custom_output_without_supported_output_flag",
+        "tests/test_graphify.py::test_cli_map_rejects_output_paths_outside_repository"
+      ],
+      "expected_tests": [
+        "tests/test_graphify.py"
+      ],
+      "retrieved_files": [
+        "src/sacas/graphify.py",
+        "tests/test_graphify.py",
+        "tests/test_regions.py",
+        "tests/test_analysis.py",
+        "src/sacas/analysis.py"
+      ],
+      "eval": {
+        "precision": 0.4,
+        "recall": 0.6666666666666666
+      }
+    },
+    {
+      "task_id": "hist-325df97d",
+      "goal": "feat: add repository analysis",
+      "parent_commit": "abc843745a2d07436e2de2d0e7f853d5ca2a6c70",
+      "child_commit": "325df97d4efeb25761f3223f4d7c981dae49d606",
+      "expected_files": [
+        "src/sacas/analysis.py",
+        "src/sacas/modules.py",
+        "src/sacas/repository.py",
+        "tests/fixtures/dotnet-monolith/App.csproj",
+        "tests/fixtures/mixed-repo/build.gradle",
+        "tests/fixtures/mixed-repo/docker-compose.yml",
+        "tests/fixtures/mixed-repo/go.mod",
+        "tests/fixtures/mixed-repo/pom.xml",
+        "tests/fixtures/nextjs-app/package.json",
+        "tests/fixtures/node-monorepo/nx.json",
+        "tests/fixtures/node-monorepo/package.json",
+        "tests/fixtures/node-monorepo/pnpm-workspace.yaml",
+        "tests/fixtures/node-monorepo/turbo.json",
+        "tests/fixtures/python-service/pyproject.toml",
+        "tests/fixtures/rust-workspace/Cargo.toml",
+        "tests/test_analysis.py"
+      ],
+      "expected_symbols": [
+        "src/sacas/analysis.py::Freshness",
+        "src/sacas/analysis.py::to_dict",
+        "src/sacas/analysis.py::is_current",
+        "src/sacas/analysis.py::Analysis",
+        "src/sacas/analysis.py::analyze_repository",
+        "src/sacas/analysis.py::write_analysis",
+        "src/sacas/analysis.py::read_analysis",
+        "src/sacas/analysis.py::_fingerprint",
+        "src/sacas/analysis.py::Module",
+        "src/sacas/analysis.py::detect_modules",
+        "src/sacas/analysis.py::Evidence",
+        "src/sacas/analysis.py::ecosystems",
+        "src/sacas/analysis.py::collect_repository_evidence",
+        "src/sacas/modules.py::to_dict",
+        "src/sacas/modules.py::Module",
+        "src/sacas/modules.py::detect_modules",
+        "src/sacas/modules.py::_package_modules",
+        "src/sacas/modules.py::add",
+        "src/sacas/modules.py::_package_name",
+        "src/sacas/modules.py::_directory_heuristics",
+        "src/sacas/repository.py::to_dict",
+        "src/sacas/repository.py::add",
+        "src/sacas/repository.py::Evidence",
+        "src/sacas/repository.py::RepositoryEvidence",
+        "src/sacas/repository.py::ecosystems",
+        "src/sacas/repository.py::metadata_paths",
+        "src/sacas/repository.py::collect_repository_evidence",
+        "src/sacas/repository.py::_package_has_next",
+        "tests/test_analysis.py::to_dict",
+        "tests/test_analysis.py::is_current",
+        "tests/test_analysis.py::analyze_repository",
+        "tests/test_analysis.py::write_analysis",
+        "tests/test_analysis.py::read_analysis",
+        "tests/test_analysis.py::detect_modules",
+        "tests/test_analysis.py::_directory_heuristics",
+        "tests/test_analysis.py::ecosystems",
+        "tests/test_analysis.py::collect_repository_evidence",
+        "tests/test_analysis.py::copy_fixture",
+        "tests/test_analysis.py::test_metadata_detection_reports_supported_ecosystems",
+        "tests/test_analysis.py::test_module_detection_uses_workspace_metadata_before_directory_heuristics",
+        "tests/test_analysis.py::test_module_detection_falls_back_to_deterministic_directory_heuristics",
+        "tests/test_analysis.py::test_build_metadata_creates_high_confidence_module",
+        "tests/test_analysis.py::test_analysis_is_serializable_deterministic_and_tracks_freshness",
+        "tests/test_analysis.py::test_analysis_detects_changed_metadata_as_stale"
+      ],
+      "expected_tests": [
+        "tests/fixtures/dotnet-monolith/App.csproj",
+        "tests/fixtures/mixed-repo/build.gradle",
+        "tests/fixtures/mixed-repo/docker-compose.yml",
+        "tests/fixtures/mixed-repo/go.mod",
+        "tests/fixtures/mixed-repo/pom.xml",
+        "tests/fixtures/nextjs-app/package.json",
+        "tests/fixtures/node-monorepo/nx.json",
+        "tests/fixtures/node-monorepo/package.json",
+        "tests/fixtures/node-monorepo/pnpm-workspace.yaml",
+        "tests/fixtures/node-monorepo/turbo.json",
+        "tests/fixtures/python-service/pyproject.toml",
+        "tests/fixtures/rust-workspace/Cargo.toml",
+        "tests/test_analysis.py"
+      ],
+      "retrieved_files": [
+        "tests/test_init.py",
+        "tests/test_adapters.py"
+      ],
+      "eval": {
+        "precision": 0.0,
+        "recall": 0.0
+      }
+    },
+    {
+      "task_id": "hist-358fef90",
+      "goal": "fix: use Graphify extraction contract",
+      "parent_commit": "82c8bcd43ab110a40eb69b1886ab71fc0a3b9332",
+      "child_commit": "358fef90338292127d8e5665e628365246c2a827",
+      "expected_files": [
+        "src/sacas/graphify.py",
+        "src/sacas/map.py",
+        "tests/test_graphify.py"
+      ],
+      "expected_symbols": [
+        "src/sacas/graphify.py::_warning",
+        "tests/test_graphify.py::_warning",
+        "tests/test_graphify.py::test_safe_query_targets_the_supplied_custom_output_graph",
+        "tests/test_graphify.py::test_system_map_update_replaces_only_owned_region_and_preserves_manual_content",
+        "tests/test_graphify.py::test_system_map_refuses_to_overwrite_an_unowned_human_document"
+      ],
+      "expected_tests": [
+        "tests/test_graphify.py"
+      ],
+      "retrieved_files": [
+        "tests/test_graphify.py",
+        "src/sacas/graphify.py",
+        "tests/test_adapters.py",
+        "tests/test_regions.py",
+        "tests/test_init.py"
+      ],
+      "eval": {
+        "precision": 0.4,
+        "recall": 0.6666666666666666
+      }
+    },
+    {
+      "task_id": "hist-3967b257",
+      "goal": "feat(routing): release SACAS 0.3.0",
+      "parent_commit": "7c3dbb87998a34b8f297fe75a10300eedce49d36",
+      "child_commit": "3967b257a2cee2e70b1388a977eddf811a4d03c0",
+      "expected_files": [
+        "README.md",
+        "pyproject.toml",
+        "src/sacas/__init__.py",
+        "src/sacas/active_context.py",
+        "src/sacas/benchmark_runner.py",
+        "src/sacas/cli.py",
+        "src/sacas/enforce.py",
+        "src/sacas/graphify.py",
+        "src/sacas/refresh.py",
+        "src/sacas/regions.py",
+        "src/sacas/tasks.py",
+        "tests/test_benchmark_runner.py",
+        "tests/test_cli.py",
+        "tests/test_directional_routing.py",
+        "tests/test_enforce.py",
+        "tests/test_graphify_providers.py",
+        "tests/test_symbol_resolver.py"
+      ],
+      "expected_symbols": [
+        "README.md::Session",
+        "src/sacas/active_context.py::build_parent_negations",
+        "src/sacas/benchmark_runner.py::__init__",
+        "src/sacas/benchmark_runner.py::run_routing_benchmark",
+        "src/sacas/benchmark_runner.py::run_routing_benchmark_suite",
+        "src/sacas/benchmark_runner.py::calc_metrics_at_k",
+        "src/sacas/benchmark_runner.py::load_and_run_all_benchmarks",
+        "src/sacas/cli.py::load_and_run_all_benchmarks",
+        "src/sacas/cli.py::benchmark_command_dispatch",
+        "src/sacas/cli.py::get_enforcement_provider",
+        "src/sacas/cli.py::SymbolRangeResolver",
+        "src/sacas/cli.py::resolve",
+        "src/sacas/enforce.py::negotiate_policy",
+        "src/sacas/enforce.py::get_enforcement_provider",
+        "src/sacas/graphify.py::__init__",
+        "src/sacas/graphify.py::GraphCapabilities",
+        "src/sacas/graphify.py::verify_capabilities",
+        "src/sacas/graphify.py::validate_query_contract",
+        "src/sacas/graphify.py::neighbors",
+        "src/sacas/graphify.py::communities",
+        "src/sacas/graphify.py::locate_symbol",
+        "src/sacas/graphify.py::get_graphify_provider",
+        "src/sacas/graphify.py::resolve",
+        "src/sacas/refresh.py::communities",
+        "src/sacas/regions.py::verify_capabilities",
+        "src/sacas/regions.py::locate_symbol",
+        "src/sacas/regions.py::get_graphify_provider",
+        "src/sacas/regions.py::find_python_ast_symbol_range",
+        "src/sacas/regions.py::find_heuristic_symbol_line",
+        "src/sacas/regions.py::SymbolRangeResolver",
+        "src/sacas/regions.py::resolve",
+        "src/sacas/tasks.py::negotiate_policy",
+        "src/sacas/tasks.py::get_enforcement_provider",
+        "src/sacas/tasks.py::verify_capabilities",
+        "src/sacas/tasks.py::validate_query_contract",
+        "src/sacas/tasks.py::get_graphify_provider",
+        "src/sacas/tasks.py::SymbolRangeResolver",
+        "src/sacas/tasks.py::resolve",
+        "tests/test_benchmark_runner.py::run_routing_benchmark",
+        "tests/test_benchmark_runner.py::run_routing_benchmark_suite",
+        "tests/test_benchmark_runner.py::load_and_run_all_benchmarks",
+        "tests/test_benchmark_runner.py::test_benchmark_suite_metrics",
+        "tests/test_benchmark_runner.py::test_load_and_run_all_benchmarks",
+        "tests/test_directional_routing.py::test_directional_routing",
+        "tests/test_enforce.py::build_parent_negations",
+        "tests/test_enforce.py::negotiate_policy",
+        "tests/test_enforce.py::get_enforcement_provider",
+        "tests/test_enforce.py::test_build_parent_negations",
+        "tests/test_enforce.py::test_policy_negotiation",
+        "tests/test_graphify_providers.py::verify_capabilities",
+        "tests/test_symbol_resolver.py::__init__",
+        "tests/test_symbol_resolver.py::find_python_ast_symbol_range",
+        "tests/test_symbol_resolver.py::find_heuristic_symbol_line",
+        "tests/test_symbol_resolver.py::SymbolRangeResolver",
+        "tests/test_symbol_resolver.py::resolve",
+        "tests/test_symbol_resolver.py::test_ast_symbol_range_parser",
+        "tests/test_symbol_resolver.py::Session",
+        "tests/test_symbol_resolver.py::test_heuristic_symbol_range",
+        "tests/test_symbol_resolver.py::User",
+        "tests/test_symbol_resolver.py::test_symbol_resolver"
+      ],
+      "expected_tests": [
+        "tests/test_benchmark_runner.py",
+        "tests/test_cli.py",
+        "tests/test_directional_routing.py",
+        "tests/test_enforce.py",
+        "tests/test_graphify_providers.py",
+        "tests/test_symbol_resolver.py"
+      ],
+      "retrieved_files": [
+        "tests/test_e2e_routing.py",
+        "src/sacas/benchmark_runner.py",
+        "tests/test_cli.py",
+        "tests/test_graphify.py",
+        "src/sacas/init.py"
+      ],
+      "eval": {
+        "precision": 0.4,
+        "recall": 0.11764705882352941
+      }
+    },
+    {
+      "task_id": "hist-3ddf05d2",
+      "goal": "fix: validate manifest inputs and atomic cleanup",
+      "parent_commit": "145e514866fdaa2a1d31c2c67a003e9bdf7f6ac6",
+      "child_commit": "3ddf05d2e1b6fdde59c13b39f4c2ad17f96d02d8",
+      "expected_files": [
+        "src/sacas/io.py",
+        "src/sacas/models.py",
+        "tests/test_regions.py"
+      ],
+      "expected_symbols": [
+        "src/sacas/models.py::_non_empty_string",
+        "src/sacas/models.py::_optional_string_value",
+        "src/sacas/models.py::_positive_integer_value",
+        "tests/test_regions.py::test_manifest_direct_constructor_validates_machine_fields",
+        "tests/test_regions.py::test_write_text_atomic_normalizes_all_carriage_return_variants",
+        "tests/test_regions.py::test_write_text_atomic_removes_temp_file_after_persistence_failure",
+        "tests/test_regions.py::fail"
+      ],
+      "expected_tests": [
+        "tests/test_regions.py"
+      ],
+      "retrieved_files": [
+        "tests/test_regions.py",
+        "src/sacas/io.py",
+        "src/sacas/models.py",
+        "src/sacas/regions.py"
+      ],
+      "eval": {
+        "precision": 0.75,
+        "recall": 1.0
+      }
+    },
+    {
+      "task_id": "hist-4a02696c",
+      "goal": "docs: document sacas-root child constraint and local graph ranking",
+      "parent_commit": "ffa051c5835c6a5353ca6beaef368437054005f2",
+      "child_commit": "4a02696cbb35d34c6d238bb5e1b9c5a73e297740",
+      "expected_files": [
+        "README.md"
+      ],
+      "expected_symbols": [],
+      "expected_tests": [],
+      "retrieved_files": [
+        "tests/test_graphify.py",
+        "tests/test_graphify_providers.py",
+        "src/sacas/paths.py"
+      ],
+      "eval": {
+        "precision": 0.0,
+        "recall": 0.0
+      }
+    },
+    {
+      "task_id": "hist-4f0723d3",
+      "goal": "docs: add SACAS 0.2 routing implementation plan",
+      "parent_commit": "c14cd78ae8c7f9f8c10f089483036d9723f73c00",
+      "child_commit": "4f0723d3f77677fe19d44469ee3f3ad15b6d5587",
+      "expected_files": [
+        "docs/superpowers/plans/2026-08-18-sacas-v2-routing.md"
+      ],
+      "expected_symbols": [],
+      "expected_tests": [],
+      "retrieved_files": [
+        "tests/test_e2e_routing.py",
+        "tests/test_cli.py",
+        "tests/test_graphify.py",
+        "docs/superpowers/plans/2026-08-18-sacas-router.md",
+        "src/sacas/init.py"
+      ],
+      "eval": {
+        "precision": 0.0,
+        "recall": 0.0
+      }
+    },
+    {
+      "task_id": "hist-503dea29",
+      "goal": "fix(security): enforce repository read boundary",
+      "parent_commit": "b249e021f65f4f6aaf55b9f6676122464a5bfa62",
+      "child_commit": "503dea291e6d0eec404f976eeb386de351b6bff6",
+      "expected_files": [
+        "src/sacas/analysis.py",
+        "src/sacas/benchmark.py",
+        "src/sacas/benchmark_runner.py",
+        "src/sacas/budget.py",
+        "src/sacas/cli.py",
+        "src/sacas/graphify.py",
+        "src/sacas/io.py",
+        "src/sacas/modules.py",
+        "src/sacas/refresh.py",
+        "src/sacas/regions.py",
+        "src/sacas/repository.py",
+        "src/sacas/search.py",
+        "src/sacas/status.py",
+        "src/sacas/tasks.py",
+        "src/sacas/validate.py",
+        "tests/test_analysis.py",
+        "tests/test_benchmark_runner.py",
+        "tests/test_budget.py",
+        "tests/test_compiler.py",
+        "tests/test_graphify.py",
+        "tests/test_graphify_providers.py",
+        "tests/test_invalidation.py",
+        "tests/test_refresh.py",
+        "tests/test_repository_reads.py",
+        "tests/test_search.py",
+        "tests/test_task_secure_routing.py",
+        "tests/test_tasks.py",
+        "tests/test_validate.py"
+      ],
+      "expected_symbols": [
+        "src/sacas/analysis.py::_owned_file",
+        "src/sacas/analysis.py::_owned_directory",
+        "src/sacas/analysis.py::read_repo_source_bytes",
+        "src/sacas/analysis.py::update",
+        "src/sacas/benchmark.py::iter_repo_text_files",
+        "src/sacas/benchmark.py::parse_protected_boundaries",
+        "src/sacas/benchmark_runner.py::_get_repo_files",
+        "src/sacas/benchmark_runner.py::_get_repo_entries",
+        "src/sacas/benchmark_runner.py::__init__",
+        "src/sacas/benchmark_runner.py::RepositoryTextFile",
+        "src/sacas/benchmark_runner.py::iter_repo_text_files",
+        "src/sacas/benchmark_runner.py::parse_protected_boundaries",
+        "src/sacas/benchmark_runner.py::search",
+        "src/sacas/benchmark_runner.py::verify_capabilities",
+        "src/sacas/benchmark_runner.py::query",
+        "src/sacas/budget.py::add_repository_file_tokens",
+        "src/sacas/budget.py::__init__",
+        "src/sacas/cli.py::_hash_repo_source",
+        "src/sacas/cli.py::read_repo_source_bytes",
+        "src/sacas/cli.py::update",
+        "src/sacas/cli.py::query",
+        "src/sacas/graphify.py::GraphSnapshotError",
+        "src/sacas/graphify.py::__init__",
+        "src/sacas/graphify.py::read_graph_snapshot",
+        "src/sacas/graphify.py::_read_data",
+        "src/sacas/graphify.py::_optional_str",
+        "src/sacas/graphify.py::_node_path",
+        "src/sacas/graphify.py::_edge_relation",
+        "src/sacas/graphify.py::verify_capabilities",
+        "src/sacas/graphify.py::query",
+        "src/sacas/graphify.py::validate_query_contract",
+        "src/sacas/io.py::RepositoryTextFile",
+        "src/sacas/io.py::read_repo_source_bytes",
+        "src/sacas/io.py::iter_repo_text_files",
+        "src/sacas/modules.py::_owned_file",
+        "src/sacas/modules.py::_owned_directory",
+        "src/sacas/modules.py::_pnpm_package_patterns",
+        "src/sacas/modules.py::_package_name",
+        "src/sacas/modules.py::_package_data",
+        "src/sacas/modules.py::update",
+        "src/sacas/refresh.py::read_repo_source_bytes",
+        "src/sacas/refresh.py::parse_protected_boundaries",
+        "src/sacas/refresh.py::_source_hash",
+        "src/sacas/refresh.py::update",
+        "src/sacas/refresh.py::search",
+        "src/sacas/regions.py::search",
+        "src/sacas/regions.py::verify_capabilities",
+        "src/sacas/repository.py::_owned_file",
+        "src/sacas/search.py::__init__",
+        "src/sacas/search.py::iter_repo_text_files",
+        "src/sacas/search.py::update",
+        "src/sacas/search.py::search",
+        "src/sacas/status.py::read_repo_source_bytes",
+        "src/sacas/tasks.py::read_repo_source_bytes",
+        "src/sacas/tasks.py::is_explicit_rule_or_reference",
+        "src/sacas/tasks.py::parse_protected_boundaries",
+        "src/sacas/tasks.py::_source_hash",
+        "src/sacas/tasks.py::update",
+        "src/sacas/tasks.py::search",
+        "src/sacas/tasks.py::verify_capabilities",
+        "src/sacas/tasks.py::query",
+        "src/sacas/tasks.py::validate_query_contract",
+        "src/sacas/validate.py::read_repo_source_bytes",
+        "src/sacas/validate.py::parse_protected_boundaries",
+        "tests/test_analysis.py::test_pnpm_workspace_symlink_outside_repository_is_ignored",
+        "tests/test_analysis.py::test_module_detection_ignores_external_symlinked_package_manifest",
+        "tests/test_analysis.py::test_repository_metadata_and_directory_inventory_ignore_external_symlinks",
+        "tests/test_benchmark_runner.py::test_b0_and_b1_enumerate_only_secure_text_entries",
+        "tests/test_benchmark_runner.py::search",
+        "tests/test_budget.py::test_legacy_budget_ignores_binary_repository_rules_and_references",
+        "tests/test_compiler.py::__init__",
+        "tests/test_compiler.py::fixture_repo",
+        "tests/test_graphify.py::GraphSnapshotError",
+        "tests/test_graphify.py::read_graph_snapshot",
+        "tests/test_graphify.py::test_read_graph_snapshot_returns_controlled_errors_for_invalid_data",
+        "tests/test_graphify.py::test_read_graph_snapshot_enforces_the_raw_graph_size_limit",
+        "tests/test_graphify.py::test_read_graph_snapshot_rejects_invalid_node_or_edge_collections",
+        "tests/test_graphify.py::test_read_graph_snapshot_rejects_malformed_node_and_edge_entries",
+        "tests/test_graphify.py::update",
+        "tests/test_graphify.py::query",
+        "tests/test_graphify_providers.py::test_json_graphify_provider_omits_invalid_optional_fields",
+        "tests/test_graphify_providers.py::test_json_graphify_provider_treats_an_external_graph_symlink_as_unavailable",
+        "tests/test_graphify_providers.py::test_configured_json_provider_treats_invalid_snapshot_as_unavailable",
+        "tests/test_graphify_providers.py::test_json_graphify_provider_treats_oversized_snapshot_as_unavailable",
+        "tests/test_graphify_providers.py::test_configured_adapter_omits_hash_for_rejected_snapshot",
+        "tests/test_graphify_providers.py::test_configured_adapter_does_not_query_a_rejected_snapshot",
+        "tests/test_graphify_providers.py::queried_graphify",
+        "tests/test_graphify_providers.py::verify_capabilities",
+        "tests/test_graphify_providers.py::query",
+        "tests/test_invalidation.py::__init__",
+        "tests/test_invalidation.py::_source_hash",
+        "tests/test_invalidation.py::fixture_repo",
+        "tests/test_invalidation.py::update",
+        "tests/test_invalidation.py::query",
+        "tests/test_refresh.py::search",
+        "tests/test_repository_reads.py::read_repo_source_bytes",
+        "tests/test_repository_reads.py::iter_repo_text_files",
+        "tests/test_repository_reads.py::test_read_rejects_external_symlink",
+        "tests/test_repository_reads.py::test_read_repo_source_bytes_rejects_non_source_content",
+        "tests/test_repository_reads.py::test_iter_repo_text_files_is_sorted_and_excludes_protected_paths",
+        "tests/test_repository_reads.py::test_iter_repo_text_files_deduplicates_canonical_symlink_targets",
+        "tests/test_search.py::test_fallback_index_only_indexes_validated_repository_text",
+        "tests/test_search.py::update",
+        "tests/test_search.py::search",
+        "tests/test_task_secure_routing.py::__init__",
+        "tests/test_task_secure_routing.py::parse_protected_boundaries",
+        "tests/test_task_secure_routing.py::test_route_goal_never_admits_unreadable_explicit_source_across_context_layers",
+        "tests/test_task_secure_routing.py::test_route_goal_never_admits_an_external_symlink",
+        "tests/test_task_secure_routing.py::test_parse_protected_boundaries_rejects_external_symlink",
+        "tests/test_task_secure_routing.py::test_fallback_routing_drops_candidates_rejected_by_the_source_boundary",
+        "tests/test_task_secure_routing.py::FakeIndex",
+        "tests/test_task_secure_routing.py::update",
+        "tests/test_task_secure_routing.py::search",
+        "tests/test_task_secure_routing.py::test_graphify_routing_drops_candidates_rejected_by_the_source_boundary",
+        "tests/test_task_secure_routing.py::FakeProvider",
+        "tests/test_task_secure_routing.py::verify_capabilities",
+        "tests/test_task_secure_routing.py::query",
+        "tests/test_task_secure_routing.py::validate_query_contract",
+        "tests/test_task_secure_routing.py::test_heuristic_reference_routing_skips_external_symlink",
+        "tests/test_tasks.py::is_explicit_rule_or_reference",
+        "tests/test_tasks.py::test_explicit_rule_or_reference_is_identified_by_its_reason",
+        "tests/test_validate.py::test_validate_reports_invalid_symbol_range_for_a_readable_file"
+      ],
+      "expected_tests": [
+        "tests/test_analysis.py",
+        "tests/test_benchmark_runner.py",
+        "tests/test_budget.py",
+        "tests/test_compiler.py",
+        "tests/test_graphify.py",
+        "tests/test_graphify_providers.py",
+        "tests/test_invalidation.py",
+        "tests/test_refresh.py",
+        "tests/test_repository_reads.py",
+        "tests/test_search.py",
+        "tests/test_task_secure_routing.py",
+        "tests/test_tasks.py",
+        "tests/test_validate.py"
+      ],
+      "retrieved_files": [
+        "tests/test_repository_reads.py",
+        "src/sacas/enforce.py",
+        "tests/test_graphify.py",
+        "src/sacas/repository.py",
+        "src/sacas/io.py"
+      ],
+      "eval": {
+        "precision": 0.8,
+        "recall": 0.14285714285714285
+      }
+    },
+    {
+      "task_id": "hist-58a2edb3",
+      "goal": "docs: plan SACAS router implementation",
+      "parent_commit": "85508f8b5e984d9fd76480fddc1c7407fbfbced1",
+      "child_commit": "58a2edb3db87b433cfec2d0e9b409613e3bf4b60",
+      "expected_files": [
+        "docs/superpowers/plans/2026-08-18-sacas-router.md"
+      ],
+      "expected_symbols": [],
+      "expected_tests": [],
+      "retrieved_files": [
+        "docs/superpowers/specs/2026-08-18-sacas-router-design.md",
+        ".cursor/rules/sacas.mdc"
+      ],
+      "eval": {
+        "precision": 0.0,
+        "recall": 0.0
+      }
+    },
+    {
+      "task_id": "hist-5a22a51e",
+      "goal": "fix: align adapter ignores with SACAS root",
+      "parent_commit": "ae57426214f55c5121281c947ea3ffb242be38b1",
+      "child_commit": "5a22a51e0f103d83b2f23d0569241dbc88fc2f12",
+      "expected_files": [
+        "src/sacas/adapters.py",
+        "tests/test_adapters.py"
+      ],
+      "expected_symbols": [
+        "src/sacas/adapters.py::_sacas_metadata_ignore",
+        "tests/test_adapters.py::test_platform_ignore_uses_the_configured_sacas_root",
+        "tests/test_adapters.py::test_copilot_has_no_nonstandard_repository_ignore_file"
+      ],
+      "expected_tests": [
+        "tests/test_adapters.py"
+      ],
+      "retrieved_files": [
+        "src/sacas/adapters.py",
+        "tests/test_adapters.py",
+        "tests/test_init.py",
+        "tests/test_regions.py",
+        "src/sacas/init.py"
+      ],
+      "eval": {
+        "precision": 0.4,
+        "recall": 1.0
+      }
+    },
+    {
+      "task_id": "hist-5af4ec75",
+      "goal": "refactor: evolve SACAS into a graph-assisted Context Compiler",
+      "parent_commit": "5af4ec75fac776cdb262ba3e9d5ec1a72c4b071a",
+      "child_commit": "70fe7f03a56a1bd3ca8ee6f95e8c26fdacb223fe",
+      "expected_files": [
+        ".aiignore",
+        ".claudeignore",
+        ".cursor/rules/sacas.mdc",
+        ".cursorignore",
+        ".geminiignore",
+        ".github/copilot-instructions.md",
+        "AGENTS.md",
+        "CLAUDE.md",
+        "GEMINI.md",
+        "src/sacas/active_context.py",
+        "src/sacas/benchmark_runner.py",
+        "src/sacas/budget.py",
+        "src/sacas/cli.py",
+        "src/sacas/init.py",
+        "src/sacas/refresh.py",
+        "src/sacas/status.py",
+        "src/sacas/tasks.py",
+        "src/sacas/templates.py",
+        "src/sacas/validate.py"
+      ],
+      "expected_symbols": [
+        "src/sacas/active_context.py::all_files",
+        "src/sacas/benchmark_runner.py::calculate_manifest_tokens",
+        "src/sacas/budget.py::all_files",
+        "src/sacas/budget.py::calculate_manifest_tokens",
+        "src/sacas/cli.py::calculate_manifest_tokens",
+        "src/sacas/cli.py::pipeline_list_command",
+        "src/sacas/cli.py::pipeline_stage_command",
+        "src/sacas/cli.py::pipeline_review_command",
+        "src/sacas/cli.py::pipeline_run_command",
+        "src/sacas/init.py::claude_md_document",
+        "src/sacas/init.py::workspace_context_document",
+        "src/sacas/init.py::stage_context_template",
+        "src/sacas/init.py::config_conventions_document",
+        "src/sacas/init.py::config_voice_document",
+        "src/sacas/init.py::config_design_system_document",
+        "src/sacas/init.py::stage_output_readme",
+        "src/sacas/status.py::calculate_manifest_tokens",
+        "src/sacas/tasks.py::all_files",
+        "src/sacas/tasks.py::calculate_manifest_tokens",
+        "src/sacas/tasks.py::negotiated_policy_or_manifest",
+        "src/sacas/tasks.py::build_context_content",
+        "src/sacas/templates.py::claude_md_document",
+        "src/sacas/templates.py::workspace_context_document",
+        "src/sacas/templates.py::stage_context_template",
+        "src/sacas/templates.py::config_conventions_document",
+        "src/sacas/templates.py::config_voice_document",
+        "src/sacas/templates.py::config_design_system_document",
+        "src/sacas/templates.py::stage_output_readme",
+        "src/sacas/validate.py::all_files",
+        "src/sacas/validate.py::calculate_manifest_tokens"
+      ],
+      "expected_tests": [],
+      "retrieved_files": [
+        "src/sacas/graphify.py",
+        "tests/test_graphify.py",
+        "tests/test_graphify_providers.py"
+      ],
+      "eval": {
+        "precision": 0.0,
+        "recall": 0.0
+      }
+    },
+    {
+      "task_id": "hist-5b004328",
+      "goal": "fix: finalize SACAS 0.2 release consistency",
+      "parent_commit": "ca886a5e18b5531bcb1abd333392c4d8613a4c49",
+      "child_commit": "5b004328fd50269c7a82618c56c1dd0ca0f76b4a",
+      "expected_files": [
+        ".github/workflows/test.yml",
+        "README.md",
+        "pyproject.toml",
+        "src/sacas/__init__.py",
+        "src/sacas/refresh.py",
+        "src/sacas/validate.py",
+        "tests/test_cli.py",
+        "tests/test_e2e_routing.py"
+      ],
+      "expected_symbols": [],
+      "expected_tests": [
+        ".github/workflows/test.yml",
+        "tests/test_cli.py",
+        "tests/test_e2e_routing.py"
+      ],
+      "retrieved_files": [
+        "tests/test_cli.py",
+        "tests/test_graphify.py",
+        "src/sacas/init.py",
+        "src/sacas/paths.py",
+        "src/sacas/adapters.py"
+      ],
+      "eval": {
+        "precision": 0.2,
+        "recall": 0.125
+      }
+    },
+    {
+      "task_id": "hist-61a83f0a",
+      "goal": "docs: plan SACAS boundary completion",
+      "parent_commit": "e028e596b90179b1a195067193040eef1d514e7f",
+      "child_commit": "61a83f0a03ede463b3d45024f667851487377941",
+      "expected_files": [
+        "docs/superpowers/plans/2026-08-21-sacas-boundary-completion.md",
+        "docs/superpowers/specs/2026-08-21-sacas-boundary-completion-design.md"
+      ],
+      "expected_symbols": [],
+      "expected_tests": [
+        "docs/superpowers/specs/2026-08-21-sacas-boundary-completion-design.md"
+      ],
+      "retrieved_files": [
+        "tests/test_repository_reads.py",
+        "src/sacas/io.py",
+        "tests/test_cli.py",
+        "tests/test_graphify.py",
+        "tests/test_task_secure_routing.py"
+      ],
+      "eval": {
+        "precision": 0.0,
+        "recall": 0.0
+      }
+    },
+    {
+      "task_id": "hist-61cc1ea4",
+      "goal": "fix: preserve SACAS manifest configuration",
+      "parent_commit": "eee24535f98820f3f159f6ea743b1ddc2b2d97a7",
+      "child_commit": "61cc1ea4196ebc031778aef1417d0f2c963e0e12",
+      "expected_files": [
+        "README.md",
+        "src/sacas/init.py",
+        "src/sacas/paths.py",
+        "tests/test_init.py"
+      ],
+      "expected_symbols": [
+        "src/sacas/init.py::_load_manifest",
+        "src/sacas/paths.py::_load_from_locator",
+        "tests/test_init.py::test_repeat_init_preserves_existing_valid_manifest_configuration",
+        "tests/test_init.py::test_manifest_discovery_does_not_select_a_sibling_installation",
+        "tests/test_init.py::test_manifest_discovery_does_not_select_a_descendant_installation"
+      ],
+      "expected_tests": [
+        "tests/test_init.py"
+      ],
+      "retrieved_files": [
+        "tests/test_regions.py",
+        "tests/test_init.py",
+        "src/sacas/paths.py",
+        "tests/test_cli.py",
+        "src/sacas/init.py"
+      ],
+      "eval": {
+        "precision": 0.6,
+        "recall": 0.75
+      }
+    },
+    {
+      "task_id": "hist-629894c0",
+      "goal": "fix(benchmark): fail loudly on errors, delete dead constant, and document design boundary",
+      "parent_commit": "73f7c3316b8d44301e5b7f14ca071bc15d0a8055",
+      "child_commit": "629894c0cabb5c3d355744775f1869e59478475d",
+      "expected_files": [
+        "src/sacas/benchmark_runner.py",
+        "src/sacas/graphify.py",
+        "src/sacas/refresh.py"
+      ],
+      "expected_symbols": [],
+      "expected_tests": [],
+      "retrieved_files": [
+        "src/sacas/benchmark_runner.py",
+        "src/sacas/benchmark.py",
+        "tests/test_benchmark_runner.py",
+        "tests/test_regions.py",
+        "src/sacas/templates.py"
+      ],
+      "eval": {
+        "precision": 0.2,
+        "recall": 0.3333333333333333
+      }
+    },
+    {
+      "task_id": "hist-65a45826",
+      "goal": "fix: track root descriptor inventory",
+      "parent_commit": "a69ad17f6599991294ad54f2aaa3ec578d5164b2",
+      "child_commit": "65a45826f631fbb433f39e48bd578b9894b9fce8",
+      "expected_files": [
+        "src/sacas/analysis.py",
+        "tests/test_analysis.py"
+      ],
+      "expected_symbols": [
+        "src/sacas/analysis.py::_digest_marker",
+        "tests/test_analysis.py::test_analysis_detects_root_marker_creation_or_removal"
+      ],
+      "expected_tests": [
+        "tests/test_analysis.py"
+      ],
+      "retrieved_files": [
+        "tests/test_init.py",
+        "tests/test_adapters.py",
+        "tests/test_analysis.py",
+        "src/sacas/init.py",
+        "src/sacas/paths.py"
+      ],
+      "eval": {
+        "precision": 0.2,
+        "recall": 0.5
+      }
+    },
+    {
+      "task_id": "hist-70fe7f03",
+      "goal": "refactor: evolve SACAS into a graph-assisted Context Compiler",
+      "parent_commit": "629894c0cabb5c3d355744775f1869e59478475d",
+      "child_commit": "70fe7f03a56a1bd3ca8ee6f95e8c26fdacb223fe",
+      "expected_files": [
+        "src/sacas/active_context.py",
+        "src/sacas/benchmark_runner.py",
+        "src/sacas/budget.py",
+        "src/sacas/cli.py",
+        "src/sacas/graphify.py",
+        "src/sacas/migrate.py",
+        "src/sacas/refresh.py",
+        "src/sacas/regions.py",
+        "src/sacas/status.py",
+        "src/sacas/task_contract.py",
+        "src/sacas/tasks.py",
+        "src/sacas/validate.py",
+        "tests/fakes.py",
+        "tests/test_e2e_routing.py",
+        "tests/test_node_resolution.py",
+        "tests/test_refresh.py"
+      ],
+      "expected_symbols": [
+        "src/sacas/active_context.py::normalize_selections",
+        "src/sacas/active_context.py::TaskContract",
+        "src/sacas/active_context.py::to_dict",
+        "src/sacas/active_context.py::from_dict",
+        "src/sacas/active_context.py::save_task_contract",
+        "src/sacas/active_context.py::load_task_contract",
+        "src/sacas/active_context.py::task_contract_hash",
+        "src/sacas/benchmark_runner.py::calculate_manifest_tokens",
+        "src/sacas/benchmark_runner.py::to_dict",
+        "src/sacas/benchmark_runner.py::task_contract_hash",
+        "src/sacas/budget.py::BudgetPlan",
+        "src/sacas/budget.py::calculate_manifest_tokens",
+        "src/sacas/budget.py::compile_budget_report",
+        "src/sacas/budget.py::add_file_tokens",
+        "src/sacas/budget.py::normalize_selections",
+        "src/sacas/budget.py::f_tokens",
+        "src/sacas/budget.py::to_dict",
+        "src/sacas/budget.py::from_dict",
+        "src/sacas/cli.py::calculate_manifest_tokens",
+        "src/sacas/cli.py::query",
+        "src/sacas/cli.py::to_dict",
+        "src/sacas/cli.py::task_contract_hash",
+        "src/sacas/graphify.py::GraphQueryNode",
+        "src/sacas/graphify.py::GraphQueryEdge",
+        "src/sacas/graphify.py::query",
+        "src/sacas/graphify.py::to_dict",
+        "src/sacas/migrate.py::TaskContract",
+        "src/sacas/migrate.py::to_dict",
+        "src/sacas/migrate.py::save_task_contract",
+        "src/sacas/migrate.py::task_contract_hash",
+        "src/sacas/refresh.py::compile_budget_report",
+        "src/sacas/refresh.py::load_task_contract",
+        "src/sacas/regions.py::resolve_node_range",
+        "src/sacas/regions.py::find_python_ast_symbol_at_line",
+        "src/sacas/regions.py::normalize_selections",
+        "src/sacas/status.py::calculate_manifest_tokens",
+        "src/sacas/status.py::f_tokens",
+        "src/sacas/task_contract.py::TaskContract",
+        "src/sacas/task_contract.py::to_dict",
+        "src/sacas/task_contract.py::from_dict",
+        "src/sacas/task_contract.py::save_task_contract",
+        "src/sacas/task_contract.py::load_task_contract",
+        "src/sacas/task_contract.py::task_contract_hash",
+        "src/sacas/tasks.py::calculate_manifest_tokens",
+        "src/sacas/tasks.py::query",
+        "src/sacas/tasks.py::resolve_node_range",
+        "src/sacas/tasks.py::TaskContract",
+        "src/sacas/tasks.py::to_dict",
+        "src/sacas/tasks.py::save_task_contract",
+        "src/sacas/tasks.py::load_task_contract",
+        "src/sacas/tasks.py::task_contract_hash",
+        "src/sacas/validate.py::calculate_manifest_tokens",
+        "src/sacas/validate.py::TaskContract",
+        "src/sacas/validate.py::load_task_contract",
+        "src/sacas/validate.py::task_contract_hash",
+        "tests/fakes.py::query",
+        "tests/test_node_resolution.py::resolve_node_range",
+        "tests/test_node_resolution.py::find_python_ast_symbol_at_line",
+        "tests/test_node_resolution.py::normalize_selections",
+        "tests/test_node_resolution.py::test_find_python_ast_symbol_at_line",
+        "tests/test_node_resolution.py::test_resolve_node_range",
+        "tests/test_node_resolution.py::test_normalize_selections",
+        "tests/test_refresh.py::load_task_contract",
+        "tests/test_refresh.py::test_refresh_preserves_contract_criteria_constraints_verification"
+      ],
+      "expected_tests": [
+        "tests/fakes.py",
+        "tests/test_e2e_routing.py",
+        "tests/test_node_resolution.py",
+        "tests/test_refresh.py"
+      ],
+      "retrieved_files": [
+        "tests/test_graphify.py",
+        "src/sacas/graphify.py",
+        "src/sacas/budget.py",
+        "tests/test_graphify_providers.py"
+      ],
+      "eval": {
+        "precision": 0.5,
+        "recall": 0.125
+      }
+    },
+    {
+      "task_id": "hist-7272595d",
+      "goal": "fix: prevent split SACAS installations",
+      "parent_commit": "61cc1ea4196ebc031778aef1417d0f2c963e0e12",
+      "child_commit": "7272595d1abbddf90c38267b9569ad3680d91cb9",
+      "expected_files": [
+        "README.md",
+        "src/sacas/init.py",
+        "src/sacas/paths.py",
+        "tests/test_init.py"
+      ],
+      "expected_symbols": [
+        "tests/test_init.py::test_init_refuses_to_create_a_second_install_from_a_custom_install"
+      ],
+      "expected_tests": [
+        "tests/test_init.py"
+      ],
+      "retrieved_files": [
+        "tests/test_cli.py",
+        "src/sacas/init.py",
+        "src/sacas/paths.py",
+        ".cursor/rules/sacas.mdc",
+        "docs/superpowers/plans/2026-08-18-sacas-router.md"
+      ],
+      "eval": {
+        "precision": 0.4,
+        "recall": 0.5
+      }
+    },
+    {
+      "task_id": "hist-73f7c331",
+      "goal": "fix(release): fix capabilities probing, isolated benchmark routing, deterministic ranking, and recalls",
+      "parent_commit": "3967b257a2cee2e70b1388a977eddf811a4d03c0",
+      "child_commit": "73f7c3316b8d44301e5b7f14ca071bc15d0a8055",
+      "expected_files": [
+        "src/sacas/benchmark_runner.py",
+        "src/sacas/cli.py",
+        "src/sacas/graphify.py",
+        "src/sacas/refresh.py",
+        "src/sacas/tasks.py",
+        "tests/test_benchmark_runner.py"
+      ],
+      "expected_symbols": [
+        "src/sacas/benchmark_runner.py::generate_candidates_for_manifest",
+        "src/sacas/benchmark_runner.py::route_goal",
+        "src/sacas/cli.py::generate_task",
+        "src/sacas/refresh.py::generate_candidates_for_manifest",
+        "src/sacas/refresh.py::generate_task",
+        "src/sacas/tasks.py::generate_task",
+        "src/sacas/tasks.py::route_goal"
+      ],
+      "expected_tests": [
+        "tests/test_benchmark_runner.py"
+      ],
+      "retrieved_files": [
+        "src/sacas/benchmark_runner.py",
+        "src/sacas/benchmark.py",
+        "tests/test_e2e_routing.py",
+        "tests/test_benchmark_runner.py"
+      ],
+      "eval": {
+        "precision": 0.5,
+        "recall": 0.3333333333333333
+      }
+    },
+    {
+      "task_id": "hist-7c3dbb87",
+      "goal": "feat(routing): implement SACAS 0.3 Measurable Context Routing",
+      "parent_commit": "5b004328fd50269c7a82618c56c1dd0ca0f76b4a",
+      "child_commit": "7c3dbb87998a34b8f297fe75a10300eedce49d36",
+      "expected_files": [
+        "src/sacas/active_context.py",
+        "src/sacas/benchmark.py",
+        "src/sacas/benchmark_runner.py",
+        "src/sacas/budget.py",
+        "src/sacas/cli.py",
+        "src/sacas/enforce.py",
+        "src/sacas/graphify.py",
+        "src/sacas/migrate.py",
+        "src/sacas/models.py",
+        "src/sacas/refresh.py",
+        "src/sacas/regions.py",
+        "src/sacas/search.py",
+        "src/sacas/status.py",
+        "src/sacas/tasks.py",
+        "src/sacas/validate.py",
+        "tests/fakes.py",
+        "tests/test_active_context.py",
+        "tests/test_benchmark_runner.py",
+        "tests/test_budget.py",
+        "tests/test_cli_commands.py",
+        "tests/test_e2e_routing.py",
+        "tests/test_enforce.py",
+        "tests/test_graphify_providers.py",
+        "tests/test_refresh.py",
+        "tests/test_regions.py",
+        "tests/test_search.py",
+        "tests/test_tasks.py"
+      ],
+      "expected_symbols": [
+        "src/sacas/active_context.py::SourceRange",
+        "src/sacas/active_context.py::to_dict",
+        "src/sacas/active_context.py::from_dict",
+        "src/sacas/active_context.py::ActiveSymbolContext",
+        "src/sacas/active_context.py::ActiveFileContext",
+        "src/sacas/active_context.py::ActiveRuleContext",
+        "src/sacas/active_context.py::ActiveReferenceContext",
+        "src/sacas/active_context.py::AdmissionEvent",
+        "src/sacas/active_context.py::ContextBudgetState",
+        "src/sacas/active_context.py::ContextPolicyState",
+        "src/sacas/active_context.py::ActiveContextManifest",
+        "src/sacas/active_context.py::load_active_context",
+        "src/sacas/active_context.py::save_active_context",
+        "src/sacas/active_context.py::migrate_legacy_active_context",
+        "src/sacas/active_context.py::enforce_cursor_negation_patterns",
+        "src/sacas/active_context.py::enforce",
+        "src/sacas/active_context.py::load",
+        "src/sacas/active_context.py::save",
+        "src/sacas/benchmark.py::load_active_context",
+        "src/sacas/benchmark.py::calculate_manifest_tokens",
+        "src/sacas/benchmark.py::load",
+        "src/sacas/benchmark_runner.py::to_dict",
+        "src/sacas/benchmark_runner.py::ActiveContextManifest",
+        "src/sacas/benchmark_runner.py::RoutingBenchmarkResult",
+        "src/sacas/benchmark_runner.py::__init__",
+        "src/sacas/benchmark_runner.py::run_routing_benchmark",
+        "src/sacas/budget.py::to_dict",
+        "src/sacas/budget.py::ActiveContextManifest",
+        "src/sacas/budget.py::__init__",
+        "src/sacas/budget.py::ContextTokenBreakdown",
+        "src/sacas/budget.py::calculate_manifest_tokens",
+        "src/sacas/budget.py::add_file_tokens",
+        "src/sacas/budget.py::extract_symbol_range",
+        "src/sacas/budget.py::extract_markdown_section",
+        "src/sacas/budget.py::load",
+        "src/sacas/cli.py::ActiveSymbolContext",
+        "src/sacas/cli.py::ActiveFileContext",
+        "src/sacas/cli.py::ActiveRuleContext",
+        "src/sacas/cli.py::ActiveReferenceContext",
+        "src/sacas/cli.py::AdmissionEvent",
+        "src/sacas/cli.py::ActiveContextManifest",
+        "src/sacas/cli.py::load_active_context",
+        "src/sacas/cli.py::save_active_context",
+        "src/sacas/cli.py::enforce_cursor_negation_patterns",
+        "src/sacas/cli.py::calculate_manifest_tokens",
+        "src/sacas/cli.py::expand_context_command",
+        "src/sacas/cli.py::query_why_command",
+        "src/sacas/cli.py::doctor_command",
+        "src/sacas/cli.py::enforce",
+        "src/sacas/cli.py::query",
+        "src/sacas/cli.py::load",
+        "src/sacas/cli.py::save",
+        "src/sacas/cli.py::update",
+        "src/sacas/enforce.py::ActiveContextManifest",
+        "src/sacas/enforce.py::enforce_cursor_negation_patterns",
+        "src/sacas/enforce.py::ContextEnforcementProvider",
+        "src/sacas/enforce.py::enforce",
+        "src/sacas/enforce.py::AdvisoryEnforcementProvider",
+        "src/sacas/enforce.py::CursorEnforcementProvider",
+        "src/sacas/graphify.py::to_dict",
+        "src/sacas/graphify.py::__init__",
+        "src/sacas/graphify.py::GraphifyProvider",
+        "src/sacas/graphify.py::verify_capabilities",
+        "src/sacas/graphify.py::query",
+        "src/sacas/graphify.py::CliGraphifyProvider",
+        "src/sacas/graphify.py::JsonGraphifyProvider",
+        "src/sacas/graphify.py::load",
+        "src/sacas/graphify.py::search",
+        "src/sacas/migrate.py::to_dict",
+        "src/sacas/migrate.py::ActiveContextManifest",
+        "src/sacas/migrate.py::save_active_context",
+        "src/sacas/migrate.py::save",
+        "src/sacas/models.py::to_dict",
+        "src/sacas/models.py::from_dict",
+        "src/sacas/refresh.py::to_dict",
+        "src/sacas/refresh.py::ActiveFileContext",
+        "src/sacas/refresh.py::ActiveContextManifest",
+        "src/sacas/refresh.py::load_active_context",
+        "src/sacas/refresh.py::save_active_context",
+        "src/sacas/refresh.py::FallbackIndex",
+        "src/sacas/refresh.py::load",
+        "src/sacas/refresh.py::save",
+        "src/sacas/refresh.py::update",
+        "src/sacas/refresh.py::search",
+        "src/sacas/regions.py::extract_symbol_range",
+        "src/sacas/regions.py::extract_markdown_section",
+        "src/sacas/regions.py::normalize_heading",
+        "src/sacas/search.py::__init__",
+        "src/sacas/search.py::FallbackIndex",
+        "src/sacas/search.py::load",
+        "src/sacas/search.py::save",
+        "src/sacas/search.py::update",
+        "src/sacas/search.py::search",
+        "src/sacas/status.py::load_active_context",
+        "src/sacas/status.py::load",
+        "src/sacas/tasks.py::SourceRange",
+        "src/sacas/tasks.py::to_dict",
+        "src/sacas/tasks.py::ActiveSymbolContext",
+        "src/sacas/tasks.py::ActiveFileContext",
+        "src/sacas/tasks.py::ActiveRuleContext",
+        "src/sacas/tasks.py::ActiveReferenceContext",
+        "src/sacas/tasks.py::AdmissionEvent",
+        "src/sacas/tasks.py::ContextBudgetState",
+        "src/sacas/tasks.py::ContextPolicyState",
+        "src/sacas/tasks.py::ActiveContextManifest",
+        "src/sacas/tasks.py::load_active_context",
+        "src/sacas/tasks.py::save_active_context",
+        "src/sacas/tasks.py::enforce_cursor_negation_patterns",
+        "src/sacas/tasks.py::calculate_manifest_tokens",
+        "src/sacas/tasks.py::enforce",
+        "src/sacas/tasks.py::verify_capabilities",
+        "src/sacas/tasks.py::query",
+        "src/sacas/tasks.py::FallbackIndex",
+        "src/sacas/tasks.py::load",
+        "src/sacas/tasks.py::save",
+        "src/sacas/tasks.py::update",
+        "src/sacas/tasks.py::search",
+        "src/sacas/tasks.py::run_fallback_routing",
+        "src/sacas/tasks.py::route_rules_and_references",
+        "src/sacas/validate.py::load_active_context",
+        "src/sacas/validate.py::load",
+        "tests/fakes.py::__init__",
+        "tests/fakes.py::GraphifyProvider",
+        "tests/fakes.py::verify_capabilities",
+        "tests/fakes.py::query",
+        "tests/fakes.py::FakeGraphifyProvider",
+        "tests/test_active_context.py::SourceRange",
+        "tests/test_active_context.py::to_dict",
+        "tests/test_active_context.py::from_dict",
+        "tests/test_active_context.py::ActiveSymbolContext",
+        "tests/test_active_context.py::ActiveFileContext",
+        "tests/test_active_context.py::ActiveContextManifest",
+        "tests/test_active_context.py::load_active_context",
+        "tests/test_active_context.py::save_active_context",
+        "tests/test_active_context.py::migrate_legacy_active_context",
+        "tests/test_active_context.py::load",
+        "tests/test_active_context.py::save",
+        "tests/test_active_context.py::test_active_context_manifest_serialization",
+        "tests/test_active_context.py::test_legacy_expansions_migration",
+        "tests/test_benchmark_runner.py::ActiveFileContext",
+        "tests/test_benchmark_runner.py::ActiveContextManifest",
+        "tests/test_benchmark_runner.py::run_routing_benchmark",
+        "tests/test_benchmark_runner.py::test_run_routing_benchmark",
+        "tests/test_budget.py::SourceRange",
+        "tests/test_budget.py::ActiveSymbolContext",
+        "tests/test_budget.py::ActiveFileContext",
+        "tests/test_budget.py::ActiveRuleContext",
+        "tests/test_budget.py::ActiveReferenceContext",
+        "tests/test_budget.py::ActiveContextManifest",
+        "tests/test_budget.py::calculate_manifest_tokens",
+        "tests/test_budget.py::load",
+        "tests/test_budget.py::test_calculate_manifest_tokens",
+        "tests/test_cli_commands.py::load_active_context",
+        "tests/test_cli_commands.py::load",
+        "tests/test_cli_commands.py::update",
+        "tests/test_cli_commands.py::test_expand_why_doctor_cli_commands",
+        "tests/test_e2e_routing.py::load_active_context",
+        "tests/test_e2e_routing.py::load",
+        "tests/test_enforce.py::ActiveFileContext",
+        "tests/test_enforce.py::ActiveContextManifest",
+        "tests/test_enforce.py::enforce",
+        "tests/test_enforce.py::AdvisoryEnforcementProvider",
+        "tests/test_enforce.py::CursorEnforcementProvider",
+        "tests/test_enforce.py::test_enforce_cursor_patterns",
+        "tests/test_graphify_providers.py::GraphifyProvider",
+        "tests/test_graphify_providers.py::verify_capabilities",
+        "tests/test_graphify_providers.py::query",
+        "tests/test_graphify_providers.py::CliGraphifyProvider",
+        "tests/test_graphify_providers.py::JsonGraphifyProvider",
+        "tests/test_graphify_providers.py::FakeGraphifyProvider",
+        "tests/test_graphify_providers.py::test_json_graphify_provider",
+        "tests/test_graphify_providers.py::test_fake_graphify_provider",
+        "tests/test_refresh.py::load",
+        "tests/test_refresh.py::search",
+        "tests/test_regions.py::to_dict",
+        "tests/test_regions.py::from_dict",
+        "tests/test_regions.py::extract_symbol_range",
+        "tests/test_regions.py::extract_markdown_section",
+        "tests/test_regions.py::load",
+        "tests/test_regions.py::test_extract_symbol_range_python",
+        "tests/test_regions.py::test_extract_symbol_range_braces",
+        "tests/test_regions.py::test_extract_markdown_section",
+        "tests/test_search.py::FallbackIndex",
+        "tests/test_search.py::save",
+        "tests/test_search.py::update",
+        "tests/test_search.py::search",
+        "tests/test_search.py::test_fallback_index_lifecycle",
+        "tests/test_tasks.py::load_active_context",
+        "tests/test_tasks.py::load"
+      ],
+      "expected_tests": [
+        "tests/fakes.py",
+        "tests/test_active_context.py",
+        "tests/test_benchmark_runner.py",
+        "tests/test_budget.py",
+        "tests/test_cli_commands.py",
+        "tests/test_e2e_routing.py",
+        "tests/test_enforce.py",
+        "tests/test_graphify_providers.py",
+        "tests/test_refresh.py",
+        "tests/test_regions.py",
+        "tests/test_search.py",
+        "tests/test_tasks.py"
+      ],
+      "retrieved_files": [
+        "src/sacas/budget.py",
+        "tests/test_e2e_routing.py",
+        "src/sacas/benchmark.py",
+        "tests/test_cli.py",
+        "tests/test_graphify.py"
+      ],
+      "eval": {
+        "precision": 0.6,
+        "recall": 0.1111111111111111
+      }
+    },
+    {
+      "task_id": "hist-82c8bcd4",
+      "goal": "feat: consume optional Graphify evidence",
+      "parent_commit": "8ee4d59992efe447c4dbc6e26ae035f208fe3e0a",
+      "child_commit": "82c8bcd43ab110a40eb69b1886ab71fc0a3b9332",
+      "expected_files": [
+        "src/sacas/cli.py",
+        "src/sacas/graphify.py",
+        "src/sacas/map.py",
+        "tests/fixtures/graphify-out/graph.json",
+        "tests/test_graphify.py"
+      ],
+      "expected_symbols": [
+        "src/sacas/cli.py::collect_graphify",
+        "src/sacas/cli.py::write_graphify_manifest",
+        "src/sacas/cli.py::build_system_map",
+        "src/sacas/cli.py::write_system_map",
+        "src/sacas/graphify.py::GraphifyEvidence",
+        "src/sacas/graphify.py::to_dict",
+        "src/sacas/graphify.py::collect_graphify",
+        "src/sacas/graphify.py::safe_query",
+        "src/sacas/graphify.py::write_graphify_manifest",
+        "src/sacas/graphify.py::read_graphify_manifest",
+        "src/sacas/graphify.py::_run",
+        "src/sacas/graphify.py::_empty",
+        "src/sacas/graphify.py::_nodes",
+        "src/sacas/graphify.py::_edges",
+        "src/sacas/graphify.py::_communities",
+        "src/sacas/graphify.py::_has_newer_source",
+        "src/sacas/graphify.py::runner",
+        "src/sacas/map.py::GraphifyEvidence",
+        "src/sacas/map.py::Community",
+        "src/sacas/map.py::SystemMap",
+        "src/sacas/map.py::ImpactRecord",
+        "src/sacas/map.py::build_system_map",
+        "src/sacas/map.py::render_system_map",
+        "src/sacas/map.py::write_system_map",
+        "src/sacas/map.py::impact_records",
+        "tests/test_graphify.py::collect_graphify",
+        "tests/test_graphify.py::safe_query",
+        "tests/test_graphify.py::write_graphify_manifest",
+        "tests/test_graphify.py::read_graphify_manifest",
+        "tests/test_graphify.py::Community",
+        "tests/test_graphify.py::build_system_map",
+        "tests/test_graphify.py::render_system_map",
+        "tests/test_graphify.py::write_system_map",
+        "tests/test_graphify.py::impact_records",
+        "tests/test_graphify.py::graph_fixture",
+        "tests/test_graphify.py::test_off_mode_does_not_read_or_invoke_graphify",
+        "tests/test_graphify.py::test_existing_mode_reads_compatible_graph_with_hash_and_provenance",
+        "tests/test_graphify.py::test_existing_mode_is_graceful_when_graph_is_absent_or_stale",
+        "tests/test_graphify.py::test_code_only_uses_graphify_cli_local_extraction_without_semantic_flags",
+        "tests/test_graphify.py::runner",
+        "tests/test_graphify.py::test_semantic_mode_requires_explicit_mode_and_is_the_only_mode_with_semantic_flag",
+        "tests/test_graphify.py::test_failed_optional_graphify_execution_returns_evidence_warning",
+        "tests/test_graphify.py::test_safe_query_returns_no_result_when_graphify_cli_is_unavailable",
+        "tests/test_graphify.py::test_system_map_uses_community_evidence_without_tasks_or_protected_boundaries",
+        "tests/test_graphify.py::test_impact_records_are_bounded_to_direct_relationship_types",
+        "tests/test_graphify.py::test_graph_manifest_and_system_map_persist_deterministically",
+        "tests/test_graphify.py::test_cli_map_consumes_existing_graph_and_writes_only_map_artifacts"
+      ],
+      "expected_tests": [
+        "tests/fixtures/graphify-out/graph.json",
+        "tests/test_graphify.py"
+      ],
+      "retrieved_files": [
+        "src/sacas/repository.py",
+        "src/sacas/models.py",
+        "tests/test_regions.py",
+        "tests/test_adapters.py",
+        "scripts/read-graphify.ps1"
+      ],
+      "eval": {
+        "precision": 0.0,
+        "recall": 0.0
+      }
+    },
+    {
+      "task_id": "hist-85508f8b",
+      "goal": "docs: define SACAS router design",
+      "parent_commit": "f3f222119fcf5a01f5eff830171872d1f28b84a8",
+      "child_commit": "85508f8b5e984d9fd76480fddc1c7407fbfbced1",
+      "expected_files": [
+        "docs/superpowers/specs/2026-08-18-sacas-router-design.md"
+      ],
+      "expected_symbols": [],
+      "expected_tests": [
+        "docs/superpowers/specs/2026-08-18-sacas-router-design.md"
+      ],
+      "retrieved_files": [
+        ".cursor/rules/sacas.mdc"
+      ],
+      "eval": {
+        "precision": 0.0,
+        "recall": 0.0
+      }
+    },
+    {
+      "task_id": "hist-85d63f96",
+      "goal": "feat(routing): cutoff admission on goal-relevance scores",
+      "parent_commit": "4a02696cbb35d34c6d238bb5e1b9c5a73e297740",
+      "child_commit": "85d63f969f87993f5b098cfcb83b4cfd52461c4f",
+      "expected_files": [
+        "src/sacas/graphify.py",
+        "src/sacas/tasks.py",
+        "tests/test_e2e_routing.py"
+      ],
+      "expected_symbols": [
+        "src/sacas/graphify.py::_attach_local_goal_scores",
+        "src/sacas/graphify.py::verify_capabilities",
+        "src/sacas/graphify.py::query",
+        "src/sacas/graphify.py::validate_query_contract",
+        "src/sacas/graphify.py::neighbors",
+        "src/sacas/graphify.py::communities",
+        "src/sacas/graphify.py::locate_symbol",
+        "src/sacas/tasks.py::query",
+        "tests/test_e2e_routing.py::test_route_goal_stops_at_goal_rank_cutoff",
+        "tests/test_e2e_routing.py::ScoredProvider",
+        "tests/test_e2e_routing.py::verify_capabilities",
+        "tests/test_e2e_routing.py::query",
+        "tests/test_e2e_routing.py::validate_query_contract",
+        "tests/test_e2e_routing.py::neighbors",
+        "tests/test_e2e_routing.py::communities",
+        "tests/test_e2e_routing.py::locate_symbol"
+      ],
+      "expected_tests": [
+        "tests/test_e2e_routing.py"
+      ],
+      "retrieved_files": [
+        "tests/test_task_secure_routing.py",
+        "tests/test_graphify_providers.py"
+      ],
+      "eval": {
+        "precision": 0.0,
+        "recall": 0.0
+      }
+    },
+    {
+      "task_id": "hist-8e3b395b",
+      "goal": "feat: add versioned manifest and safe regions",
+      "parent_commit": "cb03357dffcfe7482792e68d5e0b79ffc8081e84",
+      "child_commit": "8e3b395b712289c7fd97584fddbbadb47868fcdc",
+      "expected_files": [
+        "src/sacas/io.py",
+        "src/sacas/models.py",
+        "src/sacas/regions.py",
+        "tests/test_regions.py"
+      ],
+      "expected_symbols": [
+        "src/sacas/io.py::stable_json",
+        "src/sacas/io.py::write_text_atomic",
+        "src/sacas/io.py::write_json_atomic",
+        "src/sacas/models.py::SchemaVersionError",
+        "src/sacas/models.py::Manifest",
+        "src/sacas/models.py::__post_init__",
+        "src/sacas/models.py::to_dict",
+        "src/sacas/models.py::from_dict",
+        "src/sacas/models.py::_required_string",
+        "src/sacas/models.py::_optional_string",
+        "src/sacas/models.py::_positive_integer",
+        "src/sacas/regions.py::RegionError",
+        "src/sacas/regions.py::replace_region",
+        "src/sacas/regions.py::render_region",
+        "src/sacas/regions.py::_validate_name",
+        "tests/test_regions.py::stable_json",
+        "tests/test_regions.py::SchemaVersionError",
+        "tests/test_regions.py::Manifest",
+        "tests/test_regions.py::to_dict",
+        "tests/test_regions.py::from_dict",
+        "tests/test_regions.py::replace_region",
+        "tests/test_regions.py::test_manifest_serializes_stably_and_round_trips",
+        "tests/test_regions.py::test_manifest_rejects_unsupported_schema_version",
+        "tests/test_regions.py::test_replace_region_changes_only_owned_region_and_preserves_manual_text"
+      ],
+      "expected_tests": [
+        "tests/test_regions.py"
+      ],
+      "retrieved_files": [],
+      "eval": {
+        "precision": 0.0,
+        "recall": 0.0
+      }
+    },
+    {
+      "task_id": "hist-8ee4d599",
+      "goal": "fix: accept indented pnpm workspace entries",
+      "parent_commit": "213ffad5915948427a8b41b5966b95b2f22cca26",
+      "child_commit": "8ee4d59992efe447c4dbc6e26ae035f208fe3e0a",
+      "expected_files": [
+        "src/sacas/modules.py",
+        "tests/test_analysis.py"
+      ],
+      "expected_symbols": [
+        "tests/test_analysis.py::test_pnpm_workspace_parser_accepts_four_space_package_indentation"
+      ],
+      "expected_tests": [
+        "tests/test_analysis.py"
+      ],
+      "retrieved_files": [
+        "tests/test_analysis.py",
+        "src/sacas/modules.py",
+        "tests/fixtures/node-monorepo/pnpm-workspace.yaml",
+        "tests/test_init.py",
+        "tests/fixtures/rust-workspace/Cargo.toml"
+      ],
+      "eval": {
+        "precision": 0.4,
+        "recall": 1.0
+      }
+    },
+    {
+      "task_id": "hist-8f4df37f",
+      "goal": "fix(init): keep lean setup workflow-free",
+      "parent_commit": "f62041ade3c89d87621bbcb0af8de98a40961134",
+      "child_commit": "8f4df37f941c26b788d7d281d2b6888507932162",
+      "expected_files": [
+        "README.md",
+        "src/sacas/cli.py",
+        "src/sacas/init.py",
+        "tests/test_cli_commands.py",
+        "tests/test_init.py"
+      ],
+      "expected_symbols": [
+        "tests/test_cli_commands.py::test_lean_init_pipeline_commands_explain_how_to_create_workflow_stages",
+        "tests/test_init.py::test_default_init_omits_workflow_only_workspace_artifacts",
+        "tests/test_init.py::test_workflow_init_creates_workspace_artifacts",
+        "tests/test_init.py::test_workflow_init_refuses_repository_root_placement_before_writing",
+        "tests/test_init.py::test_lean_reinit_preserves_existing_workflow_artifacts_and_human_content"
+      ],
+      "expected_tests": [
+        "tests/test_cli_commands.py",
+        "tests/test_init.py"
+      ],
+      "retrieved_files": [
+        "tests/test_init.py",
+        "src/sacas/init.py"
+      ],
+      "eval": {
+        "precision": 1.0,
+        "recall": 0.4
+      }
+    },
+    {
+      "task_id": "hist-a08eb57c",
+      "goal": "fix: preserve root-level Graphify freshness",
+      "parent_commit": "2871f3db2957b50b3700bb842d11ebc812a7b4f1",
+      "child_commit": "a08eb57cf97fc5b5f919ef22224085afdf5d2755",
+      "expected_files": [
+        "src/sacas/graphify.py",
+        "tests/test_graphify.py"
+      ],
+      "expected_symbols": [
+        "tests/test_graphify.py::test_root_level_sacas_state_does_not_hide_source_staleness",
+        "tests/test_graphify.py::test_graphify_output_cannot_be_repository_root"
+      ],
+      "expected_tests": [
+        "tests/test_graphify.py"
+      ],
+      "retrieved_files": [
+        "tests/test_graphify.py",
+        "tests/test_init.py",
+        "src/sacas/graphify.py",
+        "tests/test_adapters.py",
+        "tests/test_regions.py"
+      ],
+      "eval": {
+        "precision": 0.4,
+        "recall": 1.0
+      }
+    },
+    {
+      "task_id": "hist-a69ad17f",
+      "goal": "fix: track conventional module containers",
+      "parent_commit": "f21c525525e12a41188769b29aae69f5bae514c1",
+      "child_commit": "a69ad17f6599991294ad54f2aaa3ec578d5164b2",
+      "expected_files": [
+        "src/sacas/analysis.py",
+        "tests/test_analysis.py"
+      ],
+      "expected_symbols": [
+        "tests/test_analysis.py::test_analysis_detects_later_creation_of_previously_absent_module_container",
+        "tests/test_analysis.py::test_analysis_detects_heuristic_module_topology_changes"
+      ],
+      "expected_tests": [
+        "tests/test_analysis.py"
+      ],
+      "retrieved_files": [
+        "tests/test_analysis.py",
+        "src/sacas/modules.py",
+        "scripts/detect-modules.ps1"
+      ],
+      "eval": {
+        "precision": 0.3333333333333333,
+        "recall": 0.5
+      }
+    },
+    {
+      "task_id": "hist-a7eb6ad9",
+      "goal": "ci: fix invalid yaml in graphify verify step",
+      "parent_commit": "e4a249170ec4f2bcfaf92248b93d63cba0234a3f",
+      "child_commit": "a7eb6ad9e9892f71467d632f1958dd025a927d1d",
+      "expected_files": [
+        ".github/workflows/test.yml"
+      ],
+      "expected_symbols": [],
+      "expected_tests": [
+        ".github/workflows/test.yml"
+      ],
+      "retrieved_files": [
+        "src/sacas/graphify.py",
+        "tests/test_graphify_integration.py"
+      ],
+      "eval": {
+        "precision": 0.0,
+        "recall": 0.0
+      }
+    },
+    {
+      "task_id": "hist-abc84374",
+      "goal": "fix: preserve cursor frontmatter ownership",
+      "parent_commit": "cb2f17b791251e38374559463d3ba312f44f037a",
+      "child_commit": "abc843745a2d07436e2de2d0e7f853d5ca2a6c70",
+      "expected_files": [
+        "src/sacas/adapters.py",
+        "tests/test_adapters.py"
+      ],
+      "expected_symbols": [
+        "tests/test_adapters.py::test_cursor_adapter_refuses_manual_mdc_frontmatter_without_writing"
+      ],
+      "expected_tests": [
+        "tests/test_adapters.py"
+      ],
+      "retrieved_files": [
+        "tests/test_adapters.py",
+        "tests/test_init.py",
+        "tests/test_regions.py",
+        "src/sacas/adapters.py",
+        ".cursorignore"
+      ],
+      "eval": {
+        "precision": 0.4,
+        "recall": 1.0
+      }
+    },
+    {
+      "task_id": "hist-ae574262",
+      "goal": "feat: generate platform adapters",
+      "parent_commit": "7272595d1abbddf90c38267b9569ad3680d91cb9",
+      "child_commit": "ae57426214f55c5121281c947ea3ffb242be38b1",
+      "expected_files": [
+        "src/sacas/adapters.py",
+        "src/sacas/init.py",
+        "tests/test_adapters.py"
+      ],
+      "expected_symbols": [
+        "src/sacas/adapters.py::generate_adapter",
+        "src/sacas/adapters.py::generate_adapter_ignore",
+        "src/sacas/adapters.py::generate_adapters",
+        "src/sacas/adapters.py::_replace_or_append",
+        "src/sacas/adapters.py::_path_for",
+        "src/sacas/adapters.py::_root_relative_directory",
+        "src/sacas/init.py::generate_adapter",
+        "src/sacas/init.py::generate_adapters",
+        "tests/test_adapters.py::generate_adapter",
+        "tests/test_adapters.py::generate_adapter_ignore",
+        "tests/test_adapters.py::test_adapter_generation_is_idempotent_and_preserves_manual_content",
+        "tests/test_adapters.py::test_platform_ignore_is_bounded_preserves_manual_content_and_ignores_root_graphify_output",
+        "tests/test_adapters.py::test_init_generates_all_default_adapters_and_platform_ignores"
+      ],
+      "expected_tests": [
+        "tests/test_adapters.py"
+      ],
+      "retrieved_files": [
+        "src/sacas/regions.py",
+        "tests/test_regions.py",
+        "scripts/generate-context-md.ps1"
+      ],
+      "eval": {
+        "precision": 0.0,
+        "recall": 0.0
+      }
+    },
+    {
+      "task_id": "hist-b5780e50",
+      "goal": "DocumentationUpdates",
+      "parent_commit": "0a6499c9e5d1df073e53b3c48b3f12ad78053a14",
+      "child_commit": "b5780e50420a0895534e5b1b83a9cb65a6184d88",
+      "expected_files": [
+        "IMPLEMENTATION_PLAN.md",
+        "README.md",
+        "SKILL.md",
+        "docs/superpowers/plans/2026-08-18-sacas-router.md",
+        "docs/superpowers/plans/2026-08-18-sacas-v2-routing.md",
+        "docs/superpowers/specs/2026-08-18-sacas-router-design.md",
+        "tests/fixtures/dotnet-monolith/obj/App.csproj.nuget.dgspec.json",
+        "tests/fixtures/dotnet-monolith/obj/App.csproj.nuget.g.props",
+        "tests/fixtures/dotnet-monolith/obj/App.csproj.nuget.g.targets",
+        "tests/fixtures/dotnet-monolith/obj/Debug/net8.0/App.AssemblyInfo.cs",
+        "tests/fixtures/dotnet-monolith/obj/Debug/net8.0/App.AssemblyInfoInputs.cache",
+        "tests/fixtures/dotnet-monolith/obj/Debug/net8.0/App.GeneratedMSBuildEditorConfig.editorconfig",
+        "tests/fixtures/dotnet-monolith/obj/Debug/net8.0/App.assets.cache",
+        "tests/fixtures/dotnet-monolith/obj/project.assets.json",
+        "tests/fixtures/dotnet-monolith/obj/project.nuget.cache",
+        "tests/test_documentation.py"
+      ],
+      "expected_symbols": [
+        "tests/test_documentation.py::test_readme_documents_the_public_command_and_option_contract",
+        "tests/test_documentation.py::command_section",
+        "tests/test_documentation.py::subparsers",
+        "tests/test_documentation.py::assert_parser_contract",
+        "tests/test_documentation.py::test_readme_uses_the_serialized_b2_benchmark_key",
+        "tests/test_documentation.py::test_skill_documents_canonical_pair_and_routine_operations"
+      ],
+      "expected_tests": [
+        "docs/superpowers/specs/2026-08-18-sacas-router-design.md",
+        "tests/fixtures/dotnet-monolith/obj/App.csproj.nuget.dgspec.json",
+        "tests/fixtures/dotnet-monolith/obj/App.csproj.nuget.g.props",
+        "tests/fixtures/dotnet-monolith/obj/App.csproj.nuget.g.targets",
+        "tests/fixtures/dotnet-monolith/obj/Debug/net8.0/App.AssemblyInfo.cs",
+        "tests/fixtures/dotnet-monolith/obj/Debug/net8.0/App.AssemblyInfoInputs.cache",
+        "tests/fixtures/dotnet-monolith/obj/Debug/net8.0/App.GeneratedMSBuildEditorConfig.editorconfig",
+        "tests/fixtures/dotnet-monolith/obj/Debug/net8.0/App.assets.cache",
+        "tests/fixtures/dotnet-monolith/obj/project.assets.json",
+        "tests/fixtures/dotnet-monolith/obj/project.nuget.cache",
+        "tests/test_documentation.py"
+      ],
+      "retrieved_files": [],
+      "eval": {
+        "precision": 0.0,
+        "recall": 0.0
+      }
+    },
+    {
+      "task_id": "hist-b8a17bd5",
+      "goal": "fix: validate manifest roots and generated newlines",
+      "parent_commit": "3ddf05d2e1b6fdde59c13b39f4c2ad17f96d02d8",
+      "child_commit": "b8a17bd5fa182734fc6a872c0342058d068f34bf",
+      "expected_files": [
+        "src/sacas/models.py",
+        "src/sacas/regions.py",
+        "tests/test_regions.py"
+      ],
+      "expected_symbols": [
+        "src/sacas/models.py::_optional_non_empty_string",
+        "src/sacas/models.py::_optional_non_empty_string_value",
+        "src/sacas/regions.py::replace_region",
+        "src/sacas/regions.py::replace_generated_region",
+        "src/sacas/regions.py::render_region",
+        "src/sacas/regions.py::render_generated_region",
+        "src/sacas/regions.py::_normalize_generated",
+        "tests/test_regions.py::replace_region",
+        "tests/test_regions.py::replace_generated_region",
+        "tests/test_regions.py::render_generated_region",
+        "tests/test_regions.py::test_manifest_rejects_non_object_json_roots_with_controlled_error",
+        "tests/test_regions.py::test_manifest_rejects_non_string_or_empty_graphify_mode",
+        "tests/test_regions.py::test_manifest_rejects_empty_current_task_id",
+        "tests/test_regions.py::test_generated_region_helpers_normalize_lone_carriage_returns"
+      ],
+      "expected_tests": [
+        "tests/test_regions.py"
+      ],
+      "retrieved_files": [
+        "tests/test_regions.py",
+        "src/sacas/models.py",
+        "src/sacas/regions.py"
+      ],
+      "eval": {
+        "precision": 1.0,
+        "recall": 1.0
+      }
+    },
+    {
+      "task_id": "hist-ba660888",
+      "goal": "fix: track module metadata freshness",
+      "parent_commit": "325df97d4efeb25761f3223f4d7c981dae49d606",
+      "child_commit": "ba6608883ed58d0cf11a1e30b57ff8933a07f3ec",
+      "expected_files": [
+        "src/sacas/analysis.py",
+        "src/sacas/modules.py",
+        "tests/test_analysis.py"
+      ],
+      "expected_symbols": [
+        "src/sacas/analysis.py::module_metadata_paths",
+        "src/sacas/modules.py::module_metadata_paths",
+        "tests/test_analysis.py::test_analysis_detects_changed_nested_module_metadata_as_stale"
+      ],
+      "expected_tests": [
+        "tests/test_analysis.py"
+      ],
+      "retrieved_files": [
+        "tests/test_analysis.py",
+        "src/sacas/modules.py",
+        "src/sacas/adapters.py",
+        "src/sacas/analysis.py",
+        "src/sacas/repository.py"
+      ],
+      "eval": {
+        "precision": 0.6,
+        "recall": 1.0
+      }
+    },
+    {
+      "task_id": "hist-c14cd78a",
+      "goal": "feat: implement goal-driven routing and integration updates",
+      "parent_commit": "cf1ddf8caa2341db4561815cb7e88e6eb3b9c51f",
+      "child_commit": "c14cd78ae8c7f9f8c10f089483036d9723f73c00",
+      "expected_files": [
+        ".gitignore",
+        "README.md",
+        "SKILL.md",
+        "src/sacas.egg-info/PKG-INFO",
+        "src/sacas.egg-info/SOURCES.txt",
+        "src/sacas.egg-info/dependency_links.txt",
+        "src/sacas.egg-info/entry_points.txt",
+        "src/sacas.egg-info/requires.txt",
+        "src/sacas.egg-info/top_level.txt",
+        "src/sacas/benchmark.py",
+        "src/sacas/budget.py",
+        "src/sacas/cli.py",
+        "src/sacas/graphify.py",
+        "src/sacas/init.py",
+        "src/sacas/paths.py",
+        "src/sacas/refresh.py",
+        "src/sacas/status.py",
+        "src/sacas/tasks.py",
+        "src/sacas/validate.py",
+        "tests/test_benchmark.py",
+        "tests/test_e2e_routing.py",
+        "tests/test_graphify_integration.py",
+        "tests/test_paths_sandboxing.py",
+        "tests/test_refresh.py",
+        "tests/test_tasks.py",
+        "tests/test_validate.py"
+      ],
+      "expected_symbols": [
+        "src/sacas/benchmark.py::get_git_commit",
+        "src/sacas/benchmark.py::run_benchmark",
+        "src/sacas/benchmark.py::run_context_simulation",
+        "src/sacas/benchmark.py::print_benchmark",
+        "src/sacas/benchmark.py::print_context_simulation",
+        "src/sacas/benchmark.py::calculate_total_context_size",
+        "src/sacas/benchmark.py::GraphifyAdapter",
+        "src/sacas/benchmark.py::get_installed_version",
+        "src/sacas/benchmark.py::get_initial_files",
+        "src/sacas/benchmark.py::get_expanded_files",
+        "src/sacas/budget.py::calculate_total_context_size",
+        "src/sacas/budget.py::add_file_tokens",
+        "src/sacas/budget.py::get_detailed_context_breakdown",
+        "src/sacas/cli.py::print_benchmark",
+        "src/sacas/cli.py::print_context_simulation",
+        "src/sacas/cli.py::initialize",
+        "src/sacas/graphify.py::GraphifyQueryResult",
+        "src/sacas/graphify.py::GraphifyAdapter",
+        "src/sacas/graphify.py::__init__",
+        "src/sacas/graphify.py::get_installed_version",
+        "src/sacas/graphify.py::verify_capabilities",
+        "src/sacas/graphify.py::parse_ver",
+        "src/sacas/graphify.py::extract_code_only",
+        "src/sacas/graphify.py::query",
+        "src/sacas/graphify.py::_parse_query_output",
+        "src/sacas/graphify.py::validate_query_contract",
+        "src/sacas/init.py::initialize",
+        "src/sacas/paths.py::resolve_repo_path",
+        "src/sacas/refresh.py::get_git_commit",
+        "src/sacas/refresh.py::calculate_total_context_size",
+        "src/sacas/refresh.py::get_initial_files",
+        "src/sacas/refresh.py::get_expanded_files",
+        "src/sacas/status.py::get_detailed_context_breakdown",
+        "src/sacas/status.py::get_initial_files",
+        "src/sacas/status.py::get_expanded_files",
+        "src/sacas/tasks.py::get_git_commit",
+        "src/sacas/tasks.py::GraphifyAdapter",
+        "src/sacas/tasks.py::verify_capabilities",
+        "src/sacas/tasks.py::query",
+        "src/sacas/tasks.py::validate_query_contract",
+        "src/sacas/tasks.py::resolve_repo_path",
+        "src/sacas/tasks.py::get_initial_files",
+        "src/sacas/tasks.py::get_expanded_files",
+        "src/sacas/tasks.py::extract_keywords",
+        "src/sacas/tasks.py::score_file_against_goal",
+        "src/sacas/tasks.py::run_fallback_routing",
+        "src/sacas/validate.py::get_initial_files",
+        "src/sacas/validate.py::get_expanded_files",
+        "tests/test_benchmark.py::initialize",
+        "tests/test_benchmark.py::test_context_simulation_command",
+        "tests/test_e2e_routing.py::test_e2e_routing_loop",
+        "tests/test_e2e_routing.py::test_e2e_routing_fallback_on_incompatible_graphify",
+        "tests/test_graphify_integration.py::GraphifyAdapter",
+        "tests/test_graphify_integration.py::get_installed_version",
+        "tests/test_graphify_integration.py::verify_capabilities",
+        "tests/test_graphify_integration.py::extract_code_only",
+        "tests/test_graphify_integration.py::query",
+        "tests/test_graphify_integration.py::test_graphify_adapter_real_flow",
+        "tests/test_graphify_integration.py::test_graphify_adapter_incompatible_degradation",
+        "tests/test_graphify_integration.py::MockAdapter",
+        "tests/test_paths_sandboxing.py::resolve_repo_path",
+        "tests/test_paths_sandboxing.py::test_resolve_repo_path_sandbox",
+        "tests/test_paths_sandboxing.py::test_component_based_boundaries",
+        "tests/test_refresh.py::initialize",
+        "tests/test_refresh.py::test_refresh_predictive_budgeting_and_ranking",
+        "tests/test_tasks.py::initialize",
+        "tests/test_tasks.py::test_goal_driven_routing_and_fallbacks",
+        "tests/test_validate.py::initialize",
+        "tests/test_validate.py::test_validate_detects_empty_scope"
+      ],
+      "expected_tests": [
+        "tests/test_benchmark.py",
+        "tests/test_e2e_routing.py",
+        "tests/test_graphify_integration.py",
+        "tests/test_paths_sandboxing.py",
+        "tests/test_refresh.py",
+        "tests/test_tasks.py",
+        "tests/test_validate.py"
+      ],
+      "retrieved_files": [],
+      "eval": {
+        "precision": 0.0,
+        "recall": 0.0
+      }
+    },
+    {
+      "task_id": "hist-ca886a5e",
+      "goal": "test: add routing quality verification checks and tests",
+      "parent_commit": "4f0723d3f77677fe19d44469ee3f3ad15b6d5587",
+      "child_commit": "ca886a5e18b5531bcb1abd333392c4d8613a4c49",
+      "expected_files": [
+        "src/sacas/graphify.py",
+        "src/sacas/refresh.py",
+        "src/sacas/tasks.py",
+        "tests/test_cli.py",
+        "tests/test_e2e_routing.py",
+        "tests/test_paths_sandboxing.py",
+        "tests/test_refresh.py"
+      ],
+      "expected_symbols": [
+        "tests/test_refresh.py::test_schema_migration_v1_to_v2"
+      ],
+      "expected_tests": [
+        "tests/test_cli.py",
+        "tests/test_e2e_routing.py",
+        "tests/test_paths_sandboxing.py",
+        "tests/test_refresh.py"
+      ],
+      "retrieved_files": [
+        "tests/test_e2e_routing.py",
+        "tests/test_tasks.py",
+        "src/sacas/tasks.py",
+        "docs/superpowers/plans/2026-08-18-sacas-v2-routing.md",
+        "tests/conftest.py"
+      ],
+      "eval": {
+        "precision": 0.4,
+        "recall": 0.2857142857142857
+      }
+    },
+    {
+      "task_id": "hist-cb03357d",
+      "goal": "feat: add SACAS Python CLI contract",
+      "parent_commit": "fa3c2f55cafc3bea1fc57cd86c6aa7191cbe3362",
+      "child_commit": "cb03357dffcfe7482792e68d5e0b79ffc8081e84",
+      "expected_files": [
+        ".github/workflows/test.yml",
+        "pyproject.toml",
+        "src/sacas/__init__.py",
+        "src/sacas/__main__.py",
+        "src/sacas/cli.py",
+        "tests/test_cli.py"
+      ],
+      "expected_symbols": [
+        "pyproject.toml::main",
+        "src/sacas/__main__.py::main",
+        "src/sacas/cli.py::build_parser",
+        "src/sacas/cli.py::main",
+        "tests/test_cli.py::run_sacas",
+        "tests/test_cli.py::test_help_describes_sacas_command",
+        "tests/test_cli.py::test_unknown_command_returns_argument_error",
+        "tests/test_cli.py::test_published_version_is_available_from_cli_and_package"
+      ],
+      "expected_tests": [
+        ".github/workflows/test.yml",
+        "tests/test_cli.py"
+      ],
+      "retrieved_files": [
+        ".cursor/rules/sacas.mdc",
+        "docs/superpowers/plans/2026-08-18-sacas-router.md",
+        "docs/superpowers/specs/2026-08-18-sacas-router-design.md"
+      ],
+      "eval": {
+        "precision": 0.0,
+        "recall": 0.0
+      }
+    },
+    {
+      "task_id": "hist-cb2f17b7",
+      "goal": "fix: harden generated adapter ownership",
+      "parent_commit": "005bacd8cea0cc2594d120be3f7b8e38f2b9323d",
+      "child_commit": "cb2f17b791251e38374559463d3ba312f44f037a",
+      "expected_files": [
+        "src/sacas/adapters.py",
+        "tests/test_adapters.py"
+      ],
+      "expected_symbols": [
+        "src/sacas/adapters.py::_replace_cursor_adapter",
+        "tests/test_adapters.py::test_cursor_adapter_starts_with_required_mdc_frontmatter",
+        "tests/test_adapters.py::test_adapter_refuses_malformed_owned_regions_without_writing"
+      ],
+      "expected_tests": [
+        "tests/test_adapters.py"
+      ],
+      "retrieved_files": [
+        "src/sacas/adapters.py",
+        "src/sacas/regions.py",
+        "tests/test_regions.py",
+        "tests/test_adapters.py"
+      ],
+      "eval": {
+        "precision": 0.5,
+        "recall": 1.0
+      }
+    },
+    {
+      "task_id": "hist-cc7e7490",
+      "goal": "feat: detect declared workspace modules",
+      "parent_commit": "65a45826f631fbb433f39e48bd578b9894b9fce8",
+      "child_commit": "cc7e74901e405086f78d56fb2784632aa0ab273d",
+      "expected_files": [
+        "src/sacas/analysis.py",
+        "src/sacas/modules.py",
+        "tests/test_analysis.py"
+      ],
+      "expected_symbols": [
+        "src/sacas/analysis.py::workspace_containers",
+        "src/sacas/modules.py::workspace_containers",
+        "src/sacas/modules.py::_simple_workspace_container",
+        "tests/test_analysis.py::test_declared_simple_workspace_globs_discover_modules_and_invalidate_freshness"
+      ],
+      "expected_tests": [
+        "tests/test_analysis.py"
+      ],
+      "retrieved_files": [
+        "tests/test_analysis.py",
+        "src/sacas/modules.py",
+        "scripts/detect-modules.ps1",
+        "scripts/detect-stack.ps1",
+        "scripts/detect-conventions.ps1"
+      ],
+      "eval": {
+        "precision": 0.4,
+        "recall": 0.6666666666666666
+      }
+    },
+    {
+      "task_id": "hist-cec83636",
+      "goal": "fix(expand): enforce secure selector admissions",
+      "parent_commit": "f1d78072ebcd05b9f268dba2932a0c3147ae1709",
+      "child_commit": "cec83636bf56e04d929f5074820fe65027f0ed5a",
+      "expected_files": [
+        "src/sacas/cli.py",
+        "src/sacas/graphify.py",
+        "src/sacas/map.py",
+        "src/sacas/refresh.py",
+        "tests/test_cli_commands.py",
+        "tests/test_graphify.py"
+      ],
+      "expected_symbols": [
+        "src/sacas/cli.py::admitted_source",
+        "src/sacas/cli.py::structure_source",
+        "src/sacas/graphify.py::__post_init__",
+        "src/sacas/graphify.py::_nodes",
+        "src/sacas/graphify.py::_manifest_node",
+        "src/sacas/graphify.py::_node_metadata_rank",
+        "src/sacas/graphify.py::_normalize_evidence_nodes",
+        "tests/test_cli_commands.py::test_expand_is_all_or_nothing_when_any_requested_file_is_rejected",
+        "tests/test_cli_commands.py::test_expand_generated_graphify_candidate_preserves_resolved_selector",
+        "tests/test_cli_commands.py::test_expand_lowers_line_only_graphify_evidence_with_node_resolver",
+        "tests/test_cli_commands.py::test_expand_rejects_candidate_graph_hash_when_active_hash_is_empty",
+        "tests/test_cli_commands.py::test_expand_requires_and_records_candidate_graph_hash_for_active_graph",
+        "tests/test_cli_commands.py::test_expand_rejects_unsafe_or_unresolved_input_without_mutation",
+        "tests/test_cli_commands.py::test_expand_rejects_untrusted_candidates_without_mutation",
+        "tests/test_cli_commands.py::test_expand_rejects_malformed_candidate_fields_without_mutation",
+        "tests/test_graphify.py::_nodes",
+        "tests/test_graphify.py::test_graphify_evidence_preserves_validated_node_label_and_line",
+        "tests/test_graphify.py::test_graphify_evidence_normalizes_legacy_nodes_and_duplicate_metadata"
+      ],
+      "expected_tests": [
+        "tests/test_cli_commands.py",
+        "tests/test_graphify.py"
+      ],
+      "retrieved_files": [
+        "src/sacas/enforce.py",
+        "tests/test_enforce.py",
+        "src/sacas/cli.py"
+      ],
+      "eval": {
+        "precision": 0.3333333333333333,
+        "recall": 0.16666666666666666
+      }
+    },
+    {
+      "task_id": "hist-cf1ddf8c",
+      "goal": "chore: stop tracking Python bytecode cache files",
+      "parent_commit": "eaccb633aa0bb7eb2384a4344e74c2a19ec86e6a",
+      "child_commit": "cf1ddf8caa2341db4561815cb7e88e6eb3b9c51f",
+      "expected_files": [
+        "src/sacas/__pycache__/__init__.cpython-311.pyc",
+        "src/sacas/__pycache__/__main__.cpython-311.pyc",
+        "src/sacas/__pycache__/adapters.cpython-311.pyc",
+        "src/sacas/__pycache__/analysis.cpython-311.pyc",
+        "src/sacas/__pycache__/benchmark.cpython-311.pyc",
+        "src/sacas/__pycache__/budget.cpython-311.pyc",
+        "src/sacas/__pycache__/cli.cpython-311.pyc",
+        "src/sacas/__pycache__/effects.cpython-311.pyc",
+        "src/sacas/__pycache__/graphify.cpython-311.pyc",
+        "src/sacas/__pycache__/init.cpython-311.pyc",
+        "src/sacas/__pycache__/io.cpython-311.pyc",
+        "src/sacas/__pycache__/map.cpython-311.pyc",
+        "src/sacas/__pycache__/migrate.cpython-311.pyc",
+        "src/sacas/__pycache__/models.cpython-311.pyc",
+        "src/sacas/__pycache__/modules.cpython-311.pyc",
+        "src/sacas/__pycache__/paths.cpython-311.pyc",
+        "src/sacas/__pycache__/refresh.cpython-311.pyc",
+        "src/sacas/__pycache__/regions.cpython-311.pyc",
+        "src/sacas/__pycache__/repository.cpython-311.pyc",
+        "src/sacas/__pycache__/state.cpython-311.pyc",
+        "src/sacas/__pycache__/status.cpython-311.pyc",
+        "src/sacas/__pycache__/tasks.cpython-311.pyc",
+        "src/sacas/__pycache__/templates.cpython-311.pyc",
+        "src/sacas/__pycache__/validate.cpython-311.pyc",
+        "tests/__pycache__/conftest.cpython-311-pytest-9.1.1.pyc",
+        "tests/__pycache__/test_adapters.cpython-311-pytest-9.1.1.pyc",
+        "tests/__pycache__/test_analysis.cpython-311-pytest-9.1.1.pyc",
+        "tests/__pycache__/test_benchmark.cpython-311-pytest-9.1.1.pyc",
+        "tests/__pycache__/test_cli.cpython-311-pytest-9.1.1.pyc",
+        "tests/__pycache__/test_graphify.cpython-311-pytest-9.1.1.pyc",
+        "tests/__pycache__/test_init.cpython-311-pytest-9.1.1.pyc",
+        "tests/__pycache__/test_migrate.cpython-311-pytest-9.1.1.pyc",
+        "tests/__pycache__/test_refresh.cpython-311-pytest-9.1.1.pyc",
+        "tests/__pycache__/test_regions.cpython-311-pytest-9.1.1.pyc",
+        "tests/__pycache__/test_tasks.cpython-311-pytest-9.1.1.pyc",
+        "tests/__pycache__/test_validate.cpython-311-pytest-9.1.1.pyc"
+      ],
+      "expected_symbols": [],
+      "expected_tests": [
+        "tests/__pycache__/conftest.cpython-311-pytest-9.1.1.pyc",
+        "tests/__pycache__/test_adapters.cpython-311-pytest-9.1.1.pyc",
+        "tests/__pycache__/test_analysis.cpython-311-pytest-9.1.1.pyc",
+        "tests/__pycache__/test_benchmark.cpython-311-pytest-9.1.1.pyc",
+        "tests/__pycache__/test_cli.cpython-311-pytest-9.1.1.pyc",
+        "tests/__pycache__/test_graphify.cpython-311-pytest-9.1.1.pyc",
+        "tests/__pycache__/test_init.cpython-311-pytest-9.1.1.pyc",
+        "tests/__pycache__/test_migrate.cpython-311-pytest-9.1.1.pyc",
+        "tests/__pycache__/test_refresh.cpython-311-pytest-9.1.1.pyc",
+        "tests/__pycache__/test_regions.cpython-311-pytest-9.1.1.pyc",
+        "tests/__pycache__/test_tasks.cpython-311-pytest-9.1.1.pyc",
+        "tests/__pycache__/test_validate.cpython-311-pytest-9.1.1.pyc"
+      ],
+      "retrieved_files": [
+        "tests/test_tasks.py",
+        "tests/fixtures/python-service/pyproject.toml"
+      ],
+      "eval": {
+        "precision": 0.0,
+        "recall": 0.0
+      }
+    },
+    {
+      "task_id": "hist-cf2f7622",
+      "goal": "fix: ignore root-level SACAS state precisely",
+      "parent_commit": "a08eb57cf97fc5b5f919ef22224085afdf5d2755",
+      "child_commit": "cf2f7622303794bea7fd611dde1b6115ff92ece2",
+      "expected_files": [
+        "src/sacas/graphify.py",
+        "tests/test_graphify.py"
+      ],
+      "expected_symbols": [
+        "src/sacas/graphify.py::_is_root_sacas_generated",
+        "tests/test_graphify.py::test_root_level_repeat_map_ignores_only_its_generated_state"
+      ],
+      "expected_tests": [
+        "tests/test_graphify.py"
+      ],
+      "retrieved_files": [
+        "tests/test_adapters.py",
+        "tests/test_graphify.py",
+        "tests/test_init.py",
+        "src/sacas/adapters.py",
+        "src/sacas/init.py"
+      ],
+      "eval": {
+        "precision": 0.2,
+        "recall": 0.5
+      }
+    },
+    {
+      "task_id": "hist-db197619",
+      "goal": "fix(compiler): reject invalid canonical context",
+      "parent_commit": "0c5fb610016d6371a3581dedeee5c9d41803e409",
+      "child_commit": "db197619fe8b050142f09d1db61dbeb7b94a8725",
+      "expected_files": [
+        "src/sacas/active_context.py",
+        "src/sacas/cli.py",
+        "src/sacas/compiler.py",
+        "src/sacas/provenance.py",
+        "src/sacas/refresh.py",
+        "src/sacas/regions.py",
+        "src/sacas/status.py",
+        "src/sacas/tasks.py",
+        "src/sacas/validate.py",
+        "tests/test_active_context.py",
+        "tests/test_compiler.py",
+        "tests/test_directional_routing.py",
+        "tests/test_invalidation.py",
+        "tests/test_provenance.py",
+        "tests/test_refresh.py",
+        "tests/test_validate.py"
+      ],
+      "expected_symbols": [
+        "src/sacas/active_context.py::__post_init__",
+        "src/sacas/compiler.py::ContextCompilationError",
+        "src/sacas/compiler.py::__init__",
+        "src/sacas/compiler.py::_read_admitted_source",
+        "src/sacas/compiler.py::validate_context_pack_records",
+        "src/sacas/compiler.py::validate_context_pack_against_state",
+        "src/sacas/compiler.py::load_validated_context_pack",
+        "src/sacas/compiler.py::parse_record",
+        "src/sacas/compiler.py::extract_markdown_section",
+        "src/sacas/provenance.py::load_validated_context_pack",
+        "src/sacas/refresh.py::invalidate_runtime_context_pack",
+        "src/sacas/regions.py::extract_markdown_section",
+        "src/sacas/status.py::load_validated_context_pack",
+        "src/sacas/tasks.py::validate_context_pack_records",
+        "src/sacas/tasks.py::validate_context_pack_against_state",
+        "src/sacas/tasks.py::publish_task_artifacts",
+        "src/sacas/tasks.py::invalidate_runtime_context_pack",
+        "src/sacas/validate.py::load_validated_context_pack",
+        "tests/test_active_context.py::test_active_file_context_normalizes_legacy_confidence_labels_at_model_boundary",
+        "tests/test_compiler.py::ContextCompilationError",
+        "tests/test_compiler.py::__init__",
+        "tests/test_compiler.py::validate_context_pack_records",
+        "tests/test_compiler.py::load_validated_context_pack",
+        "tests/test_compiler.py::publish_task_artifacts",
+        "tests/test_compiler.py::test_compiler_rejects_missing_reference_section",
+        "tests/test_compiler.py::test_compiler_unresolved_selector_fails_closed",
+        "tests/test_compiler.py::test_validate_context_pack_records_rejects_boolean_header_integer_fields",
+        "tests/test_compiler.py::test_validate_context_pack_records_rejects_boolean_fragment_token_count",
+        "tests/test_compiler.py::test_read_context_pack_rejects_malformed_jsonl_records",
+        "tests/test_compiler.py::test_compiler_stale_merged_symbol_selector_fails_closed",
+        "tests/test_compiler.py::test_compiler_stale_merged_selector_is_detected_independent_of_order",
+        "tests/test_compiler.py::test_compiler_fails_closed_when_an_admitted_source_is_unavailable",
+        "tests/test_compiler.py::test_compiler_fails_closed_for_a_stale_symbol_selector",
+        "tests/test_compiler.py::test_compiler_classifies_unsafe_source_content",
+        "tests/test_compiler.py::test_validated_pack_rejects_a_contract_hash_mismatch",
+        "tests/test_compiler.py::test_publisher_leaves_pre_manifest_crash_pack_rejected",
+        "tests/test_compiler.py::fail_before_manifest",
+        "tests/test_compiler.py::test_validated_pack_rejects_header_source_or_graph_identity_mutation",
+        "tests/test_compiler.py::test_validated_pack_rejects_dropped_canonical_fragment_after_header_recount",
+        "tests/test_compiler.py::test_validated_pack_rejects_source_fragment_with_a_non_source_role",
+        "tests/test_compiler.py::test_publisher_validates_in_memory_fragment_coverage_before_writing",
+        "tests/test_compiler.py::incomplete_pack",
+        "tests/test_compiler.py::must_not_write",
+        "tests/test_compiler.py::test_publisher_rejects_tampered_in_memory_pack_before_writing",
+        "tests/test_compiler.py::tampered_pack",
+        "tests/test_compiler.py::test_publisher_keeps_pack_and_manifest_coherent_after_view_write_failure",
+        "tests/test_compiler.py::fail_view_write",
+        "tests/test_invalidation.py::__init__",
+        "tests/test_refresh.py::publish_task_artifacts",
+        "tests/test_refresh.py::test_status_checks_reference_and_working_file_layers",
+        "tests/test_refresh.py::test_refresh_removes_runtime_pack_before_rerouting_an_invalidated_task",
+        "tests/test_refresh.py::observe_invalidated_pack",
+        "tests/test_refresh.py::test_refresh_compile_failure_keeps_canonical_manifest_and_removes_pack",
+        "tests/test_validate.py::test_corrupt_context_pack_is_reported_by_status_and_validate",
+        "tests/test_validate.py::test_validate_marks_changed_canonical_rules_and_references_stale"
+      ],
+      "expected_tests": [
+        "tests/test_active_context.py",
+        "tests/test_compiler.py",
+        "tests/test_directional_routing.py",
+        "tests/test_invalidation.py",
+        "tests/test_provenance.py",
+        "tests/test_refresh.py",
+        "tests/test_validate.py"
+      ],
+      "retrieved_files": [
+        "tests/test_compiler.py"
+      ],
+      "eval": {
+        "precision": 1.0,
+        "recall": 0.0625
+      }
+    },
+    {
+      "task_id": "hist-e028e596",
+      "goal": "fix(refresh): fail closed on stale admissions",
+      "parent_commit": "09588458d217b3d3692dd4531fcc3c76d0bfb510",
+      "child_commit": "e028e596b90179b1a195067193040eef1d514e7f",
+      "expected_files": [
+        "src/sacas/active_context.py",
+        "src/sacas/compiler.py",
+        "src/sacas/refresh.py",
+        "src/sacas/status.py",
+        "src/sacas/tasks.py",
+        "tests/test_active_context.py",
+        "tests/test_compiler.py",
+        "tests/test_invalidation.py",
+        "tests/test_refresh.py"
+      ],
+      "expected_symbols": [
+        "src/sacas/active_context.py::load_legacy_active_context",
+        "src/sacas/compiler.py::_verify_admitted_content_hashes",
+        "src/sacas/refresh.py::load_legacy_active_context",
+        "tests/test_active_context.py::load_legacy_active_context",
+        "tests/test_active_context.py::test_legacy_expansions_are_loaded_without_persisting",
+        "tests/test_active_context.py::test_legacy_context_readers_do_not_migrate_before_refresh",
+        "tests/test_compiler.py::test_compiler_rejects_an_admitted_source_changed_after_its_hash_was_recorded",
+        "tests/test_compiler.py::test_validated_pack_rejects_source_changed_after_publication",
+        "tests/test_compiler.py::test_publisher_rejects_source_changed_after_canonical_admission",
+        "tests/test_compiler.py::must_not_write",
+        "tests/test_invalidation.py::test_refresh_deleted_file",
+        "tests/test_invalidation.py::test_refresh_deleted_file_preserves_the_canonical_admission",
+        "tests/test_refresh.py::test_refresh_refuses_missing_admitted_source_without_mutating_canonical_state",
+        "tests/test_refresh.py::test_legacy_refresh_missing_source_does_not_materialize_contract_or_mutate_context",
+        "tests/test_refresh.py::test_true_legacy_refresh_failure_keeps_expansions_and_creates_no_canonical_state",
+        "tests/test_refresh.py::test_true_legacy_refresh_binary_source_keeps_expansions_and_creates_no_canonical_state"
+      ],
+      "expected_tests": [
+        "tests/test_active_context.py",
+        "tests/test_compiler.py",
+        "tests/test_invalidation.py",
+        "tests/test_refresh.py"
+      ],
+      "retrieved_files": [
+        "src/sacas/refresh.py"
+      ],
+      "eval": {
+        "precision": 1.0,
+        "recall": 0.1111111111111111
+      }
+    },
+    {
+      "task_id": "hist-e18583cd",
+      "goal": "feat: enable chat interview prompting by agent and support direct parameter arguments",
+      "parent_commit": "034591049bc3283e701dc525c1f7661d4e95898d",
+      "child_commit": "e18583cdc49a806833fdaf3fe86e2cc7c0c01f13",
+      "expected_files": [
+        ".gitignore",
+        "README.md",
+        "SKILL.md",
+        "scripts/scaffold.ps1"
+      ],
+      "expected_symbols": [],
+      "expected_tests": [],
+      "retrieved_files": [
+        "AGENTS.md",
+        "templates/AGENTS.md.template",
+        "templates/AGENTS-subfolder.md.template"
+      ],
+      "eval": {
+        "precision": 0.0,
+        "recall": 0.0
+      }
+    },
+    {
+      "task_id": "hist-e4a24917",
+      "goal": "fix(paths): refuse repository-root install and sacas-root escapes",
+      "parent_commit": "0dd7fdf509f3bbd8db013bfd79b06b81505ebb5e",
+      "child_commit": "e4a249170ec4f2bcfaf92248b93d63cba0234a3f",
+      "expected_files": [
+        "src/sacas/adapters.py",
+        "src/sacas/graphify.py",
+        "src/sacas/init.py",
+        "src/sacas/paths.py",
+        "src/sacas/regions.py",
+        "src/sacas/tasks.py",
+        "tests/test_adapters.py",
+        "tests/test_graphify.py",
+        "tests/test_init.py",
+        "tests/test_paths_sandboxing.py",
+        "tests/test_regions.py"
+      ],
+      "expected_symbols": [
+        "src/sacas/paths.py::normalize_sacas_document_path",
+        "src/sacas/tasks.py::normalize_sacas_document_path",
+        "tests/test_adapters.py::test_platform_ignore_refuses_roots_outside_the_repository",
+        "tests/test_graphify.py::test_map_refuses_repository_root_placement",
+        "tests/test_graphify.py::test_sacas_root_state_does_not_hide_source_staleness",
+        "tests/test_init.py::test_init_refuses_repository_root_placement",
+        "tests/test_paths_sandboxing.py::normalize_sacas_document_path",
+        "tests/test_paths_sandboxing.py::test_normalize_sacas_document_path_rejects_root_escape",
+        "tests/test_regions.py::test_markdown_section_range_rejects_cross_parent_hierarchy"
+      ],
+      "expected_tests": [
+        "tests/test_adapters.py",
+        "tests/test_graphify.py",
+        "tests/test_init.py",
+        "tests/test_paths_sandboxing.py",
+        "tests/test_regions.py"
+      ],
+      "retrieved_files": [
+        "tests/test_init.py",
+        "src/sacas/paths.py",
+        "tests/test_graphify.py",
+        "tests/test_adapters.py"
+      ],
+      "eval": {
+        "precision": 1.0,
+        "recall": 0.36363636363636365
+      }
+    },
+    {
+      "task_id": "hist-eb336f2f",
+      "goal": "feat(graphify): rank snapshot nodes against routing goals",
+      "parent_commit": "1855009904e43fad34396ad6f031c04b527b7c88",
+      "child_commit": "eb336f2f45471cfcb6c985509d15ccf3e3fbf4df",
+      "expected_files": [
+        "src/sacas/graphify.py",
+        "tests/test_refresh.py"
+      ],
+      "expected_symbols": [
+        "src/sacas/graphify.py::_camel_tokens",
+        "src/sacas/graphify.py::_node_tokens",
+        "src/sacas/graphify.py::rank_nodes_for_goal",
+        "src/sacas/graphify.py::local_graph_query",
+        "src/sacas/graphify.py::_optional_str_value",
+        "src/sacas/graphify.py::verify_capabilities",
+        "src/sacas/graphify.py::query",
+        "tests/test_refresh.py::test_unrankable_graph_still_degrades_to_lexical_fallback",
+        "tests/test_refresh.py::FallbackProvider",
+        "tests/test_refresh.py::verify_capabilities",
+        "tests/test_refresh.py::query"
+      ],
+      "expected_tests": [
+        "tests/test_refresh.py"
+      ],
+      "retrieved_files": [
+        "src/sacas/graphify.py",
+        "tests/test_task_secure_routing.py"
+      ],
+      "eval": {
+        "precision": 0.5,
+        "recall": 0.5
+      }
+    },
+    {
+      "task_id": "hist-eee24535",
+      "goal": "feat: initialize canonical SACAS root",
+      "parent_commit": "f4319d402f1f60169ff71203837aadc039671e79",
+      "child_commit": "eee24535f98820f3f159f6ea743b1ddc2b2d97a7",
+      "expected_files": [
+        "src/sacas/cli.py",
+        "src/sacas/init.py",
+        "src/sacas/paths.py",
+        "src/sacas/templates.py",
+        "tests/conftest.py",
+        "tests/test_init.py"
+      ],
+      "expected_symbols": [
+        "src/sacas/cli.py::sacas_root",
+        "src/sacas/cli.py::initialize",
+        "src/sacas/init.py::InitResult",
+        "src/sacas/init.py::sacas_root",
+        "src/sacas/init.py::initialize",
+        "src/sacas/init.py::_write_if_changed",
+        "src/sacas/init.py::Installation",
+        "src/sacas/init.py::resolve_sacas_root",
+        "src/sacas/init.py::router_document",
+        "src/sacas/init.py::boundaries_document",
+        "src/sacas/paths.py::sacas_root",
+        "src/sacas/paths.py::Installation",
+        "src/sacas/paths.py::resolve_sacas_root",
+        "src/sacas/paths.py::discover_manifest",
+        "src/sacas/paths.py::_load_if_owned",
+        "src/sacas/templates.py::router_document",
+        "src/sacas/templates.py::boundaries_document",
+        "tests/test_init.py::sacas_root",
+        "tests/test_init.py::initialize",
+        "tests/test_init.py::discover_manifest",
+        "tests/test_init.py::test_init_creates_default_structure_root_and_canonical_manifest",
+        "tests/test_init.py::test_init_supports_a_custom_relative_root",
+        "tests/test_init.py::test_init_allows_intentional_repository_root_placement",
+        "tests/test_init.py::test_init_preserves_existing_human_router_and_manual_content",
+        "tests/test_init.py::test_manifest_discovery_finds_canonical_root_from_nested_directory",
+        "tests/test_init.py::test_init_creates_manual_only_protected_boundary_rules_file",
+        "tests/test_init.py::test_second_unchanged_init_is_idempotent",
+        "tests/test_init.py::test_cli_init_accepts_its_text_root_argument"
+      ],
+      "expected_tests": [
+        "tests/conftest.py",
+        "tests/test_init.py"
+      ],
+      "retrieved_files": [
+        "tests/test_cli.py",
+        ".cursor/rules/sacas.mdc",
+        "tests/test_regions.py",
+        "docs/superpowers/plans/2026-08-18-sacas-router.md",
+        "docs/superpowers/specs/2026-08-18-sacas-router-design.md"
+      ],
+      "eval": {
+        "precision": 0.0,
+        "recall": 0.0
+      }
+    },
+    {
+      "task_id": "hist-f1d78072",
+      "goal": "docs: refine boundary hardening plan",
+      "parent_commit": "61a83f0a03ede463b3d45024f667851487377941",
+      "child_commit": "f1d78072ebcd05b9f268dba2932a0c3147ae1709",
+      "expected_files": [
+        "docs/superpowers/plans/2026-08-21-sacas-boundary-completion.md",
+        "docs/superpowers/specs/2026-08-21-sacas-boundary-completion-design.md"
+      ],
+      "expected_symbols": [],
+      "expected_tests": [
+        "docs/superpowers/specs/2026-08-21-sacas-boundary-completion-design.md"
+      ],
+      "retrieved_files": [
+        "tests/test_task_secure_routing.py",
+        "docs/superpowers/plans/2026-08-21-sacas-boundary-completion.md",
+        "docs/superpowers/specs/2026-08-21-sacas-boundary-completion-design.md",
+        "docs/superpowers/plans/2026-08-18-sacas-router.md",
+        "docs/superpowers/plans/2026-08-18-sacas-v2-routing.md"
+      ],
+      "eval": {
+        "precision": 0.4,
+        "recall": 1.0
+      }
+    },
+    {
+      "task_id": "hist-f21c5255",
+      "goal": "fix: detect module descriptor inventory changes",
+      "parent_commit": "ba6608883ed58d0cf11a1e30b57ff8933a07f3ec",
+      "child_commit": "f21c525525e12a41188769b29aae69f5bae514c1",
+      "expected_files": [
+        "src/sacas/analysis.py",
+        "tests/test_analysis.py"
+      ],
+      "expected_symbols": [
+        "src/sacas/analysis.py::_fingerprint",
+        "tests/test_analysis.py::test_analysis_detects_added_or_removed_module_descriptor_as_stale"
+      ],
+      "expected_tests": [
+        "tests/test_analysis.py"
+      ],
+      "retrieved_files": [
+        "tests/test_analysis.py",
+        "src/sacas/modules.py",
+        "scripts/detect-modules.ps1",
+        "scripts/detect-stack.ps1",
+        "scripts/detect-conventions.ps1"
+      ],
+      "eval": {
+        "precision": 0.2,
+        "recall": 0.5
+      }
+    },
+    {
+      "task_id": "hist-f3f22211",
+      "goal": "chore: ignore local worktrees",
+      "parent_commit": "e18583cdc49a806833fdaf3fe86e2cc7c0c01f13",
+      "child_commit": "f3f222119fcf5a01f5eff830171872d1f28b84a8",
+      "expected_files": [
+        ".gitignore"
+      ],
+      "expected_symbols": [],
+      "expected_tests": [],
+      "retrieved_files": [
+        ".aiignore",
+        ".gitignore",
+        ".claudeignore",
+        ".cursorignore",
+        ".geminiignore"
+      ],
+      "eval": {
+        "precision": 0.2,
+        "recall": 1.0
+      }
+    },
+    {
+      "task_id": "hist-f4319d40",
+      "goal": "fix: default missing manifest adapters",
+      "parent_commit": "b8a17bd5fa182734fc6a872c0342058d068f34bf",
+      "child_commit": "f4319d402f1f60169ff71203837aadc039671e79",
+      "expected_files": [
+        "src/sacas/models.py",
+        "tests/test_regions.py"
+      ],
+      "expected_symbols": [
+        "tests/test_regions.py::test_minimal_current_schema_manifest_uses_all_defaults"
+      ],
+      "expected_tests": [
+        "tests/test_regions.py"
+      ],
+      "retrieved_files": [
+        "tests/test_regions.py",
+        "src/sacas/models.py"
+      ],
+      "eval": {
+        "precision": 1.0,
+        "recall": 1.0
+      }
+    },
+    {
+      "task_id": "hist-f62041ad",
+      "goal": "fix(state): surface canonical corruption",
+      "parent_commit": "cec83636bf56e04d929f5074820fe65027f0ed5a",
+      "child_commit": "f62041ade3c89d87621bbcb0af8de98a40961134",
+      "expected_files": [
+        "src/sacas/active_context.py",
+        "src/sacas/benchmark.py",
+        "src/sacas/cli.py",
+        "src/sacas/provenance.py",
+        "src/sacas/status.py",
+        "src/sacas/task_contract.py",
+        "src/sacas/validate.py",
+        "tests/test_active_context.py",
+        "tests/test_benchmark.py",
+        "tests/test_validate.py"
+      ],
+      "expected_symbols": [
+        "src/sacas/active_context.py::_require_mapping",
+        "src/sacas/active_context.py::_require_list",
+        "src/sacas/active_context.py::_require_str",
+        "src/sacas/active_context.py::_require_number",
+        "src/sacas/active_context.py::_require_int",
+        "src/sacas/active_context.py::_require_string_list",
+        "src/sacas/active_context.py::_validate_source_range",
+        "src/sacas/active_context.py::_validate_file_selection",
+        "src/sacas/active_context.py::_validate_reference_selection",
+        "src/sacas/active_context.py::_validate_manifest_data",
+        "src/sacas/active_context.py::CanonicalStateError",
+        "src/sacas/benchmark.py::CanonicalStateError",
+        "src/sacas/cli.py::print_status_report",
+        "src/sacas/cli.py::CanonicalStateError",
+        "src/sacas/provenance.py::CanonicalStateError",
+        "src/sacas/status.py::print_status_report",
+        "src/sacas/status.py::CanonicalStateError",
+        "src/sacas/task_contract.py::CanonicalStateError",
+        "src/sacas/task_contract.py::__init__",
+        "src/sacas/validate.py::CanonicalStateError",
+        "tests/test_active_context.py::CanonicalStateError",
+        "tests/test_active_context.py::test_canonical_state_loader_distinguishes_corruption_from_absence",
+        "tests/test_active_context.py::test_public_state_consumers_refuse_corrupt_canonical_context",
+        "tests/test_active_context.py::test_canonical_manifest_rejects_malformed_nested_state",
+        "tests/test_active_context.py::test_runtime_pack_loader_refuses_invalid_nested_selection_without_writing",
+        "tests/test_active_context.py::test_canonical_loaders_accept_schema_v1_defaulted_fields",
+        "tests/test_active_context.py::test_canonical_loader_rejects_directory_artifact_without_legacy_fallback",
+        "tests/test_benchmark.py::test_benchmark_json_returns_nonzero_for_corrupt_canonical_state",
+        "tests/test_validate.py::test_validate_reports_existing_corrupt_canonical_state"
+      ],
+      "expected_tests": [
+        "tests/test_active_context.py",
+        "tests/test_benchmark.py",
+        "tests/test_validate.py"
+      ],
+      "retrieved_files": [
+        "src/sacas/state.py",
+        "tests/test_graphify.py",
+        "src/sacas/active_context.py"
+      ],
+      "eval": {
+        "precision": 0.3333333333333333,
+        "recall": 0.1
+      }
+    },
+    {
+      "task_id": "hist-fa3c2f55",
+      "goal": "docs: refine SACAS router constraints",
+      "parent_commit": "58a2edb3db87b433cfec2d0e9b409613e3bf4b60",
+      "child_commit": "fa3c2f55cafc3bea1fc57cd86c6aa7191cbe3362",
+      "expected_files": [
+        "docs/superpowers/plans/2026-08-18-sacas-router.md",
+        "docs/superpowers/specs/2026-08-18-sacas-router-design.md"
+      ],
+      "expected_symbols": [],
+      "expected_tests": [
+        "docs/superpowers/specs/2026-08-18-sacas-router-design.md"
+      ],
+      "retrieved_files": [
+        "docs/superpowers/plans/2026-08-18-sacas-router.md",
+        "docs/superpowers/specs/2026-08-18-sacas-router-design.md",
+        ".cursor/rules/sacas.mdc"
+      ],
+      "eval": {
+        "precision": 0.6666666666666666,
+        "recall": 1.0
+      }
+    },
+    {
+      "task_id": "hist-ffa051c5",
+      "goal": "fix(git_benchmark): decode git output as utf-8",
+      "parent_commit": "eb336f2f45471cfcb6c985509d15ccf3e3fbf4df",
+      "child_commit": "ffa051c5835c6a5353ca6beaef368437054005f2",
+      "expected_files": [
+        "src/sacas/git_benchmark.py",
+        "tests/test_git_benchmark.py"
+      ],
+      "expected_symbols": [
+        "tests/test_git_benchmark.py::test_get_diff_symbols_handles_non_ascii_content"
+      ],
+      "expected_tests": [
+        "tests/test_git_benchmark.py"
+      ],
+      "retrieved_files": [
+        "tests/test_graphify.py",
+        "tests/test_git_benchmark.py",
+        "src/sacas/git_benchmark.py"
+      ],
+      "eval": {
+        "precision": 0.6666666666666666,
+        "recall": 1.0
+      }
+    }
+  ],
+  "errors": []
+}
